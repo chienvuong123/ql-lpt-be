@@ -4,12 +4,14 @@ const path = require("path");
 require("dotenv").config();
 
 const connectDB = require("./src/configs/database");
-const studentRoutes = require("./src/routes/student.routes");
-const courseRoutes = require("./src/routes/course.routes");
+// const studentRoutes = require("./src/routes/student.routes");
+// const courseRoutes = require("./src/routes/course.routes");
 const hocvienCheckRoute = require("./src/routes/hocviencheck.route");
+const checkDataRoute = require("./src/routes/checkData.routes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || "0.0.0.0";
 
 connectDB();
 
@@ -19,6 +21,8 @@ app.use(
       "http://localhost:5173",
       "http://localhost:3001",
       "http://127.0.0.1:5173",
+      "http://localhost:5173",
+      "http://192.168.1.69:5173",
     ],
     credentials: true,
   }),
@@ -29,9 +33,10 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
 // Đăng ký Routes
-app.use("/api/students", studentRoutes);
-app.use("/api/courses", courseRoutes);
+// app.use("/api/students", studentRoutes);
+// app.use("/api/courses", courseRoutes);
 app.use("/api/hoc-vien", hocvienCheckRoute);
+app.use("/api/check-data-student", checkDataRoute);
 
 // Tự động quét và hiển thị danh sách API sạch đẹp
 app.get("/", (req, res) => {
@@ -76,4 +81,4 @@ app.use((err, req, res, next) => {
   });
 });
 
-app.listen(PORT, () => console.log(`🚀 Server: http://localhost:${PORT}`));
+app.listen(PORT, HOST, () => console.log(`🚀 Server: http://${HOST}:${PORT}`));
