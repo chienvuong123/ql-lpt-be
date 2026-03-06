@@ -4,16 +4,19 @@ const path = require("path");
 require("dotenv").config();
 
 const connectDB = require("./src/configs/database");
+const connectSQL = require("./src/configs/sql");
 // const studentRoutes = require("./src/routes/student.routes");
 // const courseRoutes = require("./src/routes/course.routes");
 const hocvienCheckRoute = require("./src/routes/hocviencheck.route");
 const checkDataRoute = require("./src/routes/checkData.routes");
+const lopLyThuyetRoute = require("./src/routes/lopLyThuyet.routes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || "0.0.0.0";
 
 connectDB();
+connectSQL();
 
 app.use(
   cors({
@@ -38,6 +41,7 @@ app.use(express.static(path.join(__dirname, "public")));
 // app.use("/api/courses", courseRoutes);
 app.use("/api/hoc-vien", hocvienCheckRoute);
 app.use("/api/check-data-student", checkDataRoute);
+app.use("/api/hoc-vien-lop-ly-thuyet", lopLyThuyetRoute);
 
 // Tự động quét và hiển thị danh sách API sạch đẹp
 app.get("/", (req, res) => {
