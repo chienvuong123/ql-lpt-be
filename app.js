@@ -10,6 +10,7 @@ const connectSQL = require("./src/configs/sql");
 const hocvienCheckRoute = require("./src/routes/hocviencheck.route");
 const checkDataRoute = require("./src/routes/checkData.routes");
 const lopLyThuyetRoute = require("./src/routes/lopLyThuyet.routes");
+const phienHocDAT = require("./src/routes/phienHocDAT.routes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -27,6 +28,7 @@ app.use(
       "http://localhost:5173",
       "http://192.168.1.69:5173",
       "http://192.168.1.5:5173",
+      "http://192.168.1.69:8000/",
     ],
     credentials: true,
   }),
@@ -42,6 +44,7 @@ app.use(express.static(path.join(__dirname, "public")));
 app.use("/api/hoc-vien", hocvienCheckRoute);
 app.use("/api/check-data-student", checkDataRoute);
 app.use("/api/hoc-vien-lop-ly-thuyet", lopLyThuyetRoute);
+app.use("/api/phien-hoc-dat", phienHocDAT);
 
 // Tự động quét và hiển thị danh sách API sạch đẹp
 app.get("/", (req, res) => {
