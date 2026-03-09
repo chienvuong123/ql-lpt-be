@@ -1,14 +1,11 @@
 const mssql = require("mssql");
 const connectSQL = require("../configs/sql");
 
-const VALID_FIELDS = [
-  "loai_ly_thuyet",
-  "loai_het_mon",
-];
+const VALID_FIELDS = ["loai_ly_thuyet", "loai_het_mon"];
 
 const SELECT_COLUMNS = `
-  tt.ma_dk,
   hv.id,
+  hv.ma_dk,
   hv.ho_ten,
   hv.cccd,
   hv.nam_sinh,
@@ -34,48 +31,86 @@ async function getAll(filters = {}) {
   const pool = await connectSQL();
   const request = pool.request();
 
-  let where = "";
+  let where = "WHERE 1=1";
   if (filters.maKhoa) {
-    where = "WHERE hv.ma_khoa = @maKhoa";
+    where += " AND tt.ma_khoa = @maKhoa";
     request.input("maKhoa", filters.maKhoa);
   }
 
-  const result = await request.query(
-    `SELECT ${SELECT_COLUMNS} ${FROM_JOINS} ${where} ORDER BY hv.id ASC`,
-  );
+  const result = await request.query(`
+    SELECT
+      tt.ma_dk,
+      tt.ma_khoa,
+      hv.id,
+      hv.ho_ten,
+      hv.cccd,
+      hv.nam_sinh,
+      hv.khoa,
+      hv.avatar_url,
+      kh.ten_khoa,
+      ISNULL(tt.loai_ly_thuyet, 0) AS loai_ly_thuyet,
+      ISNULL(tt.loai_het_mon,  0) AS loai_het_mon,
+      tt.ghi_chu,
+      tt.thoi_gian_thay_doi_trang_thai,
+      tt.updated_at,
+      tt.updated_by
+    FROM trang_thai_hoc_vien tt
+    LEFT JOIN hoc_vien hv ON hv.ma_dk = tt.ma_dk
+    LEFT JOIN khoa_hoc kh ON kh.ma_khoa = tt.ma_khoa
+    ${where}
+    ORDER BY tt.updated_at DESC
+  `);
   return result.recordset;
 }
 
 async function getByMaDk(maDk) {
   const pool = await connectSQL();
-  const result = await pool
-    .request()
-    .input("maDk", maDk)
-    .query(`
-      SELECT ${SELECT_COLUMNS}
-      FROM trang_thai_hoc_vien tt
-      LEFT JOIN hoc_vien hv ON hv.ma_dk = tt.ma_dk
-      LEFT JOIN khoa_hoc kh ON hv.ma_khoa = kh.ma_khoa
-      WHERE tt.ma_dk = @maDk
+
+  const result = await pool.request().input("maDk", mssql.VarChar, maDk).query(`
+      SELECT TOP 1 *
+      FROM trang_thai_hoc_vien
+      WHERE ma_dk = @maDk
     `);
 
   return result.recordset[0] || null;
 }
 
+async function getByMaDkDirect(maDk) {
+  const pool = await connectSQL();
+  const result = await pool.request().input("maDk", maDk).query(`
+    SELECT
+      ma_dk,
+      loai_ly_thuyet,
+      loai_het_mon,
+      ghi_chu,
+      thoi_gian_thay_doi_trang_thai,
+      updated_at,
+      updated_by
+    FROM trang_thai_hoc_vien
+    WHERE ma_dk = @maDk
+  `);
+  return result.recordset[0] || null;
+}
+
 async function updateTrangThai(maDk, fields, updatedBy = null) {
-  const validFields = Object.keys(fields).filter((field) =>
-    VALID_FIELDS.includes(field),
+  const validFields = Object.keys(fields).filter((f) =>
+    VALID_FIELDS.includes(f),
   );
   const hasGhiChu = Object.prototype.hasOwnProperty.call(fields, "ghi_chu");
   const hasStatusUpdatedAt = Object.prototype.hasOwnProperty.call(
     fields,
     "status_updated_at",
   );
-  const statusUpdatedAt = hasStatusUpdatedAt
-    ? new Date(fields.status_updated_at)
-    : null;
+  const hasMaKhoa = Object.prototype.hasOwnProperty.call(fields, "ma_khoa");
+  const hasTenKhoa = Object.prototype.hasOwnProperty.call(fields, "ten_khoa");
 
-  if (validFields.length === 0 && !hasGhiChu && !hasStatusUpdatedAt) {
+  if (
+    validFields.length === 0 &&
+    !hasGhiChu &&
+    !hasStatusUpdatedAt &&
+    !hasMaKhoa &&
+    !hasTenKhoa
+  ) {
     throw new Error("Khong co field hop le de cap nhat");
   }
 
@@ -85,68 +120,82 @@ async function updateTrangThai(maDk, fields, updatedBy = null) {
   try {
     await transaction.begin();
 
-    const upsertRequest = new mssql.Request(transaction);
-    upsertRequest.input("maDk", maDk);
-    await upsertRequest.query(`
+    // UPSERT - không check FK
+    const upsertReq = new mssql.Request(transaction);
+    upsertReq.input("maDk", maDk);
+    upsertReq.input("maKhoa", fields.ma_khoa ?? null);
+    upsertReq.input("tenKhoa", fields.ten_khoa ?? null);
+    await upsertReq.query(`
       IF NOT EXISTS (SELECT 1 FROM trang_thai_hoc_vien WHERE ma_dk = @maDk)
-      BEGIN
-        INSERT INTO trang_thai_hoc_vien (ma_dk, thoi_gian_thay_doi_trang_thai, updated_at)
-        VALUES (@maDk, GETDATE(), GETDATE())
-      END
+        INSERT INTO trang_thai_hoc_vien (ma_dk, ma_khoa, ten_khoa, updated_at)
+        VALUES (@maDk, @maKhoa, @tenKhoa, GETDATE())
     `);
 
-    const oldRequest = new mssql.Request(transaction);
-    oldRequest.input("maDk", maDk);
+    // Lấy giá trị cũ để ghi lịch sử
+    const oldReq = new mssql.Request(transaction);
+    oldReq.input("maDk", maDk);
     const oldSelectFields = [...validFields];
-    if (hasGhiChu) {
-      oldSelectFields.push("ghi_chu");
-    }
-    const oldResult = await oldRequest.query(
-      `SELECT ${oldSelectFields.join(", ")} FROM trang_thai_hoc_vien WHERE ma_dk = @maDk`,
+    if (hasGhiChu) oldSelectFields.push("ghi_chu");
+    const oldResult = await oldReq.query(
+      `SELECT ${oldSelectFields.length ? oldSelectFields.join(", ") : "ma_dk"}
+       FROM trang_thai_hoc_vien WHERE ma_dk = @maDk`,
     );
     const oldData = oldResult.recordset[0] || {};
 
+    // Build UPDATE
     const setClauses = [];
-    const updateRequest = new mssql.Request(transaction);
-    updateRequest.input("maDk", maDk);
-    updateRequest.input("updatedBy", updatedBy);
+    const updateReq = new mssql.Request(transaction);
+    updateReq.input("maDk", maDk);
+    updateReq.input("updatedBy", updatedBy);
 
     for (const field of validFields) {
       setClauses.push(`${field} = @${field}`);
-      updateRequest.input(field, fields[field] ? 1 : 0);
+      updateReq.input(field, fields[field] ? 1 : 0);
     }
     if (hasGhiChu) {
       setClauses.push("ghi_chu = @ghi_chu");
-      updateRequest.input("ghi_chu", fields.ghi_chu ?? null);
+      updateReq.input("ghi_chu", fields.ghi_chu ?? null);
+    }
+    if (hasMaKhoa) {
+      setClauses.push("ma_khoa = @ma_khoa");
+      updateReq.input("ma_khoa", fields.ma_khoa ?? null);
+    }
+    if (hasTenKhoa) {
+      setClauses.push("ten_khoa = @ten_khoa");
+      updateReq.input("ten_khoa", fields.ten_khoa ?? null);
     }
     if (hasStatusUpdatedAt) {
-      updateRequest.input("statusUpdatedAt", mssql.DateTime2, statusUpdatedAt);
+      updateReq.input(
+        "statusUpdatedAt",
+        mssql.DateTime2,
+        new Date(fields.status_updated_at),
+      );
     }
 
+    const timeClause = hasStatusUpdatedAt ? "@statusUpdatedAt" : "GETDATE()";
     const dynamicSet = setClauses.length > 0 ? `${setClauses.join(", ")},` : "";
 
-    await updateRequest.query(`
+    await updateReq.query(`
       UPDATE trang_thai_hoc_vien
       SET ${dynamicSet}
-          thoi_gian_thay_doi_trang_thai = ${hasStatusUpdatedAt ? "@statusUpdatedAt" : "GETDATE()"},
+          thoi_gian_thay_doi_trang_thai = ${timeClause},
           updated_at = GETDATE(),
           updated_by = @updatedBy
       WHERE ma_dk = @maDk
     `);
 
+    // Ghi lịch sử
     for (const field of validFields) {
       const oldValue = Number(oldData[field] ?? 0);
       const newValue = fields[field] ? 1 : 0;
-
       if (oldValue !== newValue) {
-        const historyRequest = new mssql.Request(transaction);
-        historyRequest.input("maDk", maDk);
-        historyRequest.input("field", field);
-        historyRequest.input("oldValue", oldValue);
-        historyRequest.input("newValue", newValue);
-        historyRequest.input("updatedBy", updatedBy);
-
-        await historyRequest.query(`
+        const histReq = new mssql.Request(transaction);
+        histReq.input("maDk", maDk);
+        histReq.input("field", field);
+        histReq.input("oldValue", oldValue);
+        histReq.input("newValue", newValue);
+        histReq.input("updatedBy", updatedBy);
+        await histReq.query(`
           INSERT INTO lich_su_thay_doi
             (ma_dk, truong_thay_doi, gia_tri_cu, gia_tri_moi, nguoi_thay_doi, thoi_gian)
           VALUES (@maDk, @field, @oldValue, @newValue, @updatedBy, GETDATE())
@@ -170,13 +219,13 @@ async function getLichSu(maDk) {
     WHERE ma_dk = @maDk
     ORDER BY thoi_gian DESC
   `);
-
   return result.recordset;
 }
 
 module.exports = {
   getAll,
   getByMaDk,
+  getByMaDkDirect,
   updateTrangThai,
   getLichSu,
   VALID_FIELDS,

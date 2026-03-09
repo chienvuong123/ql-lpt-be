@@ -21,10 +21,14 @@ const config = {
 async function connectSQL() {
   try {
     const pool = await sql.connect(config);
-    console.log(`[SQL] Connected: ${config.server}:${config.port} | DB=${config.database} | User=${config.user}`);
+    console.log(
+      `[SQL] Connected: ${config.server}:${config.port} | DB=${config.database} | User=${config.user}`,
+    );
     return pool;
   } catch (err) {
-    console.error(`[SQL] Connection failed: ${config.server}:${config.port} | DB=${config.database} | User=${config.user} | Error=${err.message}`);
+    console.error(
+      `[SQL] Connection failed: ${config.server}:${config.port} | DB=${config.database} | User=${config.user} | Error=${err.message}`,
+    );
     throw err;
   }
 }

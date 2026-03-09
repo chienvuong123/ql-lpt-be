@@ -41,12 +41,18 @@ async function getChiTiet(req, res) {
   try {
     const { maDk } = req.params;
     const item = await model.getByMaDk(maDk);
-    return res.json({ success: true, data: item ? normalizeStatusTime(item) : {} });
+
+    return res.json({
+      success: true,
+      data: item ? normalizeStatusTime(item) : {},
+    });
   } catch (err) {
     console.error("[getChiTiet]", err);
-    return res
-      .status(500)
-      .json({ success: false, message: "Loi server", error: err.message });
+    return res.status(500).json({
+      success: false,
+      message: "Loi server",
+      error: err.message,
+    });
   }
 }
 
@@ -56,11 +62,14 @@ async function capNhatTrangThai(req, res) {
     const fields = req.body;
     const updatedBy = req.headers["x-user"] || null;
 
+    // Validate fields
     const invalidFields = Object.keys(fields).filter(
       (f) =>
         !model.VALID_FIELDS.includes(f) &&
         f !== "ghi_chu" &&
-        f !== "status_updated_at",
+        f !== "status_updated_at" &&
+        f !== "ma_khoa" &&
+        f !== "ten_khoa",
     );
     if (invalidFields.length > 0) {
       return res.status(400).json({
@@ -82,11 +91,11 @@ async function capNhatTrangThai(req, res) {
 
     await model.updateTrangThai(maDk, fields, updatedBy);
 
-    const updated = await model.getByMaDk(maDk);
+    const updated = await model.getByMaDkDirect(maDk);
     return res.json({
       success: true,
       message: "Cap nhat thanh cong",
-      data: updated ? normalizeStatusTime(updated) : {},
+      data: updated ? normalizeStatusTime(updated) : { ma_dk: maDk },
     });
   } catch (err) {
     console.error("[capNhatTrangThai]", err);
