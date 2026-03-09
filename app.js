@@ -11,6 +11,7 @@ const hocvienCheckRoute = require("./src/routes/hocviencheck.route");
 const checkDataRoute = require("./src/routes/checkData.routes");
 const lopLyThuyetRoute = require("./src/routes/lopLyThuyet.routes");
 const phienHocDAT = require("./src/routes/phienHocDAT.routes");
+const kyDAT = require("./src/routes/kyDat.routes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -46,6 +47,7 @@ app.use("/api/hoc-vien", hocvienCheckRoute);
 app.use("/api/check-data-student", checkDataRoute);
 app.use("/api/hoc-vien-lop-ly-thuyet", lopLyThuyetRoute);
 app.use("/api/phien-hoc-dat", phienHocDAT);
+app.use("/api/ky-dat", kyDAT);
 
 // Tự động quét và hiển thị danh sách API sạch đẹp
 app.get("/", (req, res) => {
