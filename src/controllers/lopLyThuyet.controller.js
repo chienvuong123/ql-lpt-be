@@ -1,5 +1,7 @@
 const model = require("../models/lopLyThuyet.model");
 
+const HOC_VIEN_FIELDS = ["ho_ten", "can_cuoc", "nam_sinh"];
+
 function normalizeStatusTime(item) {
   if (!item) return {};
   const data = { ...item };
@@ -21,12 +23,15 @@ function normalizeStatusTime(item) {
 
 async function getDanhSach(req, res) {
   try {
-    const { maKhoa } = req.query;
-    const data = (await model.getAll({ maKhoa })).map(normalizeStatusTime);
+    // Lọc theo maKhoa và tenKhoa (tìm theo tên)
+    const { maKhoa, tenKhoa } = req.query;
+    const data = (await model.getAll({ maKhoa, tenKhoa })).map(
+      normalizeStatusTime,
+    );
     return res.json({
       success: true,
       total: data.length,
-      filter: { maKhoa: maKhoa || null },
+      filter: { maKhoa: maKhoa || null, tenKhoa: tenKhoa || null },
       data,
     });
   } catch (err) {
@@ -62,8 +67,22 @@ async function capNhatTrangThai(req, res) {
     const fields = req.body;
     const updatedBy = req.headers["x-user"] || null;
 
-    // Validate fields
-    const invalidFields = Object.keys(fields).filter(
+    // Tách field hoc_vien ra khỏi trang_thai
+    const trangThaiFields = {};
+    const hocVienFields = {};
+
+    for (const [key, value] of Object.entries(fields)) {
+      if (HOC_VIEN_FIELDS.includes(key)) {
+        // map can_cuoc -> cccd cho đúng tên cột DB
+        const dbKey = key === "can_cuoc" ? "cccd" : key;
+        hocVienFields[dbKey] = value;
+      } else {
+        trangThaiFields[key] = value;
+      }
+    }
+
+    // Validate trang_thai fields
+    const invalidFields = Object.keys(trangThaiFields).filter(
       (f) =>
         !model.VALID_FIELDS.includes(f) &&
         f !== "ghi_chu" &&
@@ -75,12 +94,19 @@ async function capNhatTrangThai(req, res) {
       return res.status(400).json({
         success: false,
         message: `Field khong hop le: ${invalidFields.join(", ")}`,
-        validFields: [...model.VALID_FIELDS, "ghi_chu", "status_updated_at"],
+        validFields: [
+          ...model.VALID_FIELDS,
+          "ghi_chu",
+          "status_updated_at",
+          ...HOC_VIEN_FIELDS,
+        ],
       });
     }
 
-    if (Object.prototype.hasOwnProperty.call(fields, "status_updated_at")) {
-      const parsed = new Date(fields.status_updated_at);
+    if (
+      Object.prototype.hasOwnProperty.call(trangThaiFields, "status_updated_at")
+    ) {
+      const parsed = new Date(trangThaiFields.status_updated_at);
       if (Number.isNaN(parsed.getTime())) {
         return res.status(400).json({
           success: false,
@@ -89,7 +115,24 @@ async function capNhatTrangThai(req, res) {
       }
     }
 
-    await model.updateTrangThai(maDk, fields, updatedBy);
+    // Chạy song song 2 update nếu có đủ data
+    const promises = [];
+
+    if (Object.keys(trangThaiFields).length > 0) {
+      promises.push(model.updateTrangThai(maDk, trangThaiFields, updatedBy));
+    }
+    if (Object.keys(hocVienFields).length > 0) {
+      promises.push(model.updateHocVien(maDk, hocVienFields));
+    }
+
+    if (promises.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Khong co du lieu de cap nhat",
+      });
+    }
+
+    await Promise.all(promises);
 
     const updated = await model.getByMaDkDirect(maDk);
     return res.json({
@@ -118,4 +161,9 @@ async function getLichSu(req, res) {
   }
 }
 
-module.exports = { getDanhSach, getChiTiet, capNhatTrangThai, getLichSu };
+module.exports = {
+  getDanhSach,
+  getChiTiet,
+  capNhatTrangThai,
+  getLichSu,
+};

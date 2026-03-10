@@ -1,31 +1,7 @@
 const mssql = require("mssql");
 const connectSQL = require("../configs/sql");
 
-const VALID_FIELDS = ["loai_ly_thuyet", "loai_het_mon"];
-
-const SELECT_COLUMNS = `
-  hv.id,
-  hv.ma_dk,
-  hv.ho_ten,
-  hv.cccd,
-  hv.nam_sinh,
-  hv.khoa,
-  hv.ma_khoa,
-  kh.ten_khoa,
-  hv.avatar_url,
-  ISNULL(tt.loai_ly_thuyet, 0) AS loai_ly_thuyet,
-  ISNULL(tt.loai_het_mon,  0) AS loai_het_mon,
-  tt.ghi_chu,
-  tt.thoi_gian_thay_doi_trang_thai,
-  tt.updated_at,
-  tt.updated_by
-`;
-
-const FROM_JOINS = `
-  FROM hoc_vien hv
-  LEFT JOIN trang_thai_hoc_vien tt ON hv.ma_dk = tt.ma_dk
-  LEFT JOIN khoa_hoc kh            ON hv.ma_khoa = kh.ma_khoa
-`;
+const VALID_FIELDS = ["loai_ly_thuyet", "loai_het_mon", "dat_cabin"];
 
 async function getAll(filters = {}) {
   const pool = await connectSQL();
@@ -36,26 +12,27 @@ async function getAll(filters = {}) {
     where += " AND tt.ma_khoa = @maKhoa";
     request.input("maKhoa", filters.maKhoa);
   }
+  if (filters.tenKhoa) {
+    where += " AND kh.ten_khoa LIKE @tenKhoa";
+    request.input("tenKhoa", `%${filters.tenKhoa}%`);
+  }
 
   const result = await request.query(`
     SELECT
       tt.ma_dk,
       tt.ma_khoa,
-      hv.id,
-      hv.ho_ten,
-      hv.cccd,
-      hv.nam_sinh,
-      hv.khoa,
-      hv.avatar_url,
+      tt.ho_ten,
+      tt.cccd,
+      tt.nam_sinh,
       kh.ten_khoa,
       ISNULL(tt.loai_ly_thuyet, 0) AS loai_ly_thuyet,
       ISNULL(tt.loai_het_mon,  0) AS loai_het_mon,
+      ISNULL(tt.dat_cabin,     0) AS dat_cabin,
       tt.ghi_chu,
       tt.thoi_gian_thay_doi_trang_thai,
       tt.updated_at,
       tt.updated_by
     FROM trang_thai_hoc_vien tt
-    LEFT JOIN hoc_vien hv ON hv.ma_dk = tt.ma_dk
     LEFT JOIN khoa_hoc kh ON kh.ma_khoa = tt.ma_khoa
     ${where}
     ORDER BY tt.updated_at DESC
@@ -80,8 +57,12 @@ async function getByMaDkDirect(maDk) {
   const result = await pool.request().input("maDk", maDk).query(`
     SELECT
       ma_dk,
+      ho_ten,
+      cccd,
+      nam_sinh,
       loai_ly_thuyet,
       loai_het_mon,
+      dat_cabin,   
       ghi_chu,
       thoi_gian_thay_doi_trang_thai,
       updated_at,
@@ -222,11 +203,43 @@ async function getLichSu(maDk) {
   return result.recordset;
 }
 
+async function updateHocVien(maDk, fields) {
+  const allowed = ["ho_ten", "cccd", "nam_sinh"];
+  const validFields = Object.keys(fields).filter((f) => allowed.includes(f));
+  if (validFields.length === 0) return false;
+
+  const pool = await connectSQL();
+  const req = pool.request();
+  req.input("maDk", maDk);
+
+  const setClauses = [];
+  if (fields.ho_ten !== undefined) {
+    setClauses.push("ho_ten = @ho_ten");
+    req.input("ho_ten", fields.ho_ten ?? null);
+  }
+  if (fields.cccd !== undefined) {
+    setClauses.push("cccd = @cccd");
+    req.input("cccd", fields.cccd ?? null);
+  }
+  if (fields.nam_sinh !== undefined) {
+    setClauses.push("nam_sinh = @nam_sinh");
+    req.input("nam_sinh", fields.nam_sinh ?? null);
+  }
+
+  await req.query(`
+    UPDATE trang_thai_hoc_vien
+    SET ${setClauses.join(", ")}
+    WHERE ma_dk = @maDk
+  `);
+  return true;
+}
+
 module.exports = {
   getAll,
   getByMaDk,
   getByMaDkDirect,
   updateTrangThai,
   getLichSu,
+  updateHocVien,
   VALID_FIELDS,
 };
