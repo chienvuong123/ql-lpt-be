@@ -50,6 +50,7 @@ app.use("/api/hoc-vien-lop-ly-thuyet", lopLyThuyetRoute);
 app.use("/api/phien-hoc-dat", phienHocDAT);
 app.use("/api/ky-dat", kyDAT);
 app.use("/api/cabin", cabinRoute);
+app.use("/api/ly-thuyet", require("./src/routes/hocVienLyThuyet.route"));
 
 // Tự động quét và hiển thị danh sách API sạch đẹp
 app.get("/", (req, res) => {
