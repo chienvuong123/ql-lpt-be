@@ -98,7 +98,7 @@ async function exportDanhSachKyDat(req, res) {
     const headerFill = {
       type: "pattern",
       pattern: "solid",
-      fgColor: { argb: "FF1A3C5E" },
+      fgColor: { argb: "FF2F5D8A" },
     };
     const headerFont = {
       bold: true,
@@ -117,7 +117,6 @@ async function exportDanhSachKyDat(req, res) {
       { header: "Khóa học", key: "khoa_hoc", width: 14 },
       { header: "Hạng đào tạo", key: "hang_dao_tao", width: 14 },
       { header: "GV DAT", key: "gv_dat", width: 20 },
-      { header: "Ký DAT", key: "trang_thai", width: 12 },
       { header: "Thời gian ký DAT", key: "updated_at", width: 22 },
     ];
 
@@ -147,7 +146,6 @@ async function exportDanhSachKyDat(req, res) {
         khoa_hoc: row.khoa_hoc || "",
         hang_dao_tao: row.hang_dao_tao || "",
         gv_dat: row.gv_dat || "-",
-        trang_thai: row.trang_thai === "da_ky" ? "Đã ký" : row.trang_thai || "",
         updated_at: row.updated_at
           ? new Date(row.updated_at).toLocaleString("vi-VN")
           : "",
@@ -172,31 +170,16 @@ async function exportDanhSachKyDat(req, res) {
         };
       });
 
-      ["stt", "ngay_sinh", "khoa_hoc", "hang_dao_tao", "trang_thai"].forEach(
-        (key) => {
-          const colIndex = columns.findIndex((c) => c.key === key) + 1;
-          dataRow.getCell(colIndex).alignment = {
-            horizontal: "center",
-            vertical: "middle",
-          };
-        },
-      );
-
-      if (row.trang_thai === "da_ky") {
-        dataRow.getCell(9).font = {
-          size: 10,
-          name: "Arial",
-          bold: true,
-          color: { argb: "FF16A34A" },
+      ["stt", "ngay_sinh", "khoa_hoc", "hang_dao_tao"].forEach((key) => {
+        const colIndex = columns.findIndex((c) => c.key === key) + 1;
+        dataRow.getCell(colIndex).alignment = {
+          horizontal: "center",
+          vertical: "middle",
         };
-      }
+      });
     });
 
     sheet.views = [{ state: "frozen", ySplit: 1 }];
-    sheet.autoFilter = {
-      from: { row: 1, column: 1 },
-      to: { row: 1, column: columns.length },
-    };
 
     res.setHeader(
       "Content-Type",

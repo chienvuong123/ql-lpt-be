@@ -140,9 +140,6 @@ async function exportKyDat({ ma_khoa, ten_hoc_vien }) {
   const whereClause =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-  console.log("[exportKyDat] whereClause:", whereClause);
-  console.log("[exportKyDat] params:", { ma_khoa, ten_hoc_vien });
-
   const result = await request.query(`
     SELECT
       ROW_NUMBER() OVER (ORDER BY kd.updated_at DESC) AS stt,
@@ -159,8 +156,6 @@ async function exportKyDat({ ma_khoa, ten_hoc_vien }) {
     ${whereClause}
     ORDER BY kd.updated_at DESC
   `);
-
-  console.log("[exportKyDat] rowCount:", result.recordset.length);
 
   return result.recordset;
 }
