@@ -65,4 +65,101 @@ async function getDatCabin(filters = {}) {
   return { data: result.recordset, total, page, limit };
 }
 
-module.exports = { getDatCabin };
+async function createOrUpdate({
+  ma_dk,
+  ten_hoc_vien,
+  ghi_chu,
+  ma_khoa,
+  ten_khoa,
+}) {
+  const pool = await connectSQL();
+
+  await pool
+    .request()
+    .input("maDk", ma_dk)
+    .input("tenHocVien", ten_hoc_vien ?? null)
+    .input("ghiChu", ghi_chu ?? null)
+    .input("maKhoa", ma_khoa ?? null)
+    .input("tenKhoa", ten_khoa ?? null).query(`
+      IF EXISTS (SELECT 1 FROM cabin_note WHERE ma_dk = @maDk)
+        UPDATE cabin_note
+        SET ten_hoc_vien = @tenHocVien,
+            ghi_chu      = @ghiChu,
+            ma_khoa      = @maKhoa,
+            ten_khoa     = @tenKhoa,
+            updated_at   = GETDATE()
+        WHERE ma_dk = @maDk
+      ELSE
+        INSERT INTO cabin_note (ma_dk, ten_hoc_vien, ghi_chu, ma_khoa, ten_khoa, created_at, updated_at)
+        VALUES (@maDk, @tenHocVien, @ghiChu, @maKhoa, @tenKhoa, GETDATE(), GETDATE())
+    `);
+
+  const updated = await pool
+    .request()
+    .input("maDk", ma_dk)
+    .query(`SELECT * FROM cabin_note WHERE ma_dk = @maDk`);
+
+  return updated.recordset[0] || null;
+}
+
+async function getAll({ page = 1, limit = 20, ma_khoa, ten_hoc_vien } = {}) {
+  const pool = await connectSQL();
+  const offset = (Number(page) - 1) * Number(limit);
+
+  const whereClauses = [];
+  const filterParams = {};
+
+  if (ma_khoa) {
+    whereClauses.push("ma_khoa = @maKhoa");
+    filterParams.maKhoa = ma_khoa;
+  }
+  if (ten_hoc_vien) {
+    whereClauses.push("ten_hoc_vien LIKE @tenHocVien");
+    filterParams.tenHocVien = `%${ten_hoc_vien}%`;
+  }
+
+  const whereSQL =
+    whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
+
+  const dataReq = pool.request();
+  const countReq = pool.request();
+
+  if (filterParams.maKhoa) {
+    dataReq.input("maKhoa", filterParams.maKhoa);
+    countReq.input("maKhoa", filterParams.maKhoa);
+  }
+  if (filterParams.tenHocVien) {
+    dataReq.input("tenHocVien", filterParams.tenHocVien);
+    countReq.input("tenHocVien", filterParams.tenHocVien);
+  }
+
+  dataReq.input("limit", Number(limit));
+  dataReq.input("offset", offset);
+
+  const [dataResult, countResult] = await Promise.all([
+    dataReq.query(`
+      SELECT ma_dk, ten_hoc_vien, ghi_chu, ma_khoa, ten_khoa, created_at, updated_at
+      FROM cabin_note
+      ${whereSQL}
+      ORDER BY updated_at DESC
+      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+    `),
+    countReq.query(`
+      SELECT COUNT(*) AS total
+      FROM cabin_note
+      ${whereSQL}
+    `),
+  ]);
+
+  const total = countResult.recordset[0]?.total ?? 0;
+
+  return {
+    data: dataResult.recordset,
+    total,
+    page: Number(page),
+    limit: Number(limit),
+    totalPages: Math.ceil(total / Number(limit)),
+  };
+}
+
+module.exports = { getDatCabin, createOrUpdate, getAll };

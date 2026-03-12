@@ -234,6 +234,55 @@ async function updateHocVien(maDk, fields) {
   return true;
 }
 
+async function updateTatCaTrangThai(fields, updatedBy = null) {
+  const validFields = Object.keys(fields).filter((f) =>
+    VALID_FIELDS.includes(f),
+  );
+
+  if (validFields.length === 0) {
+    throw new Error("Khong co field hop le de cap nhat");
+  }
+
+  const pool = await connectSQL();
+  const transaction = new mssql.Transaction(pool);
+
+  try {
+    await transaction.begin();
+
+    // Build UPDATE tất cả rows
+    const setClauses = [];
+    const updateReq = new mssql.Request(transaction);
+    updateReq.input("updatedBy", updatedBy);
+
+    for (const field of validFields) {
+      setClauses.push(`${field} = @${field}`);
+      updateReq.input(field, fields[field] ? 1 : 0);
+    }
+
+    const result = await updateReq.query(`
+      UPDATE trang_thai_hoc_vien
+      SET ${setClauses.join(", ")},
+          updated_at = GETDATE(),
+          updated_by = @updatedBy
+    `);
+
+    const histReq = new mssql.Request(transaction);
+    histReq.input("updatedBy", updatedBy);
+    histReq.input("fields", JSON.stringify(fields));
+    await histReq.query(`
+      INSERT INTO lich_su_thay_doi
+        (ma_dk, truong_thay_doi, gia_tri_cu, gia_tri_moi, nguoi_thay_doi, thoi_gian)
+      VALUES ('ALL', 'bulk_update', NULL, @fields, @updatedBy, GETDATE())
+    `);
+
+    await transaction.commit();
+    return { rowsAffected: result.rowsAffected[0] };
+  } catch (err) {
+    await transaction.rollback();
+    throw err;
+  }
+}
+
 module.exports = {
   getAll,
   getByMaDk,
@@ -241,5 +290,6 @@ module.exports = {
   updateTrangThai,
   getLichSu,
   updateHocVien,
+  updateTatCaTrangThai,
   VALID_FIELDS,
 };

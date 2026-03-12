@@ -54,7 +54,7 @@ async function getDanhSachHocVienCabin(req, res) {
     const { enrolmentPlanIid } = req.params;
     const { text, page, limit, trang_thai_cabin, khoa } = req.query;
 
-    const [lotusData, dbData, cabinRaw] = await Promise.all([
+    const [lotusData, dbData, cabinRaw, cabinNotes] = await Promise.all([
       callWithRetry((auth) =>
         getHocVienTheoKhoa(
           enrolmentPlanIid,
@@ -70,6 +70,11 @@ async function getDanhSachHocVienCabin(req, res) {
             (r) => r?.data || [],
           )
         : Promise.resolve([]),
+      enrolmentPlanIid
+        ? model
+            .getAll({ ma_khoa: enrolmentPlanIid, limit: 9999 })
+            .then((r) => r?.data || [])
+        : Promise.resolve([]),
     ]);
 
     const allStudents = Array.isArray(lotusData?.result)
@@ -83,6 +88,12 @@ async function getDanhSachHocVienCabin(req, res) {
     });
 
     const cabinMap = buildCabinMap(cabinRaw);
+
+    // Build cabin note map theo ma_dk
+    const cabinNoteMap = {};
+    cabinNotes.forEach((item) => {
+      if (item?.ma_dk) cabinNoteMap[String(item.ma_dk)] = item.ghi_chu || null;
+    });
 
     const allMapped = allStudents.map((student) => {
       const maDk = String(
@@ -165,6 +176,7 @@ async function getDanhSachHocVienCabin(req, res) {
           tong_thoi_gian: cabinInfo.tong_thoi_gian,
           so_bai_hoc: cabinInfo.so_bai_hoc,
           trang_thai: trangThaiCabin,
+          note: cabinNoteMap[maDk] || null,
         },
       };
     });
@@ -192,7 +204,33 @@ async function getDanhSachHocVienCabin(req, res) {
   }
 }
 
+async function upsertCabinNote(req, res) {
+  try {
+    const { ma_dk, ten_hoc_vien, ghi_chu, ma_khoa, ten_khoa } = req.body;
+
+    if (!ma_dk) {
+      return res.status(400).json({ success: false, message: "Thieu ma_dk" });
+    }
+
+    const result = await model.createOrUpdate({
+      ma_dk,
+      ten_hoc_vien,
+      ghi_chu,
+      ma_khoa,
+      ten_khoa,
+    });
+
+    return res.json({ success: true, data: result });
+  } catch (err) {
+    console.error("[upsertCabinNote]", err);
+    return res
+      .status(500)
+      .json({ success: false, message: "Loi server", error: err.message });
+  }
+}
+
 module.exports = {
   getDanhSachDatCabin,
   getDanhSachHocVienCabin,
+  upsertCabinNote,
 };

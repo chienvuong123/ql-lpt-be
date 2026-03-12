@@ -148,6 +148,45 @@ async function capNhatTrangThai(req, res) {
   }
 }
 
+async function capNhatTatCaTrangThai(req, res) {
+  try {
+    const fields = req.body;
+    const updatedBy = req.headers["x-user"] || null;
+
+    if (!fields || Object.keys(fields).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Khong co du lieu de cap nhat",
+      });
+    }
+
+    // Validate fields
+    const invalidFields = Object.keys(fields).filter(
+      (f) => !model.VALID_FIELDS.includes(f),
+    );
+    if (invalidFields.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Field khong hop le: ${invalidFields.join(", ")}`,
+        validFields: model.VALID_FIELDS,
+      });
+    }
+
+    const result = await model.updateTatCaTrangThai(fields, updatedBy);
+
+    return res.json({
+      success: true,
+      message: `Cap nhat thanh cong ${result.rowsAffected} ban ghi`,
+      data: { rowsAffected: result.rowsAffected },
+    });
+  } catch (err) {
+    console.error("[capNhatTatCaTrangThai]", err);
+    return res
+      .status(500)
+      .json({ success: false, message: "Loi server", error: err.message });
+  }
+}
+
 async function getLichSu(req, res) {
   try {
     const { maDk } = req.params;
@@ -166,4 +205,5 @@ module.exports = {
   getChiTiet,
   capNhatTrangThai,
   getLichSu,
+  capNhatTatCaTrangThai,
 };
