@@ -26,7 +26,8 @@ async function upsert(maDk, fields, updatedBy = null) {
   // Xử lý ảnh: nếu là base64 thì lưu file, lấy path; nếu đã là path thì giữ nguyên
   let anhValue = fields.anh ?? null;
   if (anhValue && anhValue.startsWith("data:")) {
-    anhValue = saveBase64Image(anhValue, maDk);
+    // anhValue = saveBase64Image(anhValue, maDk);
+    anhValue = null;
   }
 
   const pool = await connectSQL();
@@ -121,4 +122,47 @@ async function getByMaDk(maDk) {
   return result.recordset[0] || null;
 }
 
-module.exports = { upsert, getAll, getByMaDk };
+async function exportKyDat({ ma_khoa, ten_hoc_vien }) {
+  const pool = await connectSQL();
+  const request = pool.request();
+
+  const conditions = [];
+
+  if (ma_khoa) {
+    request.input("maKhoa", ma_khoa);
+    conditions.push("kd.ma_khoa = @maKhoa");
+  }
+  if (ten_hoc_vien) {
+    request.input("tenHocVien", `%${ten_hoc_vien}%`);
+    conditions.push("kd.ten_hoc_vien LIKE @tenHocVien");
+  }
+
+  const whereClause =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  console.log("[exportKyDat] whereClause:", whereClause);
+  console.log("[exportKyDat] params:", { ma_khoa, ten_hoc_vien });
+
+  const result = await request.query(`
+    SELECT
+      ROW_NUMBER() OVER (ORDER BY kd.updated_at DESC) AS stt,
+      kd.ma_dk,
+      kd.ten_hoc_vien,
+      kd.can_cuoc,
+      CONVERT(varchar, kd.ngay_sinh, 103) AS ngay_sinh,
+      kd.khoa_hoc,
+      kd.hang_dao_tao,
+      kd.gv_dat,
+      kd.trang_thai,
+      kd.updated_at
+    FROM [QUAN_LY_LPT].[dbo].[ky_dat] kd
+    ${whereClause}
+    ORDER BY kd.updated_at DESC
+  `);
+
+  console.log("[exportKyDat] rowCount:", result.recordset.length);
+
+  return result.recordset;
+}
+
+module.exports = { upsert, getAll, getByMaDk, exportKyDat };

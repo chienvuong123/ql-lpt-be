@@ -31,11 +31,62 @@ async function getDanhSachLop(req, res) {
   }
 }
 
+async function searchDanhSachLop(req, res) {
+  try {
+    const { page, limit, text, start_date, end_date, ...searchParams } =
+      req.query;
+
+    const data = await callWithRetry((auth) =>
+      getLopHocLyThuyet(searchParams, auth),
+    );
+
+    let list = Array.isArray(data?.result) ? data.result : [];
+
+    if (text?.trim()) {
+      const keyword = text.trim().toLowerCase();
+      list = list.filter((item) =>
+        [item?.name, item?.suffix_name, item?.code]
+          .filter(Boolean)
+          .some((val) => String(val).toLowerCase().includes(keyword)),
+      );
+    }
+
+    if (start_date) {
+      const from = Math.floor(new Date(start_date).getTime() / 1000);
+      list = list.filter((item) => item?.start_date >= from);
+    }
+
+    if (end_date) {
+      const to = Math.floor(new Date(end_date).getTime() / 1000);
+      list = list.filter((item) => item?.end_date <= to);
+    }
+
+    const { data: pagedData, pagination } = paginate(list, page, limit);
+
+    // Normalize ngày trong response
+    const normalizedData = pagedData.map((item) => ({
+      ...item,
+      start_date_iso: item.start_date
+        ? new Date(item.start_date * 1000).toISOString()
+        : null,
+      end_date_iso: item.end_date
+        ? new Date(item.end_date * 1000).toISOString()
+        : null,
+    }));
+
+    return res.json({ success: true, pagination, data: normalizedData });
+  } catch (err) {
+    console.error("[searchDanhSachLop]", err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
 // GET /api/ly-thuyet/hoc-vien/:enrolmentPlanIid
 async function getDanhSachHocVien(req, res) {
   try {
     const { enrolmentPlanIid } = req.params;
     const extraParams = req.query;
+    console.log(extraParams);
 
     const data = await callWithRetry((auth) =>
       getHocVienTheoKhoa(enrolmentPlanIid, extraParams, auth),
@@ -147,4 +198,5 @@ module.exports = {
   getDanhSachLop,
   getDanhSachHocVien,
   getDanhSachHocVienTheoKhoa,
+  searchDanhSachLop,
 };

@@ -8,5 +8,6 @@ router.get(
   "/hoc-vien/khoa/:enrolmentPlanIid/",
   ctrl.getDanhSachHocVienTheoKhoa,
 );
+router.get("/lop-hoc/search", ctrl.searchDanhSachLop);
 
 module.exports = router;
