@@ -21,6 +21,12 @@ const getPhienHocDATByMaDK = async (ma_dk) => {
         so_km       AS tong_km,
         thoi_gian,
         trang_thai,
+        ly_do_tong,
+        ly_do_td,
+        ly_do_dem,  
+        duyet_tong,
+        duyet_tu_dong,
+        duyet_dem, 
         nguoi_thay_doi,
         thoi_gian_thay_doi,
         updated_at
@@ -148,4 +154,49 @@ const updateTrangThaiPhienHocDAT = async ({
   }
 };
 
-module.exports = { getPhienHocDATByMaDK, updateTrangThaiPhienHocDAT };
+const updateDuyetByMaDK = async ({
+  ma_dk,
+  duyet_tong,
+  duyet_tu_dong,
+  duyet_dem,
+  ly_do_tong,
+  ly_do_td,
+  ly_do_dem,
+  nguoi_thay_doi,
+}) => {
+  const pool = await connectSQL();
+
+  const result = await pool
+    .request()
+    .input("ma_dk", sql.VarChar, ma_dk)
+    .input("duyet_tong", sql.Bit, duyet_tong ?? null)
+    .input("duyet_tu_dong", sql.Bit, duyet_tu_dong ?? null)
+    .input("duyet_dem", sql.Bit, duyet_dem ?? null)
+    .input("ly_do_tong", sql.NVarChar, ly_do_tong ?? null)
+    .input("ly_do_td", sql.NVarChar, ly_do_td ?? null)
+    .input("ly_do_dem", sql.NVarChar, ly_do_dem ?? null)
+    .input("nguoi_thay_doi", sql.NVarChar, nguoi_thay_doi || "SYSTEM").query(`
+      UPDATE phien_hoc_dat
+      SET duyet_tong         = COALESCE(@duyet_tong, duyet_tong),
+          duyet_tu_dong      = COALESCE(@duyet_tu_dong, duyet_tu_dong),
+          duyet_dem          = COALESCE(@duyet_dem, duyet_dem),
+          ly_do_tong         = COALESCE(@ly_do_tong, ly_do_tong),
+          ly_do_td           = COALESCE(@ly_do_td, ly_do_td),
+          ly_do_dem          = COALESCE(@ly_do_dem, ly_do_dem),
+          nguoi_thay_doi     = @nguoi_thay_doi,
+          thoi_gian_thay_doi = SYSDATETIME(),
+          updated_at         = SYSDATETIME()
+      WHERE ma_dk = @ma_dk
+    `);
+
+  return {
+    rowsAffected: result.rowsAffected[0] || 0,
+    action: "updated_all_by_ma_dk",
+  };
+};
+
+module.exports = {
+  getPhienHocDATByMaDK,
+  updateTrangThaiPhienHocDAT,
+  updateDuyetByMaDK,
+};
