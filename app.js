@@ -13,6 +13,7 @@ const lopLyThuyetRoute = require("./src/routes/lopLyThuyet.routes");
 const phienHocDAT = require("./src/routes/phienHocDAT.routes");
 const kyDAT = require("./src/routes/kyDat.routes");
 const cabinRoute = require("./src/routes/cabin.routes");
+const evaluateHanhTrinh = require("./src/routes/evaluate.routes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -51,6 +52,8 @@ app.use("/api/phien-hoc-dat", phienHocDAT);
 app.use("/api/ky-dat", kyDAT);
 app.use("/api/cabin", cabinRoute);
 app.use("/api/ly-thuyet", require("./src/routes/hocVienLyThuyet.route"));
+app.use("/api", require("./src/routes/log.routes"));
+app.use("/api", evaluateHanhTrinh);
 
 // Tự động quét và hiển thị danh sách API sạch đẹp
 app.get("/", (req, res) => {

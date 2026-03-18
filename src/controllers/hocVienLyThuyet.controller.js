@@ -5,6 +5,11 @@ const {
 } = require("../services/lotusApi.service");
 const model = require("../models/lopLyThuyet.model");
 const { paginate } = require("../utils/paginate");
+const {
+  getDanhSachKetQuaCabin,
+  buildCabinMap,
+  getCabinStatus,
+} = require("../services/cabinApi.service");
 
 // GET /api/ly-thuyet/lop-hoc
 async function getDanhSachLop(req, res) {
@@ -22,6 +27,8 @@ async function getDanhSachLop(req, res) {
       suffix_name: item.suffix_name,
       code: item.code,
       iid: item.iid,
+      start_date: item?.start_date,
+      end_date: item?.end_date,
     }));
 
     return res.json({ success: true, total: result.length, data: result });
@@ -106,9 +113,9 @@ async function getDanhSachHocVien(req, res) {
 async function getDanhSachHocVienTheoKhoa(req, res) {
   try {
     const { enrolmentPlanIid } = req.params;
-    const { maKhoa, text, page, limit } = req.query;
+    const { maKhoa, text, page, limit, loai_het_mon } = req.query;
 
-    const [lotusData, dbData] = await Promise.all([
+    const [lotusData, dbData, cabinRaw, cabinNotes] = await Promise.all([
       callWithRetry((auth) =>
         getHocVienTheoKhoa(
           enrolmentPlanIid,
@@ -119,15 +126,34 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
       enrolmentPlanIid
         ? model.getAll({ maKhoa: enrolmentPlanIid })
         : Promise.resolve([]),
+      maKhoa
+        ? getDanhSachKetQuaCabin({ khoa: maKhoa, hoTen: text || "" }).then(
+            (r) => r?.data || [],
+          )
+        : Promise.resolve([]),
+      enrolmentPlanIid
+        ? model
+            .getAll({ ma_khoa: enrolmentPlanIid, limit: 9999 })
+            .then((r) => r?.data || [])
+        : Promise.resolve([]),
     ]);
 
     const allStudents = Array.isArray(lotusData?.result)
       ? lotusData.result
       : [];
 
+    // Build maps
     const dbMap = {};
     (Array.isArray(dbData) ? dbData : []).forEach((item) => {
       if (item?.ma_dk) dbMap[String(item.ma_dk)] = item;
+    });
+
+    const cabinMap = buildCabinMap(cabinRaw);
+
+    // Build cabin note map theo ma_dk
+    const cabinNoteMap = {};
+    cabinNotes.forEach((item) => {
+      if (item?.ma_dk) cabinNoteMap[String(item.ma_dk)] = item.ghi_chu || null;
     });
 
     const allMapped = allStudents.map((student) => {
@@ -138,6 +164,11 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
           "",
       );
       const dbRecord = dbMap[maDk] || null;
+      const cabinInfo = cabinMap[maDk] || { tong_thoi_gian: 0, so_bai_hoc: 0 };
+      const trangThaiCabin = getCabinStatus(
+        cabinInfo.tong_thoi_gian,
+        cabinInfo.so_bai_hoc,
+      );
 
       return {
         user: {
@@ -168,7 +199,7 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
               score_by_rubrik: student.learning_progress.score_by_rubrik || [],
             }
           : null,
-
+        ma_dk: maDk,
         trang_thai: dbRecord
           ? {
               loai_ly_thuyet: dbRecord.loai_ly_thuyet,
@@ -182,10 +213,33 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
                 null,
             }
           : null,
+        cabin: {
+          tong_thoi_gian: cabinInfo.tong_thoi_gian,
+          so_bai_hoc: cabinInfo.so_bai_hoc,
+          trang_thai: trangThaiCabin,
+          note: cabinNoteMap[maDk] || null,
+        },
       };
     });
 
-    const { data: pagedData, pagination } = paginate(allMapped, page, limit);
+    // Lọc theo loai_het_mon nếu có
+    const filtered =
+      loai_het_mon !== undefined
+        ? allMapped.filter((s) => {
+            const val = s.trang_thai?.loai_het_mon;
+            // null = chưa có record -> mặc định coi là đạt (true)
+            const isTruthy =
+              val === null ||
+              val === undefined ||
+              val === true ||
+              val === 1 ||
+              val === "1";
+            const filterTruthy = loai_het_mon === "true";
+            return isTruthy === filterTruthy;
+          })
+        : allMapped;
+
+    const { data: pagedData, pagination } = paginate(filtered, page, limit);
 
     return res.json({ success: true, pagination, data: pagedData });
   } catch (err) {

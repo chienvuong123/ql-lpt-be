@@ -1,5 +1,6 @@
 ﻿const connectSQL = require("../configs/sql");
 const sql = require("mssql");
+const { logChanges } = require("../utils/logChanges");
 
 const toNullableString = (value) => {
   if (value === undefined || value === null) return null;
@@ -61,10 +62,10 @@ const updateTrangThaiPhienHocDAT = async ({
       .request()
       .input("ma_dk", sql.VarChar, ma_dk)
       .input("phien_hoc_id", sql.Int, phien_hoc_id).query(`
-        SELECT TOP 1 id, trang_thai
-        FROM phien_hoc_dat
-        WHERE ma_dk = @ma_dk AND phien_hoc_id = @phien_hoc_id
-      `);
+    SELECT TOP 1 *
+    FROM phien_hoc_dat
+    WHERE ma_dk = @ma_dk AND phien_hoc_id = @phien_hoc_id
+  `);
 
     const existing = checkResult.recordset[0] || null;
     let rowsAffected = 0;
@@ -102,6 +103,24 @@ const updateTrangThaiPhienHocDAT = async ({
         `);
       rowsAffected = updateResult.rowsAffected[0];
       action = "updated";
+
+      await logChanges(transaction, {
+        ma_dk,
+        loai: "phien_hoc_dat",
+        ref_id: phien_hoc_id,
+        oldData: existing,
+        newData: {
+          trang_thai,
+          ngay: toNullableString(ngay) ?? existing.ngay,
+          gio_tu: toNullableString(gio_tu) ?? existing.gio_tu,
+          gio_den: toNullableString(gio_den) ?? existing.gio_den,
+          bien_so_xe: toNullableString(bien_so_xe) ?? existing.bien_so_xe,
+          so_km: so_km ?? existing.so_km,
+          thoi_gian: toNullableString(thoi_gian) ?? existing.thoi_gian,
+          ma_hoc_vien: toNullableString(ma_hoc_vien) ?? existing.ma_hoc_vien,
+        },
+        nguoi_thay_doi,
+      });
     } else {
       // INSERT
       const insertResult = await transaction
@@ -129,22 +148,25 @@ const updateTrangThaiPhienHocDAT = async ({
         `);
       rowsAffected = insertResult.rowsAffected[0];
       action = "inserted";
-    }
 
-    // Ghi lịch sử
-    // await transaction
-    //   .request()
-    //   .input("ma_dk", sql.VarChar, ma_dk)
-    //   .input("truong_thay_doi", sql.VarChar, "trang_thai")
-    //   .input("gia_tri_cu", sql.NVarChar, existing?.trang_thai || null)
-    //   .input("gia_tri_moi", sql.NVarChar, trang_thai)
-    //   .input("nguoi_thay_doi", sql.NVarChar, nguoi_thay_doi).query(`
-    //     IF OBJECT_ID(N'dbo.lich_su_thay_doi', N'U') IS NOT NULL
-    //     BEGIN
-    //       INSERT INTO lich_su_thay_doi (ma_dk, truong_thay_doi, gia_tri_cu, gia_tri_moi, nguoi_thay_doi)
-    //       VALUES (@ma_dk, @truong_thay_doi, @gia_tri_cu, @gia_tri_moi, @nguoi_thay_doi)
-    //     END
-    //   `);
+      await logChanges(transaction, {
+        ma_dk,
+        loai: "phien_hoc_dat",
+        ref_id: phien_hoc_id,
+        oldData: null,
+        newData: {
+          trang_thai,
+          ngay: toNullableString(ngay),
+          gio_tu: toNullableString(gio_tu),
+          gio_den: toNullableString(gio_den),
+          bien_so_xe: toNullableString(bien_so_xe),
+          so_km: so_km ?? null,
+          thoi_gian: toNullableString(thoi_gian),
+          ma_hoc_vien: toNullableString(ma_hoc_vien),
+        },
+        nguoi_thay_doi,
+      });
+    }
 
     await transaction.commit();
     return { rowsAffected, action };

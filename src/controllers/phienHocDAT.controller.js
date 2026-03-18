@@ -143,6 +143,7 @@ const updateDuyetTheoMaDK = async (req, res) => {
       ly_do_dem: ly_do_dem ?? null,
       nguoi_thay_doi: nguoi_thay_doi || "SYSTEM",
     });
+    console.log(rowsAffected);
 
     if (rowsAffected === 0) {
       return res.status(404).json({
