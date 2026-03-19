@@ -265,7 +265,7 @@ async function updateTatCaTrangThai(list, updatedBy = null) {
       req.input(`cccd`, can_cuoc ?? null);
       req.input(`nam_sinh`, nam_sinh ?? null);
       req.input(`loai_ly_thuyet`, loai_ly_thuyet ? 1 : 0);
-      req.input(`loai_het_mon`, loai_het_mon ? 1 : 0);
+      req.input(`loai_het_mon`, loai_ly_thuyet ? (loai_het_mon ? 1 : 0) : 0);
       req.input(`dat_cabin`, dat_cabin ? 1 : 0);
       req.input(`ghi_chu`, ghi_chu ?? "");
       req.input(`updatedBy`, updatedBy);
