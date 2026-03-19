@@ -128,7 +128,7 @@ async function getDanhSachHocVienCabin(req, res) {
 
         trangThai = {
           loai_ly_thuyet: autoLyThuyetPassed,
-          loai_het_mon: true,
+          loai_het_mon: false,
           dat_cabin: null,
           dat: null,
           ghi_chu: null,

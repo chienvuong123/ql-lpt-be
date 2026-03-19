@@ -17,6 +17,42 @@ const {
 const HANH_TRINH_BASE = "http://113.160.131.3:7782";
 const LOCAL_BASE = "http://192.168.1.69:8000";
 
+function formatErrorSummary(allErrors) {
+  if (allErrors.length === 0) return null;
+
+  const knownLabels = [
+    "Tổng thời lượng",
+    "Tổng quãng đường",
+    "Thời gian ban đêm",
+    "Quãng đường ban đêm",
+    "Thời gian số tự động",
+    "Quãng đường số tự động",
+  ];
+
+  const failedGroups = [];
+
+  const has = (label) => allErrors.some((e) => e.label === label);
+
+  if (has("Tổng thời lượng") || has("Tổng quãng đường"))
+    failedGroups.push("tổng quang đường/thời gian");
+  if (has("Thời gian ban đêm") || has("Quãng đường ban đêm"))
+    failedGroups.push("ban đêm");
+  if (has("Thời gian số tự động") || has("Quãng đường số tự động"))
+    failedGroups.push("số tự động");
+
+  // Lỗi khác không thuộc 3 nhóm trên
+  const otherErrors = allErrors
+    .filter((e) => !knownLabels.includes(e.label))
+    .map((e) => e.label || e.message);
+
+  const parts = [];
+  if (failedGroups.length > 0)
+    parts.push(`Chưa đạt: ${failedGroups.join(", ")}`);
+  parts.push(...otherErrors);
+
+  return parts.join(" | ") || null;
+}
+
 // ── Connection pool riêng cho HanhTrinh API ───────────────────────────────────
 // Mặc định Node chỉ giữ 5 socket → bottleneck khi gọi 500 request song song
 const hanhTrinhAgent = new http.Agent({
@@ -151,8 +187,7 @@ async function fetchAndEvaluate(
     const allWarnings = [...evalHanhTrinh.warnings, ...evalDK.warnings];
     const finalStatus = allErrors.length === 0 ? "pass" : "fail";
 
-    const errorSummary =
-      allErrors.length > 0 ? allErrors.map((e) => e.message).join(" | ") : null;
+    const errorSummary = formatErrorSummary(allErrors);
 
     return {
       maDK,
@@ -288,8 +323,6 @@ async function evaluateHanhTrinh(req, res) {
         }
       });
     });
-
-    console.log(`[evaluateHanhTrinh] Tổng học viên: ${allStudents.length}`);
 
     // 2. Chạy tất cả với semaphore concurrency (không batch tuần tự)
     // 500 học viên × ~50ms/request ÷ 80 workers ≈ ~3-4s thay vì 30s

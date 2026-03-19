@@ -234,49 +234,72 @@ async function updateHocVien(maDk, fields) {
   return true;
 }
 
-async function updateTatCaTrangThai(fields, updatedBy = null) {
-  const validFields = Object.keys(fields).filter((f) =>
-    VALID_FIELDS.includes(f),
-  );
-
-  if (validFields.length === 0) {
-    throw new Error("Khong co field hop le de cap nhat");
-  }
-
+async function updateTatCaTrangThai(list, updatedBy = null) {
   const pool = await connectSQL();
   const transaction = new mssql.Transaction(pool);
 
   try {
     await transaction.begin();
+    let totalAffected = 0;
 
-    // Build UPDATE tất cả rows
-    const setClauses = [];
-    const updateReq = new mssql.Request(transaction);
-    updateReq.input("updatedBy", updatedBy);
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i];
+      const {
+        ma_dk,
+        ma_khoa,
+        ten_khoa,
+        ho_ten,
+        can_cuoc,
+        nam_sinh,
+        loai_ly_thuyet,
+        loai_het_mon,
+        dat_cabin,
+        ghi_chu,
+      } = item;
 
-    for (const field of validFields) {
-      setClauses.push(`${field} = @${field}`);
-      updateReq.input(field, fields[field] ? 1 : 0);
+      const req = new mssql.Request(transaction);
+      req.input(`ma_dk`, ma_dk);
+      req.input(`ma_khoa`, ma_khoa ?? null);
+      req.input(`ten_khoa`, ten_khoa ?? null);
+      req.input(`ho_ten`, ho_ten ?? null);
+      req.input(`cccd`, can_cuoc ?? null);
+      req.input(`nam_sinh`, nam_sinh ?? null);
+      req.input(`loai_ly_thuyet`, loai_ly_thuyet ? 1 : 0);
+      req.input(`loai_het_mon`, loai_het_mon ? 1 : 0);
+      req.input(`dat_cabin`, dat_cabin ? 1 : 0);
+      req.input(`ghi_chu`, ghi_chu ?? "");
+      req.input(`updatedBy`, updatedBy);
+
+      const result = await req.query(`
+        IF EXISTS (SELECT 1 FROM trang_thai_hoc_vien WHERE ma_dk = @ma_dk)
+          UPDATE trang_thai_hoc_vien
+          SET
+            loai_ly_thuyet            = @loai_ly_thuyet,
+            loai_het_mon              = @loai_het_mon,
+            dat_cabin                 = @dat_cabin,
+            ghi_chu                   = @ghi_chu,
+            ma_khoa                   = @ma_khoa,
+            ten_khoa                  = @ten_khoa,
+            ho_ten                    = @ho_ten,
+            cccd                      = @cccd,
+            nam_sinh                  = @nam_sinh,
+            updated_at                = GETDATE(),
+            updated_by                = @updatedBy
+          WHERE ma_dk = @ma_dk
+        ELSE
+          INSERT INTO trang_thai_hoc_vien
+            (ma_dk, loai_ly_thuyet, loai_het_mon, dat_cabin, ghi_chu,
+             ma_khoa, ten_khoa, ho_ten, cccd, nam_sinh, updated_at, updated_by)
+          VALUES
+            (@ma_dk, @loai_ly_thuyet, @loai_het_mon, @dat_cabin, @ghi_chu,
+             @ma_khoa, @ten_khoa, @ho_ten, @cccd, @nam_sinh, GETDATE(), @updatedBy)
+      `);
+
+      totalAffected += result.rowsAffected[0];
     }
 
-    const result = await updateReq.query(`
-      UPDATE trang_thai_hoc_vien
-      SET ${setClauses.join(", ")},
-          updated_at = GETDATE(),
-          updated_by = @updatedBy
-    `);
-
-    const histReq = new mssql.Request(transaction);
-    histReq.input("updatedBy", updatedBy);
-    histReq.input("fields", JSON.stringify(fields));
-    await histReq.query(`
-      INSERT INTO lich_su_thay_doi
-        (ma_dk, truong_thay_doi, gia_tri_cu, gia_tri_moi, nguoi_thay_doi, thoi_gian)
-      VALUES ('ALL', 'bulk_update', NULL, @fields, @updatedBy, GETDATE())
-    `);
-
     await transaction.commit();
-    return { rowsAffected: result.rowsAffected[0] };
+    return { rowsAffected: totalAffected };
   } catch (err) {
     await transaction.rollback();
     throw err;

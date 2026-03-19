@@ -150,29 +150,16 @@ async function capNhatTrangThai(req, res) {
 
 async function capNhatTatCaTrangThai(req, res) {
   try {
-    const fields = req.body;
+    const list = req.body;
     const updatedBy = req.headers["x-user"] || null;
 
-    if (!fields || Object.keys(fields).length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Khong co du lieu de cap nhat",
-      });
+    if (!Array.isArray(list) || list.length === 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Danh sach rong" });
     }
 
-    // Validate fields
-    const invalidFields = Object.keys(fields).filter(
-      (f) => !model.VALID_FIELDS.includes(f),
-    );
-    if (invalidFields.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Field khong hop le: ${invalidFields.join(", ")}`,
-        validFields: model.VALID_FIELDS,
-      });
-    }
-
-    const result = await model.updateTatCaTrangThai(fields, updatedBy);
+    const result = await model.updateTatCaTrangThai(list, updatedBy);
 
     return res.json({
       success: true,

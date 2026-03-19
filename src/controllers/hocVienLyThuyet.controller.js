@@ -228,12 +228,7 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
         ? allMapped.filter((s) => {
             const val = s.trang_thai?.loai_het_mon;
             // null = chưa có record -> mặc định coi là đạt (true)
-            const isTruthy =
-              val === null ||
-              val === undefined ||
-              val === true ||
-              val === 1 ||
-              val === "1";
+            const isTruthy = val === true || val === 1 || val === "1";
             const filterTruthy = loai_het_mon === "true";
             return isTruthy === filterTruthy;
           })
