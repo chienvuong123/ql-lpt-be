@@ -8,97 +8,323 @@ const {
   getHanhTrinhToken,
   invalidateHanhTrinhToken,
 } = require("../services/localAuth.service");
-const { computeSummary, evaluate } = require("../utils/evaluate");
 const {
-  computeSummary: computeSummaryDK,
-  evaluate: evaluateDK,
-} = require("../utils/dieuKienKiemTra");
+  computeSummary,
+  evaluate,
+  HANG_DAO_TAO_CONFIG,
+  getInvalidSessionIndexes,
+} = require("../utils/evaluate");
 
 const HANH_TRINH_BASE = "http://113.160.131.3:7782";
 const LOCAL_BASE = "http://192.168.1.69:8000";
 
-function formatErrorSummary(allErrors) {
-  if (allErrors.length === 0) return null;
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const STUDENT_CHECK_TTL_MS = 5 * 60 * 1000;
+const MEMBERS_TTL_MS = 5 * 60 * 1000;
 
-  const knownLabels = [
+const CONCURRENCY = Number(process.env.HANH_TRINH_CONCURRENCY || 8);
+
+// ─── Helper lấy avatar + năm sinh ────────────────────────────────────────────
+function extractAvatarAndDob(student) {
+  const avatar = student?.user?.avatar || student?.user?.default_avatar || null;
+
+  // birth_year là số 4 chữ số, dùng trực tiếp
+  // birthday là Unix timestamp (giây) — fallback nếu không có birth_year
+  const namSinh =
+    student?.user?.birth_year ||
+    (student?.user?.birthday
+      ? new Date(student.user.birthday * 1000).getFullYear()
+      : null);
+
+  return { avatar, namSinh };
+}
+
+// ─── Token cache ──────────────────────────────────────────────────────────────
+// ─── Token cache — chống thundering herd ─────────────────────────────────────
+let _tokenPromise = null;
+let _tokenExpiresAt = 0;
+
+async function getCachedToken() {
+  // Nếu token sắp hết hạn (còn < 30s), invalidate trước
+  if (_tokenPromise && Date.now() > _tokenExpiresAt - 30_000) {
+    _tokenPromise = null;
+  }
+
+  if (!_tokenPromise) {
+    _tokenPromise = getHanhTrinhToken()
+      .then((result) => {
+        // Giả sử token có TTL 10 phút, điều chỉnh nếu API trả về expires_in
+        const ttl = (result.expires_in || 600) * 1000;
+        _tokenExpiresAt = Date.now() + ttl;
+        return result;
+      })
+      .catch((err) => {
+        _tokenPromise = null;
+        _tokenExpiresAt = 0;
+        throw err;
+      });
+  }
+  return _tokenPromise;
+}
+
+function invalidateCachedToken() {
+  _tokenPromise = null;
+  _tokenExpiresAt = 0;
+  invalidateHanhTrinhToken();
+}
+
+function invalidateCachedToken() {
+  _tokenPromise = null;
+  invalidateHanhTrinhToken();
+}
+
+// ─── HTTP Agent ───────────────────────────────────────────────────────────────
+const hanhTrinhAxios = axios.create({
+  baseURL: HANH_TRINH_BASE,
+  httpAgent: new http.Agent({
+    keepAlive: true,
+    keepAliveMsecs: 5000,
+    maxSockets: 80,
+    maxFreeSockets: 20,
+    timeout: 15000,
+    scheduling: "lifo",
+  }),
+  timeout: 10000,
+});
+
+// ─── In-flight dedup ──────────────────────────────────────────────────────────
+const _inFlight = new Map();
+
+function dedupFetch(key, fn) {
+  if (_inFlight.has(key)) return _inFlight.get(key);
+  const p = fn().finally(() => _inFlight.delete(key));
+  _inFlight.set(key, p);
+  return p;
+}
+
+// ─── Result cache ─────────────────────────────────────────────────────────────
+const _resultCache = new Map();
+
+function getCached(key) {
+  const entry = _resultCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL_MS) {
+    _resultCache.delete(key);
+    return null;
+  }
+  return entry.result;
+}
+
+function setCache(key, result) {
+  if (result && result.status !== "error") {
+    _resultCache.set(key, { ts: Date.now(), result });
+  }
+}
+
+setInterval(
+  () => {
+    const now = Date.now();
+    for (const [k, v] of _resultCache) {
+      if (now - v.ts > CACHE_TTL_MS) _resultCache.delete(k);
+    }
+  },
+  10 * 60 * 1000,
+).unref();
+
+// ─── Cache check-data-student ─────────────────────────────────────────────────
+let _studentCheckCache = { ts: 0, data: null };
+
+async function getAllStudentCheckDataCached() {
+  const now = Date.now();
+  if (
+    _studentCheckCache.data &&
+    now - _studentCheckCache.ts < STUDENT_CHECK_TTL_MS
+  ) {
+    return _studentCheckCache.data;
+  }
+  try {
+    const { data } = await axios.get(`${LOCAL_BASE}/api/check-data-student`);
+    const list = data?.data || data?.result || data || [];
+    const result = Array.isArray(list) ? list : [];
+    _studentCheckCache = { ts: now, data: result };
+    return result;
+  } catch (err) {
+    console.error("[getAllStudentCheckDataCached]", err.message);
+    return _studentCheckCache.data || [];
+  }
+}
+
+// ─── Cache members per plan ───────────────────────────────────────────────────
+const _membersCache = new Map();
+
+async function getMembersPerPlanCached(planIid) {
+  const cached = _membersCache.get(planIid);
+  if (cached && Date.now() - cached.ts < MEMBERS_TTL_MS) return cached.data;
+
+  const data = await callWithRetry((auth) =>
+    getHocVienTheoKhoa(planIid, {}, auth),
+  );
+
+  const members = Array.isArray(data?.result) ? data.result : [];
+
+  if (members.length > 0) {
+    _membersCache.set(planIid, { ts: Date.now(), data: members });
+  }
+
+  return members;
+}
+
+setInterval(
+  () => {
+    const now = Date.now();
+    for (const [k, v] of _membersCache) {
+      if (now - v.ts > MEMBERS_TTL_MS) _membersCache.delete(k);
+    }
+  },
+  10 * 60 * 1000,
+).unref();
+
+// ─── Retry helper ─────────────────────────────────────────────────────────────
+async function withRetry(fn, retries = 3, baseDelayMs = 300) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const isCanceled =
+        err?.name === "CanceledError" ||
+        err?.code === "ERR_CANCELED" ||
+        err?.message === "canceled";
+      if (isCanceled) throw err;
+
+      const isRetryable =
+        !err?.response?.status ||
+        err.code === "ECONNRESET" ||
+        err.code === "ETIMEDOUT" ||
+        err.code === "ECONNREFUSED" ||
+        err.response?.status === 429 ||
+        err.response?.status >= 500;
+
+      if (!isRetryable || attempt === retries) throw err;
+      if (err?.response?.status === 401) throw err;
+
+      const delay = baseDelayMs * 2 ** attempt + Math.random() * 100;
+      console.warn(
+        `[withRetry] attempt ${attempt + 1}/${retries} failed (${err.message}), retry in ${Math.round(delay)}ms`,
+      );
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Kiểm tra điều kiện tối thiểu — đồng nhất với checkOne:
+ * truyền studentInfo vào computeSummary để nhận diện xe tự động đúng.
+ */
+function isDuDieuKienToiThieu(summary, hangDaoTao) {
+  const cfg = HANG_DAO_TAO_CONFIG[hangDaoTao] || HANG_DAO_TAO_CONFIG["B.01"];
+  return (
+    summary.tongThoiGianChuaLoaiGio >= cfg.thoiGian.tong &&
+    summary.tongQuangDuongChuaLoai >= cfg.quangDuong.tong
+  );
+}
+
+function formatErrorSummary(allErrors) {
+  if (!allErrors.length) return null;
+
+  const knownLabels = new Set([
     "Tổng thời lượng",
     "Tổng quãng đường",
     "Thời gian ban đêm",
     "Quãng đường ban đêm",
     "Thời gian số tự động",
     "Quãng đường số tự động",
-  ];
+  ]);
 
-  const failedGroups = [];
+  const groups = [];
+  if (
+    allErrors.some(
+      (e) => e.label === "Tổng thời lượng" || e.label === "Tổng quãng đường",
+    )
+  ) {
+    groups.push("tổng");
+  }
+  if (
+    allErrors.some(
+      (e) =>
+        e.label === "Thời gian ban đêm" || e.label === "Quãng đường ban đêm",
+    )
+  ) {
+    groups.push("ban đêm");
+  }
+  if (
+    allErrors.some(
+      (e) =>
+        e.label === "Thời gian số tự động" ||
+        e.label === "Quãng đường số tự động",
+    )
+  ) {
+    groups.push("số tự động");
+  }
 
-  const has = (label) => allErrors.some((e) => e.label === label);
+  const parts = groups.length
+    ? [`Thiếu quãng đường/thời gian ${groups.join(", ")}`]
+    : [];
 
-  if (has("Tổng thời lượng") || has("Tổng quãng đường"))
-    failedGroups.push("tổng quang đường/thời gian");
-  if (has("Thời gian ban đêm") || has("Quãng đường ban đêm"))
-    failedGroups.push("ban đêm");
-  if (has("Thời gian số tự động") || has("Quãng đường số tự động"))
-    failedGroups.push("số tự động");
-
-  // Lỗi khác không thuộc 3 nhóm trên
-  const otherErrors = allErrors
-    .filter((e) => !knownLabels.includes(e.label))
-    .map((e) => e.label || e.message);
-
-  const parts = [];
-  if (failedGroups.length > 0)
-    parts.push(`Chưa đạt: ${failedGroups.join(", ")}`);
-  parts.push(...otherErrors);
+  allErrors
+    .filter((e) => !knownLabels.has(e.label))
+    .forEach((e) => parts.push(e.label || e.message));
 
   return parts.join(" | ") || null;
 }
 
-// ── Connection pool riêng cho HanhTrinh API ───────────────────────────────────
-// Mặc định Node chỉ giữ 5 socket → bottleneck khi gọi 500 request song song
-const hanhTrinhAgent = new http.Agent({
-  keepAlive: true, // tái dùng TCP connection, tránh TCP handshake mỗi lần
-  maxSockets: 100, // tối đa 100 socket song song tới cùng 1 host
-  maxFreeSockets: 20, // giữ 20 socket rảnh cho request tiếp theo
-  timeout: 15000,
-});
+function buildStudentCheckMap(list) {
+  return new Map(list.filter((s) => s.maDangKy).map((s) => [s.maDangKy, s]));
+}
 
-const hanhTrinhAxios = axios.create({
-  baseURL: HANH_TRINH_BASE,
-  httpAgent: hanhTrinhAgent,
-  timeout: 15000,
-});
+function setAndReturn(key, result) {
+  setCache(key, result);
+  return result;
+}
 
-const today = new Date().toISOString().split("T")[0];
+function mark(label, start) {
+  console.log(`[timing] ${label}: ${Date.now() - start}ms`);
+}
 
-// ── Semaphore concurrency: chạy tối đa N task cùng lúc liên tục ──────────────
-// Khác với batch: không cần chờ cả batch xong mới chạy tiếp
-// Worker ngay lập tức nhận task mới khi hoàn thành task cũ
-function withConcurrencyLimit(tasks, limit) {
+// ─── Concurrency limiter với abort ────────────────────────────────────────────
+function withConcurrencyLimit(tasks, limit, signal) {
   return new Promise((resolve) => {
     const results = new Array(tasks.length);
     let started = 0;
     let completed = 0;
 
-    if (tasks.length === 0) return resolve(results);
+    if (!tasks.length) return resolve(results);
+
+    function finishOne(index, result) {
+      results[index] = result;
+      completed += 1;
+      if (completed === tasks.length) resolve(results);
+      else runNext();
+    }
 
     function runNext() {
       if (started >= tasks.length) return;
       const idx = started++;
-      tasks[idx]()
-        .then((result) => {
-          results[idx] = result;
-        })
-        .catch((err) => {
-          results[idx] = { status: "error", message: err.message };
-        })
-        .finally(() => {
-          completed++;
-          if (completed === tasks.length) {
-            resolve(results);
-          } else {
-            runNext(); // worker này xong → nhận task mới ngay
-          }
+      if (signal?.aborted) {
+        return finishOne(idx, {
+          status: "error",
+          message: "Aborted by timeout",
         });
+      }
+      tasks[idx]()
+        .then((r) => finishOne(idx, r))
+        .catch((err) =>
+          finishOne(idx, {
+            status: "error",
+            message: err?.message || "Unknown error",
+          }),
+        );
     }
 
     for (let i = 0; i < Math.min(limit, tasks.length); i++) {
@@ -107,38 +333,33 @@ function withConcurrencyLimit(tasks, limit) {
   });
 }
 
-// Lấy toàn bộ danh sách check-data-student một lần
-async function getAllStudentCheckData() {
-  try {
-    const response = await axios.get(`${LOCAL_BASE}/api/check-data-student`, {
-      params: { limit: 10000, page: 1 },
-    });
-    const list =
-      response.data?.data || response.data?.result || response.data || [];
-    return Array.isArray(list) ? list : [];
-  } catch (err) {
-    console.error("[getAllStudentCheckData]", err.message);
-    return [];
-  }
-}
-
-// Build Map O(1) — thay vì Array.find() O(n) gọi 500 lần = O(n²)
-function buildStudentCheckMap(checkDataList) {
-  const map = new Map();
-  checkDataList.forEach((s) => {
-    if (s.maDangKy) map.set(s.maDangKy, s);
-  });
-  return map;
-}
-
+// ─── Core fetch & evaluate ────────────────────────────────────────────────────
 async function fetchAndEvaluate(
   { maDK, maKhoaHoc, planIid, student },
-  { ngaybatdau, endDate },
+  { ngaybatdau, endDate, signal },
   studentCheckMap,
 ) {
-  try {
-    const { token } = await getHanhTrinhToken();
+  const cacheKey = `${maDK}::${maKhoaHoc}::${ngaybatdau}::${endDate}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
 
+  return dedupFetch(cacheKey, () =>
+    _fetchRaw(
+      { maDK, maKhoaHoc, planIid, student },
+      { ngaybatdau, endDate, signal },
+      studentCheckMap,
+      cacheKey,
+    ),
+  );
+}
+
+async function _fetchRaw(
+  { maDK, maKhoaHoc, planIid, student },
+  { ngaybatdau, endDate, signal },
+  studentCheckMap,
+  cacheKey,
+) {
+  try {
     const params = new URLSearchParams({
       ngaybatdau,
       ngayketthuc: endDate,
@@ -148,54 +369,103 @@ async function fetchAndEvaluate(
       page: 1,
     });
 
-    const response = await hanhTrinhAxios.get(`/api/HanhTrinh?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const response = await withRetry(
+      async () => {
+        const { token } = await getCachedToken();
+        return hanhTrinhAxios.get(`/api/HanhTrinh?${params}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal,
+        });
+      },
+      3,
+      300,
+    );
 
     const dataSource = response.data?.Data || [];
 
-    if (dataSource.length === 0) {
-      return {
+    const hoTen =
+      student?.user?.name ||
+      student?.name ||
+      studentCheckMap.get(maDK)?.hoVaTen ||
+      null;
+
+    const { avatar, namSinh } = extractAvatarAndDob(student);
+
+    // ── Không có dữ liệu ──
+    if (!dataSource.length) {
+      return setAndReturn(cacheKey, {
         maDK,
         maKhoaHoc,
         planIid,
-        hoTen:
-          student?.user?.name ||
-          student?.name ||
-          studentCheckMap.get(maDK)?.hoVaTen,
+        hoTen,
+        avatar,
+        namSinh,
         hangDaoTao: "B.01",
-        studentInfo: null,
-        summary: null,
         status: "no_data",
+        message: "Chưa có thông tin phiên học",
+        totalSessions: 0,
+        summary: null,
+        studentInfo: null,
         errors: [],
         warnings: [],
-        totalSessions: 0,
-        message: "Chưa có thông tin phiên học",
-      };
+      });
     }
 
     const hangDaoTao = dataSource[0]?.HangDaoTao || "B.01";
 
-    const summary = computeSummary(dataSource, hangDaoTao);
-    const evalHanhTrinh = evaluate(summary, dataSource);
-
+    // ── Lấy studentInfo — đồng nhất với checkOne ──
     const studentInfo = studentCheckMap.get(maDK) || null;
-    const summaryDK = computeSummaryDK(dataSource);
-    const evalDK = evaluateDK(summaryDK, dataSource, studentInfo);
 
-    const allErrors = [...evalHanhTrinh.errors, ...evalDK.errors];
-    const allWarnings = [...evalHanhTrinh.warnings, ...evalDK.warnings];
-    const finalStatus = allErrors.length === 0 ? "pass" : "fail";
+    // ── Tính summary — truyền studentInfo để nhận diện xe tự động đúng ──
+    const summary = computeSummary(dataSource, hangDaoTao, studentInfo);
 
-    const errorSummary = formatErrorSummary(allErrors);
+    // ── Kiểm tra điều kiện tối thiểu ──
+    if (!isDuDieuKienToiThieu(summary, hangDaoTao)) {
+      const cfg =
+        HANG_DAO_TAO_CONFIG[hangDaoTao] || HANG_DAO_TAO_CONFIG["B.01"];
+      return setAndReturn(cacheKey, {
+        maDK,
+        maKhoaHoc,
+        planIid,
+        hoTen,
+        avatar,
+        namSinh,
+        hangDaoTao,
+        status: "chua_hoan_thanh",
+        message: `Chưa đủ điều kiện tối thiểu (tổng giờ: ${summary.tongThoiGianGio.toFixed(2)}h / yêu cầu ${cfg.thoiGian.tong}h, tổng km: ${summary.tongQuangDuong.toFixed(2)} / yêu cầu ${cfg.quangDuong.tong}km)`,
+        totalSessions: dataSource.length,
+        summary: {
+          tongThoiGianGio: +summary.tongThoiGianGio.toFixed(2),
+          tongQuangDuong: +summary.tongQuangDuong.toFixed(2),
+          yeuCauThoiGianGio: cfg.thoiGian.tong,
+          yeuCauQuangDuong: cfg.quangDuong.tong,
+        },
+        studentInfo: studentInfo
+          ? {
+              giaoVien: studentInfo.giaoVien,
+              xeB1: studentInfo.xeB1,
+              xeB2: studentInfo.xeB2,
+              khoaHoc: studentInfo.khoaHoc,
+            }
+          : null,
+        errors: [],
+        warnings: [],
+      });
+    }
 
-    return {
+    // ── Evaluate — 1 lần duy nhất với đầy đủ studentInfo, đồng nhất checkOne ──
+    const evalResult = evaluate(summary, dataSource, studentInfo);
+    const { invalidIndexes, tuDongLoiIndexes, invalidReasons } =
+      getInvalidSessionIndexes(dataSource, studentInfo);
+
+    return setAndReturn(cacheKey, {
       maDK,
       maKhoaHoc,
       planIid,
-      hoTen: student?.user?.name || student?.name || studentInfo?.hoVaTen,
+      hoTen,
+      avatar,
+      namSinh,
       hangDaoTao,
-      // ── Thông tin giảng viên & xe (lấy từ phiên học thực tế) ──
       giaoVien: dataSource[0]?.HoTenGV || null,
       bienSoXe1: studentInfo?.xeB1 || null,
       bienSoXe2: studentInfo?.xeB2 || null,
@@ -208,27 +478,59 @@ async function fetchAndEvaluate(
           }
         : null,
       summary: {
-        // ── Thời gian (giờ) ──
+        tongThoiGianChuaLoaiGio: +summary.tongThoiGianChuaLoaiGio.toFixed(2),
+        tongQuangDuongChuaLoai: +summary.tongQuangDuongChuaLoai.toFixed(2),
         tongThoiGianGio: +summary.tongThoiGianGio.toFixed(2),
         thoiGianBanNgayGio: +summary.thoiGianBanNgayGio.toFixed(2),
         thoiGianBanDemGio: +summary.thoiGianBanDemGio.toFixed(2),
         thoiGianTuDongGio: +summary.thoiGianTuDongGio.toFixed(2),
-        // ── Quãng đường (km) ──
         tongQuangDuong: +summary.tongQuangDuong.toFixed(2),
         quangDuongBanNgay: +summary.quangDuongBanNgay.toFixed(2),
         quangDuongBanDem: +summary.quangDuongBanDem.toFixed(2),
         quangDuongTuDong: +summary.quangDuongTuDong.toFixed(2),
       },
-      errorSummary,
-      status: finalStatus,
-      errors: allErrors,
-      warnings: allWarnings,
+      errorSummary: formatErrorSummary(evalResult.errors),
+      status: evalResult.errors.length ? "fail" : "pass",
+      errors: evalResult.errors,
+      warnings: evalResult.warnings,
       totalSessions: dataSource.length,
-    };
+      sessions: dataSource.map((s, idx) => ({
+        stt: idx + 1,
+        thoiDiemDangNhap: s.ThoiDiemDangNhap,
+        thoiDiemDangXuat: s.ThoiDiemDangXuat,
+        bienSo: s.BienSo,
+        hoTenGV: s.HoTenGV,
+        loaiPhien: s.LoaiPhien,
+        tongThoiGianGiay: s.TongThoiGian,
+        tongQuangDuongKm: s.TongQuangDuong,
+        thoiGianBanDemGiay: s.ThoiGianBanDem || 0,
+        quangDuongBanDemKm: s.QuangDuongBanDem || 0,
+        isValid: !invalidIndexes.has(idx),
+        isTuDongLoi: tuDongLoiIndexes.has(idx),
+        sessionErrors: (invalidReasons.get(idx) || []).map((msg) => ({
+          message: msg,
+        })),
+      })),
+    });
   } catch (err) {
     if (err?.response?.status === 401) {
-      invalidateHanhTrinhToken();
+      invalidateCachedToken();
     }
+
+    if (
+      err?.name === "CanceledError" ||
+      err?.code === "ERR_CANCELED" ||
+      err?.message === "canceled"
+    ) {
+      return {
+        maDK,
+        maKhoaHoc,
+        planIid,
+        status: "error",
+        message: "Aborted by timeout",
+      };
+    }
+
     return {
       maDK,
       maKhoaHoc,
@@ -239,8 +541,16 @@ async function fetchAndEvaluate(
   }
 }
 
+// ─── Main controller ──────────────────────────────────────────────────────────
 async function evaluateHanhTrinh(req, res) {
   const startTime = Date.now();
+
+  const TOTAL_TIMEOUT_MS = Number(req.body.timeoutMs) || 90_000;
+  const abortController = new AbortController();
+  const timeoutHandle = setTimeout(
+    () => abortController.abort(),
+    TOTAL_TIMEOUT_MS,
+  );
 
   try {
     let {
@@ -260,10 +570,10 @@ async function evaluateHanhTrinh(req, res) {
       enrolmentPlanIids = [enrolmentPlanIids];
     enrolmentPlanIids = enrolmentPlanIids.map(String);
 
-    if (enrolmentPlanIids.length === 0) {
+    if (!enrolmentPlanIids.length) {
       return res
         .status(400)
-        .json({ success: false, message: "Thiếu enrolmentPlanIids" });
+        .json({ success: false, message: "enrolmentPlanIids không được rỗng" });
     }
 
     if (
@@ -276,47 +586,49 @@ async function evaluateHanhTrinh(req, res) {
       });
     }
 
-    const planToKhoaHocMap = {};
-    enrolmentPlanIids.forEach((planIid, idx) => {
-      planToKhoaHocMap[planIid] = maKhoaHoc[idx];
-    });
+    const planToKhoaHocMap = Object.fromEntries(
+      enrolmentPlanIids.map((id, i) => [id, maKhoaHoc[i]]),
+    );
 
     const endDate = ngayketthuc || new Date().toISOString().slice(0, 19);
 
-    // 1. Song song hoàn toàn: check-data-student + tất cả lớp học cùng lúc
-    const [checkDataList, ...membersPerPlan] = await Promise.all([
-      getAllStudentCheckData(),
-      ...enrolmentPlanIids.map((planIid) =>
-        callWithRetry((auth) => getHocVienTheoKhoa(planIid, {}, auth))
-          .then((data) => ({
-            planIid,
-            members: Array.isArray(data?.result) ? data.result : [],
-          }))
-          .catch((err) => {
-            console.error(`[getHocVien] planIid=${planIid}`, err.message);
-            return { planIid, members: [] };
-          }),
-      ),
-    ]);
-
-    console.log(
-      `[evaluateHanhTrinh] checkDataList: ${checkDataList.length} records`,
+    await getCachedToken().catch((e) =>
+      console.warn("[pre-warm token]", e.message),
     );
 
-    // O(1) lookup thay vì O(n) find
+    const tFetchMeta = Date.now();
+    const [checkDataList, ...membersPerPlan] = await Promise.all([
+      getAllStudentCheckDataCached(),
+      ...enrolmentPlanIids.map(async (planIid) => {
+        try {
+          const members = await getMembersPerPlanCached(planIid);
+          return { planIid, members };
+        } catch (err) {
+          console.error(`[getHocVien] planIid=${planIid}`, err.message);
+          return { planIid, members: [] };
+        }
+      }),
+    ]);
+    mark("load checkData + membersPerPlan", tFetchMeta);
+
     const studentCheckMap = buildStudentCheckMap(checkDataList);
 
-    const allStudents = [];
+    const tBuildStudents = Date.now();
+    const uniqueStudentsMap = new Map();
+
     membersPerPlan.forEach(({ planIid, members }) => {
       console.log(
         `[getHocVien] planIid=${planIid} => ${members.length} học viên`,
       );
+      const mappedMaKhoaHoc = planToKhoaHocMap[planIid];
       members.forEach((m) => {
         const maDK = m?.user?.admission_code;
-        if (maDK) {
-          allStudents.push({
+        if (!maDK) return;
+        const uniqueKey = `${maDK}::${mappedMaKhoaHoc}`;
+        if (!uniqueStudentsMap.has(uniqueKey)) {
+          uniqueStudentsMap.set(uniqueKey, {
             maDK,
-            maKhoaHoc: planToKhoaHocMap[planIid],
+            maKhoaHoc: mappedMaKhoaHoc,
             planIid,
             student: m,
           });
@@ -324,35 +636,60 @@ async function evaluateHanhTrinh(req, res) {
       });
     });
 
-    // 2. Chạy tất cả với semaphore concurrency (không batch tuần tự)
-    // 500 học viên × ~50ms/request ÷ 80 workers ≈ ~3-4s thay vì 30s
-    const CONCURRENCY = 80;
-    const tasks = allStudents.map(
-      (s) => () =>
-        fetchAndEvaluate(s, { ngaybatdau, endDate }, studentCheckMap),
-    );
+    const allStudents = [...uniqueStudentsMap.values()];
+    mark("build allStudents", tBuildStudents);
 
-    console.log(
-      `[evaluateHanhTrinh] Chạy ${tasks.length} tasks, concurrency=${CONCURRENCY}`,
+    const tEvaluate = Date.now();
+    const results = await withConcurrencyLimit(
+      allStudents.map(
+        (s) => () =>
+          fetchAndEvaluate(
+            s,
+            { ngaybatdau, endDate, signal: abortController.signal },
+            studentCheckMap,
+          ),
+      ),
+      CONCURRENCY,
+      abortController.signal,
     );
-    const results = await withConcurrencyLimit(tasks, CONCURRENCY);
+    mark("fetchAndEvaluate(all students)", tEvaluate);
 
-    // 3. Tổng hợp
+    const passList = results.filter((r) => r?.status === "pass");
+    const failList = results.filter((r) => r?.status === "fail");
+    const noDataList = results.filter((r) => r?.status === "no_data");
+    const chuaHTList = results.filter((r) => r?.status === "chua_hoan_thanh");
+    const errorList = results.filter((r) => r?.status === "error");
+
+    const thoiGianXuLyMs = Date.now() - startTime;
+    const wasAborted = abortController.signal.aborted;
+
     const summary = {
-      total: results.length,
-      pass: results.filter((r) => r.status === "pass").length,
-      fail: results.filter((r) => r.status === "fail").length,
-      error: results.filter((r) => r.status === "error").length,
-      no_data: results.filter((r) => r.status === "no_data").length,
-      notFound: results.filter((r) => !r.studentInfo).length,
-      thoiGianXuLyMs: Date.now() - startTime,
+      tongSoHocVien: results.length,
+      daKiemTra: passList.length + failList.length,
+      pass: passList.length,
+      fail: failList.length,
+      chuaHoanThanh: chuaHTList.length,
+      noData: noDataList.length,
+      error: errorList.length,
+      thoiGianXuLyMs,
+      ...(wasAborted
+        ? { warning: "Kết quả không đầy đủ do timeout tổng" }
+        : {}),
     };
 
-    console.log(`[evaluateHanhTrinh] Xong trong ${summary.thoiGianXuLyMs}ms`);
-    return res.json({ success: true, summary, data: results });
+    return res.json({
+      success: true,
+      summary,
+      data: [...failList, ...chuaHTList],
+      debugErrors: errorList
+        .slice(0, 5)
+        .map((e) => ({ maDK: e.maDK, message: e.message })),
+    });
   } catch (err) {
     console.error("[evaluateHanhTrinh]", err.message);
     return res.status(500).json({ success: false, message: err.message });
+  } finally {
+    clearTimeout(timeoutHandle);
   }
 }
 
