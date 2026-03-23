@@ -27,33 +27,25 @@ const CONCURRENCY = Number(process.env.HANH_TRINH_CONCURRENCY || 8);
 // ─── Helper lấy avatar + năm sinh ────────────────────────────────────────────
 function extractAvatarAndDob(student) {
   const avatar = student?.user?.avatar || student?.user?.default_avatar || null;
-
-  // birth_year là số 4 chữ số, dùng trực tiếp
-  // birthday là Unix timestamp (giây) — fallback nếu không có birth_year
   const namSinh =
     student?.user?.birth_year ||
     (student?.user?.birthday
       ? new Date(student.user.birthday * 1000).getFullYear()
       : null);
-
   return { avatar, namSinh };
 }
 
-// ─── Token cache ──────────────────────────────────────────────────────────────
 // ─── Token cache — chống thundering herd ─────────────────────────────────────
 let _tokenPromise = null;
 let _tokenExpiresAt = 0;
 
 async function getCachedToken() {
-  // Nếu token sắp hết hạn (còn < 30s), invalidate trước
   if (_tokenPromise && Date.now() > _tokenExpiresAt - 30_000) {
     _tokenPromise = null;
   }
-
   if (!_tokenPromise) {
     _tokenPromise = getHanhTrinhToken()
       .then((result) => {
-        // Giả sử token có TTL 10 phút, điều chỉnh nếu API trả về expires_in
         const ttl = (result.expires_in || 600) * 1000;
         _tokenExpiresAt = Date.now() + ttl;
         return result;
@@ -70,11 +62,6 @@ async function getCachedToken() {
 function invalidateCachedToken() {
   _tokenPromise = null;
   _tokenExpiresAt = 0;
-  invalidateHanhTrinhToken();
-}
-
-function invalidateCachedToken() {
-  _tokenPromise = null;
   invalidateHanhTrinhToken();
 }
 
@@ -217,11 +204,6 @@ async function withRetry(fn, retries = 3, baseDelayMs = 300) {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Kiểm tra điều kiện tối thiểu — đồng nhất với checkOne:
- * truyền studentInfo vào computeSummary để nhận diện xe tự động đúng.
- */
 function isDuDieuKienToiThieu(summary, hangDaoTao) {
   const cfg = HANG_DAO_TAO_CONFIG[hangDaoTao] || HANG_DAO_TAO_CONFIG["B.01"];
   return (
@@ -230,53 +212,90 @@ function isDuDieuKienToiThieu(summary, hangDaoTao) {
   );
 }
 
-function formatErrorSummary(allErrors) {
-  if (!allErrors.length) return null;
+// ─── formatErrorSummary — gộp cả errors lẫn warnings quan trọng ──────────────
+function formatErrorSummary(allErrors, allWarnings = []) {
+  const parts = [];
 
-  const knownLabels = new Set([
-    "Tổng thời lượng",
-    "Tổng quãng đường",
-    "Thời gian ban đêm",
-    "Quãng đường ban đêm",
-    "Thời gian số tự động",
-    "Quãng đường số tự động",
-  ]);
+  // ── Phần errors: gộp nhóm thiếu giờ/km ──
+  if (allErrors.length) {
+    const knownErrorLabels = new Set([
+      "Tổng thời lượng",
+      "Tổng quãng đường",
+      "Thời gian ban đêm",
+      "Quãng đường ban đêm",
+      "Thời gian số tự động",
+      "Quãng đường số tự động",
+    ]);
 
-  const groups = [];
-  if (
-    allErrors.some(
-      (e) => e.label === "Tổng thời lượng" || e.label === "Tổng quãng đường",
+    const groups = [];
+    if (
+      allErrors.some(
+        (e) => e.label === "Tổng thời lượng" || e.label === "Tổng quãng đường",
+      )
     )
-  ) {
-    groups.push("tổng");
-  }
-  if (
-    allErrors.some(
-      (e) =>
-        e.label === "Thời gian ban đêm" || e.label === "Quãng đường ban đêm",
+      groups.push("tổng");
+    if (
+      allErrors.some(
+        (e) =>
+          e.label === "Thời gian ban đêm" || e.label === "Quãng đường ban đêm",
+      )
     )
-  ) {
-    groups.push("ban đêm");
-  }
-  if (
-    allErrors.some(
-      (e) =>
-        e.label === "Thời gian số tự động" ||
-        e.label === "Quãng đường số tự động",
+      groups.push("ban đêm");
+    if (
+      allErrors.some(
+        (e) =>
+          e.label === "Thời gian số tự động" ||
+          e.label === "Quãng đường số tự động",
+      )
     )
-  ) {
-    groups.push("số tự động");
+      groups.push("số tự động");
+
+    if (groups.length)
+      parts.push(`Thiếu quãng đường/thời gian ${groups.join(", ")}`);
+
+    allErrors
+      .filter((e) => !knownErrorLabels.has(e.label))
+      .forEach((e) => parts.push(e.label || e.message));
   }
 
-  const parts = groups.length
-    ? [`Thiếu quãng đường/thời gian ${groups.join(", ")}`]
-    : [];
+  // ── Phần warnings: map label → text hiển thị gọn ──
+  // Các label được gộp thành 1 cụm (value = text hiển thị, null = dùng label gốc)
+  const warnLabelMap = {
+    // Sai xe
+    "Sai biển số xe": "sai xe",
+    "Thiếu phiên xe B1": "thiếu phiên xe B1",
+    "Thiếu phiên xe B2": "thiếu phiên xe B2",
+    "Không có thông tin xe": "không có thông tin xe",
 
-  allErrors
-    .filter((e) => !knownLabels.has(e.label))
-    .forEach((e) => parts.push(e.label || e.message));
+    // Sai giáo viên
+    "Sai tên giáo viên": "sai giáo viên",
+    "Sai giáo viên đăng ký": "sai giáo viên",
 
-  return parts.join(" | ") || null;
+    // Tốc độ thấp
+    "Tốc độ trung bình phiên": "Có phiên tốc độ thấp",
+
+    // Xe tự động sai giờ (3 label → 1 cụm)
+    "Xe tự động chạy sai giờ phiên sáng": "xe tự động sai giờ",
+    "Xe tự động chạy sai giờ phiên chiều": "xe tự động sai giờ",
+    "Xe tự động chạy ngoài giờ cho phép": "xe tự động sai giờ",
+
+    // Nghỉ giữa phiên
+    "Thời gian nghỉ giữa phiên": "nghỉ giữa phiên < 15 phút",
+
+    // Phiên quá ngắn
+    "Phiên học quá ngắn": "có phiên học < 5 phút",
+  };
+
+  const addedWarnDisplay = new Set();
+  allWarnings.forEach((w) => {
+    if (!(w.label in warnLabelMap)) return;
+    const display = warnLabelMap[w.label]; // Luôn có value, không null
+    if (addedWarnDisplay.has(display)) return; // Gộp trùng
+    addedWarnDisplay.add(display);
+    parts.push(display);
+  });
+
+  return parts.length ? parts.join(", ") : null;
 }
 
 function buildStudentCheckMap(list) {
@@ -412,11 +431,7 @@ async function _fetchRaw(
     }
 
     const hangDaoTao = dataSource[0]?.HangDaoTao || "B.01";
-
-    // ── Lấy studentInfo — đồng nhất với checkOne ──
     const studentInfo = studentCheckMap.get(maDK) || null;
-
-    // ── Tính summary — truyền studentInfo để nhận diện xe tự động đúng ──
     const summary = computeSummary(dataSource, hangDaoTao, studentInfo);
 
     // ── Kiểm tra điều kiện tối thiểu ──
@@ -453,7 +468,7 @@ async function _fetchRaw(
       });
     }
 
-    // ── Evaluate — 1 lần duy nhất với đầy đủ studentInfo, đồng nhất checkOne ──
+    // ── Evaluate ──
     const evalResult = evaluate(summary, dataSource, studentInfo);
     const { invalidIndexes, tuDongLoiIndexes, invalidReasons } =
       getInvalidSessionIndexes(dataSource, studentInfo);
@@ -489,7 +504,8 @@ async function _fetchRaw(
         quangDuongBanDem: +summary.quangDuongBanDem.toFixed(2),
         quangDuongTuDong: +summary.quangDuongTuDong.toFixed(2),
       },
-      errorSummary: formatErrorSummary(evalResult.errors),
+      // ── errorSummary giờ bao gồm cả warnings quan trọng ──
+      errorSummary: formatErrorSummary(evalResult.errors, evalResult.warnings),
       status: evalResult.errors.length ? "fail" : "pass",
       errors: evalResult.errors,
       warnings: evalResult.warnings,
@@ -513,9 +529,7 @@ async function _fetchRaw(
       })),
     });
   } catch (err) {
-    if (err?.response?.status === 401) {
-      invalidateCachedToken();
-    }
+    if (err?.response?.status === 401) invalidateCachedToken();
 
     if (
       err?.name === "CanceledError" ||
@@ -531,13 +545,7 @@ async function _fetchRaw(
       };
     }
 
-    return {
-      maDK,
-      maKhoaHoc,
-      planIid,
-      status: "error",
-      message: err.message,
-    };
+    return { maDK, maKhoaHoc, planIid, status: "error", message: err.message };
   }
 }
 
@@ -560,31 +568,28 @@ async function evaluateHanhTrinh(req, res) {
       maKhoaHoc,
     } = req.body;
 
-    if (!enrolmentPlanIids) {
+    if (!enrolmentPlanIids)
       return res
         .status(400)
         .json({ success: false, message: "Thiếu enrolmentPlanIids" });
-    }
 
     if (!Array.isArray(enrolmentPlanIids))
       enrolmentPlanIids = [enrolmentPlanIids];
     enrolmentPlanIids = enrolmentPlanIids.map(String);
 
-    if (!enrolmentPlanIids.length) {
+    if (!enrolmentPlanIids.length)
       return res
         .status(400)
         .json({ success: false, message: "enrolmentPlanIids không được rỗng" });
-    }
 
     if (
       !Array.isArray(maKhoaHoc) ||
       maKhoaHoc.length !== enrolmentPlanIids.length
-    ) {
+    )
       return res.status(400).json({
         success: false,
         message: "maKhoaHoc phải là mảng có số phần tử bằng enrolmentPlanIids",
       });
-    }
 
     const planToKhoaHocMap = Object.fromEntries(
       enrolmentPlanIids.map((id, i) => [id, maKhoaHoc[i]]),

@@ -93,7 +93,6 @@ async function getDanhSachHocVien(req, res) {
   try {
     const { enrolmentPlanIid } = req.params;
     const extraParams = req.query;
-    console.log(extraParams);
 
     const data = await callWithRetry((auth) =>
       getHocVienTheoKhoa(enrolmentPlanIid, extraParams, auth),
