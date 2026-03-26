@@ -38,6 +38,9 @@ function extractAvatarAndDob(student) {
 // ─── Token cache — chống thundering herd ─────────────────────────────────────
 let _tokenPromise = null;
 let _tokenExpiresAt = 0;
+let _tokenLastFailedAt = 0;
+
+const TOKEN_RETRY_DELAY_MS = 3000;
 
 async function getCachedToken() {
   if (_tokenPromise && Date.now() > _tokenExpiresAt - 30_000) {
@@ -46,22 +49,43 @@ async function getCachedToken() {
   if (!_tokenPromise) {
     _tokenPromise = getHanhTrinhToken()
       .then((result) => {
+        if (!result || typeof result !== "object" || !result.token) {
+          throw new Error("Khong lay duoc token HanhTrinh hop le");
+        }
         const ttl = (result.expires_in || 600) * 1000;
         _tokenExpiresAt = Date.now() + ttl;
+        _tokenLastFailedAt = 0;
         return result;
       })
       .catch((err) => {
         _tokenPromise = null;
         _tokenExpiresAt = 0;
+        _tokenLastFailedAt = Date.now();
         throw err;
       });
   }
   return _tokenPromise;
 }
 
+async function getValidToken() {
+  if (Date.now() - _tokenLastFailedAt < TOKEN_RETRY_DELAY_MS) {
+    throw new Error(
+      "Dang nhap HanhTrinh dang loi, vui long thu lai sau vai giay",
+    );
+  }
+
+  const result = await getCachedToken();
+  if (!result?.token) {
+    throw new Error("Khong lay duoc token HanhTrinh hop le");
+  }
+
+  return result.token;
+}
+
 function invalidateCachedToken() {
   _tokenPromise = null;
   _tokenExpiresAt = 0;
+  _tokenLastFailedAt = 0;
   invalidateHanhTrinhToken();
 }
 
@@ -390,7 +414,7 @@ async function _fetchRaw(
 
     const response = await withRetry(
       async () => {
-        const { token } = await getCachedToken();
+        const token = await getValidToken();
         return hanhTrinhAxios.get(`/api/HanhTrinh?${params}`, {
           headers: { Authorization: `Bearer ${token}` },
           signal,
@@ -545,6 +569,26 @@ async function _fetchRaw(
       };
     }
 
+    if (err?.response?.status === 401) {
+      return {
+        maDK,
+        maKhoaHoc,
+        planIid,
+        status: "error",
+        message: "Token HanhTrinh khong hop le hoac da het han",
+      };
+    }
+
+    if (err?.message?.toLowerCase().includes("dang nhap hanhtrinh")) {
+      return {
+        maDK,
+        maKhoaHoc,
+        planIid,
+        status: "error",
+        message: err.message,
+      };
+    }
+
     return { maDK, maKhoaHoc, planIid, status: "error", message: err.message };
   }
 }
@@ -597,9 +641,16 @@ async function evaluateHanhTrinh(req, res) {
 
     const endDate = ngayketthuc || new Date().toISOString().slice(0, 19);
 
-    await getCachedToken().catch((e) =>
-      console.warn("[pre-warm token]", e.message),
-    );
+    try {
+      await getValidToken();
+    } catch (err) {
+      console.error("[evaluateHanhTrinh] login/token error:", err.message);
+      return res.status(502).json({
+        success: false,
+        message: "Khong dang nhap duoc API HanhTrinh",
+        detail: err.message,
+      });
+    }
 
     const tFetchMeta = Date.now();
     const [checkDataList, ...membersPerPlan] = await Promise.all([
