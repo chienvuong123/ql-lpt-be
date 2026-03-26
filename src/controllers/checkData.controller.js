@@ -1,5 +1,11 @@
 const XLSX = require("xlsx");
 const StudentCheck = require("../models/checkData.model");
+const { default: axios } = require("axios");
+const { URL_DAT } = require("../constants/base");
+const {
+  getHanhTrinhToken2,
+  invalidateHanhTrinhToken,
+} = require("../services/localAuth.service");
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -121,7 +127,7 @@ exports.getCheckStudents = async (req, res) => {
 
     // 1. Thiết lập bộ lọc (Giữ nguyên logic của bạn)
     if (khoa) filter.khoaHoc = khoa;
-    if (giaoVien) filter.giaoVien = new RegExp(giaoVien, "i");
+    if (giaoVien) filter.giaoVien = giaoVien.trim();
     if (search) {
       filter.$or = [
         { hoVaTen: new RegExp(search, "i") },
@@ -146,5 +152,135 @@ exports.getCheckStudents = async (req, res) => {
       message: "Lấy dữ liệu thất bại.",
       error: error.message,
     });
+  }
+};
+
+exports.getGiaoVienByKhoa = async (req, res) => {
+  try {
+    const { khoa } = req.query;
+    const filter = {};
+    if (khoa) filter.khoaHoc = khoa;
+
+    console.log("Filter:", filter); // Log xem filter đang là gì
+
+    const giaoViens = await StudentCheck.distinct("giaoVien", filter);
+
+    console.log("Result:", giaoViens); // Log xem trả về gì
+
+    return res.json({
+      success: true,
+      data: giaoViens.sort(),
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.checkDuplicateSessions = async function (req, res) {
+  try {
+    const { ma_dk_list, ngaybatdau = "2020-01-01", ngayketthuc } = req.body;
+
+    if (!Array.isArray(ma_dk_list) || ma_dk_list.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "ma_dk_list phải là mảng không rỗng",
+      });
+    }
+
+    const endDate = ngayketthuc || new Date().toISOString().slice(0, 19);
+    const { token } = await getHanhTrinhToken2();
+
+    // 1. Gọi API hành trình cho từng ma_dk
+    const allSessions = [];
+
+    await Promise.all(
+      ma_dk_list.map(async (ma_dk) => {
+        try {
+          const response = await axios.get(`${URL_DAT}/api/HanhTrinh`, {
+            headers: { Authorization: `Bearer ${token}` },
+            params: {
+              ngaybatdau,
+              ngayketthuc: endDate,
+              ten: ma_dk,
+              limit: 500,
+              page: 1,
+            },
+          });
+
+          const sessions = response.data?.Data || [];
+
+          sessions.forEach((s) => {
+            if (s.ThoiDiemDangNhap && s.ThoiDiemDangXuat) {
+              allSessions.push({
+                ma_dk,
+                id: s.ID,
+                bienSo: s.BienSo,
+                hoTenGV: s.HoTenGV,
+                dangNhap: new Date(s.ThoiDiemDangNhap),
+                dangXuat: new Date(s.ThoiDiemDangXuat),
+                dangNhapStr: s.ThoiDiemDangNhap,
+                dangXuatStr: s.ThoiDiemDangXuat,
+                khoaHoc: s.KhoaHoc,
+              });
+            }
+          });
+        } catch (err) {
+          if (err.response?.status === 401) {
+            invalidateHanhTrinhToken();
+          }
+          console.error(`[checkDuplicate] Lỗi ma_dk=${ma_dk}:`, err.message);
+        }
+      }),
+    );
+
+    // 2. Tìm các cặp phiên cùng giáo viên bị overlap thời gian
+    const conflicts = [];
+
+    for (let i = 0; i < allSessions.length; i++) {
+      for (let j = i + 1; j < allSessions.length; j++) {
+        const a = allSessions[i];
+        const b = allSessions[j];
+
+        if (a.id === b.id) continue;
+        if (a.ma_dk === b.ma_dk) continue; // cùng học viên thì bỏ qua
+
+        const isOverlap = a.dangNhap < b.dangXuat && a.dangXuat > b.dangNhap;
+        if (!isOverlap) continue;
+
+        const sameGV =
+          a.hoTenGV && b.hoTenGV && a.hoTenGV.trim() === b.hoTenGV.trim();
+        if (!sameGV) continue;
+
+        conflicts.push({
+          giaoVien: a.hoTenGV,
+          phien_1: {
+            id: a.id,
+            ma_dk: a.ma_dk,
+            khoaHoc: a.khoaHoc,
+            bienSo: a.bienSo,
+            dangNhap: a.dangNhapStr,
+            dangXuat: a.dangXuatStr,
+          },
+          phien_2: {
+            id: b.id,
+            ma_dk: b.ma_dk,
+            khoaHoc: b.khoaHoc,
+            bienSo: b.bienSo,
+            dangNhap: b.dangNhapStr,
+            dangXuat: b.dangXuatStr,
+          },
+        });
+      }
+    }
+
+    return res.json({
+      success: true,
+      tong_phien: allSessions.length,
+      tong_conflict: conflicts.length,
+      conflicts,
+    });
+  } catch (err) {
+    console.error("[checkDuplicateSessions]", err.message);
+    return res.status(500).json({ success: false, message: err.message });
   }
 };

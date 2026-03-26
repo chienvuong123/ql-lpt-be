@@ -41,6 +41,11 @@ async function loginHanhTrinh() {
 }
 
 async function getHanhTrinhToken() {
+  if (isHanhTrinhTokenValid()) return;
+  return await loginHanhTrinh();
+}
+
+async function getHanhTrinhToken2() {
   if (isHanhTrinhTokenValid()) return hanhTrinhTokenCache;
   return await loginHanhTrinh();
 }
@@ -53,4 +58,5 @@ module.exports = {
   getHanhTrinhToken,
   invalidateHanhTrinhToken,
   loginHanhTrinh,
+  getHanhTrinhToken2,
 };

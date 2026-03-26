@@ -9,5 +9,6 @@ router.get(
   ctrl.getDanhSachHocVienTheoKhoa,
 );
 router.get("/lop-hoc/search", ctrl.searchDanhSachLop);
+router.post("/dashboard", ctrl.getDashboardLyThuyet);
 
 module.exports = router;

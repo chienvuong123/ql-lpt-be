@@ -10,6 +10,7 @@ const {
   buildCabinMap,
   getCabinStatus,
 } = require("../services/cabinApi.service");
+const { LOCAL_BASE } = require("../constants/base");
 
 // GET /api/ly-thuyet/lop-hoc
 async function getDanhSachLop(req, res) {
@@ -112,7 +113,8 @@ async function getDanhSachHocVien(req, res) {
 async function getDanhSachHocVienTheoKhoa(req, res) {
   try {
     const { enrolmentPlanIid } = req.params;
-    const { maKhoa, text, page, limit, loai_het_mon } = req.query;
+    const { maKhoa, text, page, limit, loai_het_mon, loc_bat_thuong } =
+      req.query;
 
     const [lotusData, dbData, cabinRaw, cabinNotes] = await Promise.all([
       callWithRetry((auth) =>
@@ -226,18 +228,230 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
       loai_het_mon !== undefined
         ? allMapped.filter((s) => {
             const val = s.trang_thai?.loai_het_mon;
-            // null = chưa có record -> mặc định coi là đạt (true)
             const isTruthy = val === true || val === 1 || val === "1";
             const filterTruthy = loai_het_mon === "true";
             return isTruthy === filterTruthy;
           })
         : allMapped;
 
-    const { data: pagedData, pagination } = paginate(filtered, page, limit);
+    const finalFiltered =
+      loc_bat_thuong === "true"
+        ? allMapped.filter((s) => {
+            const coCabin =
+              s.cabin?.tong_thoi_gian > 0 || s.cabin?.so_bai_hoc > 0;
+
+            const daPassLyThuyet =
+              s.trang_thai?.loai_ly_thuyet === true ||
+              s.trang_thai?.loai_ly_thuyet === 1 ||
+              s.trang_thai?.loai_ly_thuyet === "1";
+
+            const daPassHetMon =
+              s.trang_thai?.loai_het_mon === true ||
+              s.trang_thai?.loai_het_mon === 1 ||
+              s.trang_thai?.loai_het_mon === "1";
+
+            return coCabin && (!daPassLyThuyet || !daPassHetMon);
+          })
+        : filtered;
+
+    const { data: pagedData, pagination } = paginate(
+      finalFiltered,
+      page,
+      limit,
+    );
 
     return res.json({ success: true, pagination, data: pagedData });
   } catch (err) {
     console.error("[getDanhSachHocVienTheoKhoa]", err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+async function getDashboardLyThuyet(req, res) {
+  try {
+    const { khoas, text, page, limit, loai_het_mon } = req.body;
+
+    const planList = Array.isArray(khoas)
+      ? khoas.filter((k) => k?.enrolmentPlanIid && k?.maKhoa)
+      : [];
+
+    if (!planList.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Thiếu tham số khoas",
+      });
+    }
+
+    const enrolmentPlanIids = planList.map((k) => k.enrolmentPlanIid);
+
+    const [checkDataRes, allDbData, allCabinNotes] = await Promise.all([
+      fetch(`${LOCAL_BASE}/api/check-data-student`)
+        .then((r) => r.json())
+        .catch(() => ({ data: [] })),
+
+      model.getAll({ maKhoa: { $in: enrolmentPlanIids } }).catch(() => []),
+
+      model
+        .getAll({ ma_khoa: { $in: enrolmentPlanIids }, limit: 99999 })
+        .then((r) => r?.data || [])
+        .catch(() => []),
+    ]);
+
+    const checkDataMap = {};
+    (checkDataRes?.data || []).forEach((item) => {
+      if (item?.maDangKy) checkDataMap[String(item.maDangKy)] = item;
+    });
+
+    const dbMapByPlan = {};
+    (Array.isArray(allDbData) ? allDbData : []).forEach((item) => {
+      if (!item?.ma_dk) return;
+      const planIid = String(item.maKhoa || "");
+      if (!dbMapByPlan[planIid]) dbMapByPlan[planIid] = {};
+      dbMapByPlan[planIid][String(item.ma_dk)] = item;
+    });
+
+    const cabinNoteMapByPlan = {};
+    allCabinNotes.forEach((item) => {
+      if (!item?.ma_dk) return;
+      const planIid = String(item.ma_khoa || "");
+      if (!cabinNoteMapByPlan[planIid]) cabinNoteMapByPlan[planIid] = {};
+      cabinNoteMapByPlan[planIid][String(item.ma_dk)] = item.ghi_chu || null;
+    });
+
+    const perPlanResults = await Promise.all(
+      planList.map(async ({ enrolmentPlanIid, maKhoa }) => {
+        const [lotusData, cabinRaw] = await Promise.all([
+          callWithRetry((auth) =>
+            getHocVienTheoKhoa(
+              enrolmentPlanIid,
+              { page: 1, items_per_page: 500, text },
+              auth,
+            ),
+          ),
+          getDanhSachKetQuaCabin({ khoa: maKhoa, hoTen: text || "" })
+            .then((r) => r?.data || [])
+            .catch(() => []),
+        ]);
+
+        const allStudents = Array.isArray(lotusData?.result)
+          ? lotusData.result
+          : [];
+
+        const dbMap = dbMapByPlan[String(enrolmentPlanIid)] || {};
+        const cabinMap = buildCabinMap(cabinRaw);
+        const cabinNoteMap = cabinNoteMapByPlan[String(enrolmentPlanIid)] || {};
+
+        return allStudents.map((student) => {
+          const maDk = String(
+            student?.user?.admission_code ||
+              student?.user?.code ||
+              student?.id ||
+              "",
+          );
+          const dbRecord = dbMap[maDk] || null;
+          const cabinInfo = cabinMap[maDk] || {
+            tong_thoi_gian: 0,
+            so_bai_hoc: 0,
+          };
+          const trangThaiCabin = getCabinStatus(
+            cabinInfo.tong_thoi_gian,
+            cabinInfo.so_bai_hoc,
+          );
+          const checkInfo = checkDataMap[maDk] || null;
+
+          return {
+            enrolmentPlanIid,
+            ma_khoa: maKhoa,
+            user: {
+              iid: student?.user?.iid,
+              name: student?.user?.name,
+              first_name: student?.user?.first_name,
+              last_name: student?.user?.last_name,
+              avatar: student?.user?.avatar,
+              birthday: student?.user?.birthday,
+              birth_year: student?.user?.birth_year,
+              sex: student?.user?.sex,
+              identification_card: student?.user?.identification_card,
+              identification_card_date: student?.user?.identification_card_date,
+              identification_card_place:
+                student?.user?.identification_card_place,
+              nationality: student?.user?.nationality,
+              organization_name: student?.user?.organization_name,
+              school: student?.user?.schools?.[0] || student?.user?.school,
+              status: student?.user?.status,
+              code: maDk,
+            },
+            learning: student?.learning_progress
+              ? {
+                  item_iid: student.learning_progress.item_iid,
+                  total_hour_learned:
+                    student.learning_progress.total_hour_learned,
+                  progress: student.learning_progress.progress,
+                  passed: student.learning_progress.passed,
+                  learned: student.learning_progress.learned,
+                  score_by_rubrik:
+                    student.learning_progress.score_by_rubrik || [],
+                }
+              : null,
+            ma_dk: maDk,
+            trang_thai: dbRecord
+              ? {
+                  loai_ly_thuyet: dbRecord.loai_ly_thuyet,
+                  loai_het_mon: dbRecord.loai_het_mon,
+                  dat_cabin: dbRecord.dat_cabin,
+                  dat: dbRecord.dat,
+                  ghi_chu: dbRecord.ghi_chu || null,
+                  status_updated_at:
+                    dbRecord.thoi_gian_thay_doi_trang_thai ||
+                    dbRecord.updated_at ||
+                    null,
+                }
+              : null,
+            cabin: {
+              tong_thoi_gian: cabinInfo.tong_thoi_gian,
+              so_bai_hoc: cabinInfo.so_bai_hoc,
+              trang_thai: trangThaiCabin,
+              note: cabinNoteMap[maDk] || null,
+            },
+            giang_vien: checkInfo
+              ? {
+                  giao_vien: checkInfo.giaoVien || null,
+                  xe_b1: checkInfo.xeB1 || null,
+                  xe_b2: checkInfo.xeB2 || null,
+                  khoa_hoc: checkInfo.khoaHoc || null,
+                }
+              : null,
+          };
+        });
+      }),
+    );
+
+    const allMapped = perPlanResults.flat();
+    const isTrue = (val) => val === true || val === 1 || val === "1";
+
+    const filtered = allMapped.filter((s) => {
+      const coCabin = s.cabin?.tong_thoi_gian > 0 || s.cabin?.so_bai_hoc > 0;
+      const daPassLyThuyet = isTrue(s.trang_thai?.loai_ly_thuyet);
+      const daPassHetMon = isTrue(s.trang_thai?.loai_het_mon);
+
+      if (!(coCabin && (!daPassLyThuyet || !daPassHetMon))) return false;
+
+      if (
+        loai_het_mon !== undefined &&
+        loai_het_mon !== null &&
+        loai_het_mon !== ""
+      ) {
+        const filterTruthy = loai_het_mon === true || loai_het_mon === "true";
+        return daPassHetMon === filterTruthy;
+      }
+
+      return true;
+    });
+
+    const { data: pagedData, pagination } = paginate(filtered, page, limit);
+    return res.json({ success: true, pagination, data: pagedData });
+  } catch (err) {
+    console.error("[getDashboardLyThuyet]", err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 }
@@ -247,4 +461,5 @@ module.exports = {
   getDanhSachHocVien,
   getDanhSachHocVienTheoKhoa,
   searchDanhSachLop,
+  getDashboardLyThuyet,
 };

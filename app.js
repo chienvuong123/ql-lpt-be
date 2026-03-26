@@ -5,8 +5,6 @@ require("dotenv").config();
 
 const connectDB = require("./src/configs/database");
 const connectSQL = require("./src/configs/sql");
-// const studentRoutes = require("./src/routes/student.routes");
-// const courseRoutes = require("./src/routes/course.routes");
 const hocvienCheckRoute = require("./src/routes/hocviencheck.route");
 const checkDataRoute = require("./src/routes/checkData.routes");
 const lopLyThuyetRoute = require("./src/routes/lopLyThuyet.routes");
@@ -22,20 +20,6 @@ const HOST = process.env.HOST || "0.0.0.0";
 connectDB();
 connectSQL();
 
-// app.use(
-//   cors({
-//     origin: [
-//       "http://localhost:5173",
-//       "http://localhost:3001",
-//       "http://127.0.0.1:5173",
-//       "http://localhost:5173",
-//       "http://192.168.1.69:5173",
-//       "http://192.168.1.5:5173",
-//       "http://192.168.1.69:8000/",
-//     ],
-//     credentials: true,
-//   }),
-// );
 app.use(cors());
 
 app.use(express.json());
@@ -43,8 +27,6 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
 // Đăng ký Routes
-// app.use("/api/students", studentRoutes);
-// app.use("/api/courses", courseRoutes);
 app.use("/api/hoc-vien", hocvienCheckRoute);
 app.use("/api/check-data-student", checkDataRoute);
 app.use("/api/hoc-vien-lop-ly-thuyet", lopLyThuyetRoute);

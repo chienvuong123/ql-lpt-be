@@ -14,9 +14,9 @@ const {
   HANG_DAO_TAO_CONFIG,
   getInvalidSessionIndexes,
 } = require("../utils/evaluate");
+const { LOCAL_BASE } = require("../constants/base");
 
 const HANH_TRINH_BASE = "http://113.160.131.3:7782";
-const LOCAL_BASE = "http://192.168.1.69:8000";
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const STUDENT_CHECK_TTL_MS = 5 * 60 * 1000;
