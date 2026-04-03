@@ -3,7 +3,12 @@ const ExcelJS = require("exceljs");
 
 async function getAll(req, res) {
   try {
-    const data = await service.getAllStudents();
+    const query = {
+      filterType: req.query.filterType,
+      fromDate: req.query.fromDate,
+      toDate: req.query.toDate
+    };
+    const data = await service.getAllStudents(query);
     res.json({ success: true, total: data.length, data });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -30,7 +35,12 @@ async function importExcel(req, res) {
 
 async function exportReport(req, res) {
   try {
-    const data = await service.getReportData();
+    const query = {
+      filterType: req.query.filterType,
+      fromDate: req.query.fromDate,
+      toDate: req.query.toDate
+    };
+    const data = await service.getReportData(query);
     res.json({ success: true, total: data.length, data });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -39,19 +49,15 @@ async function exportReport(req, res) {
 
 async function exportExcelFile(req, res) {
   try {
-    const data = await service.getReportData();
+    const query = {
+      filterType: req.query.filterType,
+      fromDate: req.query.fromDate,
+      toDate: req.query.toDate
+    };
+    const data = await service.getReportData(query);
 
-    // Tìm tên header "Bảng tổng hợp" động
-    let bangTongHopName = "Bảng tổng hợp";
-    for (const d of data) {
-      if (d.chi_tiet_ly_thuyet && d.chi_tiet_ly_thuyet.length > 0) {
-        const found = d.chi_tiet_ly_thuyet.find(x => x.name && x.name.includes("Bảng tổng hợp"));
-        if (found) {
-          bangTongHopName = found.name;
-          break;
-        }
-      }
-    }
+    // Đặt mặc định tên header lớn nhất chứa toàn bộ các môn học là "Lý thuyết online"
+    let bangTongHopName = "Lý thuyết online";
 
     const aoa = [];
     // Row 1

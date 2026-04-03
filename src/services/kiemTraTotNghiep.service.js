@@ -80,8 +80,8 @@ async function fetchHanhTrinhData(maDk, maKhoaHoc, signal) {
   }
 }
 
-async function getAllStudents() {
-  return await model.findAll();
+async function getAllStudents(query = {}) {
+  return await model.findAll(query);
 }
 
 async function importFromExcel(fileBuffer, classes = []) {
@@ -94,10 +94,18 @@ async function importFromExcel(fileBuffer, classes = []) {
     return row && row[0] && String(row[0]).trim() !== "";
   });
 
-  await model.deleteAll(); // Xoá sạch dữ liệu cũ trước khi chèn mới
-
   let inserted = 0;
+  let updated = 0;
   let skipped = 0;
+
+  // Lấy toàn bộ học viên hiện có lên RAM để lookup siêu tốc
+  const allExisting = await model.findAll();
+  const existingMap = new Map();
+  for (const s of allExisting) {
+    existingMap.set(s.ma_dk, s);
+  }
+
+  const ops = [];
 
   for (const row of dataRows) {
     const student = {
@@ -118,19 +126,39 @@ async function importFromExcel(fileBuffer, classes = []) {
       continue;
     }
 
-    const existing = await model.findByMaSo(student.ma_dk);
+    const existing = existingMap.get(student.ma_dk);
     if (existing) {
-      skipped++;
+      // Kiểm tra có thay đổi field nào không
+      if (
+        existing.ho_ten !== student.ho_ten || 
+        existing.ngay_sinh !== student.ngay_sinh || 
+        existing.can_cuoc !== student.can_cuoc || 
+        existing.ma_khoa !== student.ma_khoa ||
+        existing.iid !== student.iid
+      ) {
+         ops.push(async () => { await model.updateOne(student); });
+         updated++;
+      } else {
+         skipped++;
+      }
       continue;
     }
 
-    await model.insertOne(student);
+    ops.push(async () => { await model.insertOne(student); });
     inserted++;
+  }
+
+  // Chạy các lệnh Insert/Update theo lô 50 cái 1 lúc định tuyến tránh quá tải Connection Pool
+  const BATCH_SIZE = 50;
+  for (let i = 0; i < ops.length; i += BATCH_SIZE) {
+    const batch = ops.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(fn => fn()));
   }
 
   return {
     total_processed: dataRows.length,
     inserted,
+    updated,
     skipped,
   };
 }
@@ -142,8 +170,8 @@ function formatSecondsToGioPhut(seconds) {
   return `${h > 0 ? h + " giờ " : ""}${m} phút`.trim();
 }
 
-async function getReportData() {
-  const students = await getAllStudents();
+async function getReportData(query = {}) {
+  const students = await getAllStudents(query);
   if (!students.length) return [];
 
   // Group by ma_khoa for Cabin
