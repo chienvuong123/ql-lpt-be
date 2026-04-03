@@ -18,7 +18,7 @@ async function findByMaSo(ma_dk) {
   return result.recordset[0] || null;
 }
 
-async function insertOne({ ma_dk, ho_ten, ngay_sinh, can_cuoc, ma_khoa }) {
+async function insertOne({ ma_dk, ho_ten, ngay_sinh, can_cuoc, ma_khoa, iid }) {
   const pool = await connectSQL();
   await pool
     .request()
@@ -26,10 +26,15 @@ async function insertOne({ ma_dk, ho_ten, ngay_sinh, can_cuoc, ma_khoa }) {
     .input("ho_ten", sql.NVarChar, ho_ten)
     .input("ngay_sinh", sql.NVarChar, ngay_sinh)
     .input("can_cuoc", sql.NVarChar, can_cuoc)
-    .input("ma_khoa", sql.NVarChar, ma_khoa).query(`
-      INSERT INTO hoc_vien_da_tot_nghiep (ma_dk, ho_ten, ngay_sinh, can_cuoc, ma_khoa)
-      VALUES (@ma_dk, @ho_ten, @ngay_sinh, @can_cuoc, @ma_khoa)
+    .input("ma_khoa", sql.NVarChar, ma_khoa)
+    .input("iid", sql.Int, iid || null).query(`
+      INSERT INTO hoc_vien_da_tot_nghiep (ma_dk, ho_ten, ngay_sinh, can_cuoc, ma_khoa, iid)
+      VALUES (@ma_dk, @ho_ten, @ngay_sinh, @can_cuoc, @ma_khoa, @iid)
     `);
 }
+async function deleteAll() {
+  const pool = await connectSQL();
+  await pool.request().query("TRUNCATE TABLE hoc_vien_da_tot_nghiep");
+}
 
-module.exports = { findAll, findByMaSo, insertOne };
+module.exports = { findAll, findByMaSo, insertOne, deleteAll };
