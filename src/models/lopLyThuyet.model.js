@@ -13,7 +13,7 @@ async function getAll(filters = {}) {
     request.input("maKhoa", filters.maKhoa);
   }
   if (filters.tenKhoa) {
-    where += " AND kh.ten_khoa LIKE @tenKhoa";
+    where += " AND ISNULL(tt.ten_khoa, kh.ten_khoa) LIKE @tenKhoa";
     request.input("tenKhoa", `%${filters.tenKhoa}%`);
   }
 
@@ -24,7 +24,7 @@ async function getAll(filters = {}) {
       tt.ho_ten,
       tt.cccd,
       tt.nam_sinh,
-      kh.ten_khoa,
+      ISNULL(tt.ten_khoa, kh.ten_khoa) AS ten_khoa,
       ISNULL(tt.loai_ly_thuyet, 0) AS loai_ly_thuyet,
       ISNULL(tt.loai_het_mon,  0) AS loai_het_mon,
       ISNULL(tt.dat_cabin,     0) AS dat_cabin,

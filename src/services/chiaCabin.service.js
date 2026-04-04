@@ -36,7 +36,16 @@ async function buildCabinSchedule(filters = {}) {
 
   // Bước 2: Lọc theo khóa và tên trước khi gọi API kết quả
   //         → giảm số học viên cần xử lý, giảm số khóa cần gọi API 2
-  let ds = duDieuKien;
+  // Danh sách trả về chỉ lấy những khóa từ K26 về sau
+  let ds = duDieuKien.filter((hv) => {
+    const tenKhoa = hv.ten_khoa || "";
+    const match = tenKhoa.match(/K(\d{2})/i);
+    if (match && match[1]) {
+      const year = parseInt(match[1], 10);
+      return year >= 26;
+    }
+    return false; // Nếu không có Kxx thì bị loại
+  });
 
   if (khoa) {
     ds = ds.filter((hv) => hv.ma_khoa === khoa);
@@ -152,6 +161,17 @@ function kiemTraDuDieuKienBai(baiHocSummary, tongPhut) {
   return true;
 }
 
+// ── Lấy Hạng Xe ───────────────────────────────────
+function getHangXe(ten_khoa) {
+  if (!ten_khoa) return "B2";
+  // Nếu sau B0 là số 1 (VD: K26B0101, K27B01...) thì là B1
+  if (ten_khoa.match(/K\d{2}B01/i)) {
+    return "B1";
+  }
+  // Các trường hợp còn lại K26001, K26C, K26E... đều là B2
+  return "B2";
+}
+
 // ── Merge 1 học viên ─────────────────────────────────────
 function mergeHocVien(hv, giaoVienXeMap, ketQuaHocTapMap) {
   const giaoVienXe = giaoVienXeMap[hv.ma_dk] || {};
@@ -163,6 +183,8 @@ function mergeHocVien(hv, giaoVienXeMap, ketQuaHocTapMap) {
   return {
     ma_dk: hv.ma_dk,
     ma_khoa: hv.ma_khoa,
+    ten_khoa: hv.ten_khoa || "",
+    hang_xe: getHangXe(hv.ten_khoa),
 
     ho_ten: hv.ho_ten || giaoVienXe.hoVaTen || null,
     cccd: hv.cccd || giaoVienXe.soCMND || null,
