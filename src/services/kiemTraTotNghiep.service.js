@@ -130,16 +130,16 @@ async function importFromExcel(fileBuffer, classes = []) {
     if (existing) {
       // Kiểm tra có thay đổi field nào không
       if (
-        existing.ho_ten !== student.ho_ten || 
-        existing.ngay_sinh !== student.ngay_sinh || 
-        existing.can_cuoc !== student.can_cuoc || 
+        existing.ho_ten !== student.ho_ten ||
+        existing.ngay_sinh !== student.ngay_sinh ||
+        existing.can_cuoc !== student.can_cuoc ||
         existing.ma_khoa !== student.ma_khoa ||
         existing.iid !== student.iid
       ) {
-         ops.push(async () => { await model.updateOne(student); });
-         updated++;
+        ops.push(async () => { await model.updateOne(student); });
+        updated++;
       } else {
-         skipped++;
+        skipped++;
       }
       continue;
     }
@@ -190,7 +190,7 @@ async function getReportData(query = {}) {
 
   // Group by iid for LyThuyet
   const iids = [...new Set(students.map(s => s.iid).filter(iid => iid !== null && iid !== undefined))];
-  
+
   // Mapping từ CC/CMND ra mã đăng ký
   const validCCCDToMaDk = new Map(students.map(s => [String(s.can_cuoc || "").trim(), s.ma_dk]));
   const lyThuyetGlobalMap = {};
@@ -200,9 +200,9 @@ async function getReportData(query = {}) {
       const list = await callWithRetry(auth => getHocVienTheoKhoa(iid, { page: 1, items_per_page: 500 }, auth));
       const members = Array.isArray(list?.result) ? list.result : [];
       members.forEach(m => {
-        const idCard = String(m?.user?.identification_card || "").trim();
+        const idCard = String(m?.user?.identification_card || m?.user?.code || "").trim();
         const matchedMaDk = validCCCDToMaDk.get(idCard);
-        
+
         if (idCard && matchedMaDk) {
           const scoreByRubrik = m?.learning_progress?.score_by_rubrik || [];
           const chiTiet = scoreByRubrik.map(item => ({
