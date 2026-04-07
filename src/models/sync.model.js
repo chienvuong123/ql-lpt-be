@@ -14,7 +14,7 @@ async function upsertKhoaHoc(courses) {
     for (const course of courses) {
       const request = new mssql.Request(transaction);
       request.input("ma_khoa", mssql.VarChar, course.code);
-      request.input("ten", mssql.NVarChar, course.name);
+      request.input("ten_khoa", mssql.NVarChar, course.name);
       request.input("code", mssql.VarChar, course.code);
 
       // Chuyển đổi timestamp sang Date (Lotus trả về timestamp giây)
@@ -28,7 +28,7 @@ async function upsertKhoaHoc(courses) {
         IF EXISTS (SELECT 1 FROM [dbo].[khoa_hoc] WHERE ma_khoa = @ma_khoa)
         BEGIN
           UPDATE [dbo].[khoa_hoc]
-          SET ten = @ten,
+          SET ten_khoa = @ten_khoa,
               code = @code,
               ngay_bat_dau = @ngay_bat_dau,
               ngay_ket_thuc = @ngay_ket_thuc
@@ -36,8 +36,8 @@ async function upsertKhoaHoc(courses) {
         END
         ELSE
         BEGIN
-          INSERT INTO [dbo].[khoa_hoc] (ma_khoa, ten, code, ngay_bat_dau, ngay_ket_thuc)
-          VALUES (@ma_khoa, @ten, @code, @ngay_bat_dau, @ngay_ket_thuc)
+          INSERT INTO [dbo].[khoa_hoc] (ma_khoa, ten_khoa, code, ngay_bat_dau, ngay_ket_thuc)
+          VALUES (@ma_khoa, @ten_khoa, @code, @ngay_bat_dau, @ngay_ket_thuc)
         END
       `);
     }
