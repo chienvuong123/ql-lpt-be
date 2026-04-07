@@ -48,7 +48,7 @@ async function getLopHocLyThuyet(searchParams = {}, authInfo) {
 
   params.append("_sand_session_id", authInfo.sessionId);
   params.append("_sand_token", authInfo.token);
-  params.append("_sand_uid", authInfo.uid);
+  params.append("_sand_uid", authInfo.id || authInfo.uid);
   params.append("_sand_uiid", authInfo.iid);
 
   const url = `${LOTUS_BASE}/enrolment-plan/search?${params.toString()}`;

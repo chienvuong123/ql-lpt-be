@@ -14,6 +14,7 @@ const cabinRoute = require("./src/routes/cabin.routes");
 const evaluateHanhTrinh = require("./src/routes/evaluate.routes");
 const kiemTraToanKhoa = require("./src/routes/kiemTraToanKhoa.routes");
 const kiemTraTotNghiep = require("./src/routes/kiemTraTotNghiep.routes");
+const syncRoute = require("./src/routes/sync.routes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -40,6 +41,7 @@ app.use("/api", require("./src/routes/log.routes"));
 app.use("/api", evaluateHanhTrinh);
 app.use("/api/kiem-tra", kiemTraToanKhoa);
 app.use("/api/kiem-tra-tot-nghiep", kiemTraTotNghiep);
+app.use("/api/sync", syncRoute);
 
 // Tự động quét và hiển thị danh sách API sạch đẹp
 app.get("/", (req, res) => {
