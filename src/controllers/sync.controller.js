@@ -25,8 +25,8 @@ class SyncController {
 
   /**
    * POST /api/sync/students
-   * Body: { enrolmentPlanIid: Number }
-   * Sync all students in a specific enrolment plan
+   * Body: { enrolmentPlanIid: Number | Array }
+   * Sync students for one or multiple enrolment plans
    */
   async syncStudents(req, res) {
     const { enrolmentPlanIid } = req.body;
@@ -39,10 +39,14 @@ class SyncController {
     }
 
     try {
-      const result = await syncService.syncStudents(enrolmentPlanIid);
+      // Chuyển đổi sang mảng nếu chỉ là 1 ID
+      const ids = Array.isArray(enrolmentPlanIid) ? enrolmentPlanIid : [enrolmentPlanIid];
+      
+      const result = await syncService.syncStudents(ids);
+      
       res.status(200).json({
         success: true,
-        message: `Đã đồng bộ ${result.count} học viên thuộc khóa ${result.ten_khoa} (${result.ma_khoa}).`,
+        message: `Đã hoàn tất đồng bộ ${result.success}/${result.totalCourses} khóa học.`,
         data: result
       });
     } catch (err) {

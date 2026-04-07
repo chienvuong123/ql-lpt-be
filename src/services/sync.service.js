@@ -18,43 +18,65 @@ async function syncCourses() {
 }
 
 /**
- * Sync all members for a specific enrolment plan
- * @param {Number} enrolmentPlanIid 
+ * Sync all members for one or more enrolment plans
+ * @param {Number|Array} enrolmentPlanIids 
  */
-async function syncStudents(enrolmentPlanIid) {
-  // 1. Fetch enrolment plan details to get the 'code' (ma_khoa)
-  // We search for the specific plan by its IID
+async function syncStudents(enrolmentPlanIids) {
+  const ids = Array.isArray(enrolmentPlanIids) ? enrolmentPlanIids : [enrolmentPlanIids];
+
+  // 1. Fetch enrolment plan details to get the metadata for mapping
   const planResponse = await lotusApi.callWithRetry((auth) =>
     lotusApi.getLopHocLyThuyet({ items_per_page: 500 }, auth)
   );
 
-  const plans = planResponse.result || [];
-  const plan = plans.find(p => p.iid == enrolmentPlanIid);
+  const allPlans = planResponse.result || [];
 
-  if (!plan) {
-    throw new Error(`Không tìm thấy khóa học với IID ${enrolmentPlanIid} trên Lotus LMS`);
-  }
-
-  const ma_khoa = plan.code;
-
-  // 2. Fetch all members for this plan
-  // Note: pagination might be needed if > 150 members, 
-  // but getHocVienTheoKhoa uses items_per_page: 150 by default in lotusApi.service.js
-  const membersResponse = await lotusApi.callWithRetry((auth) =>
-    lotusApi.getHocVienTheoKhoa(enrolmentPlanIid, { page: 1 }, auth)
-  );
-
-  const students = membersResponse.result || membersResponse.data || [];
-
-  if (students.length > 0) {
-    await SyncModel.upsertHocVien(students, plan);
-  }
-
-  return {
-    ma_khoa,
-    ten_khoa: plan.name,
-    count: students.length
+  const summary = {
+    totalCourses: ids.length,
+    success: 0,
+    failed: 0,
+    details: []
   };
+
+  for (const iid of ids) {
+    try {
+      const plan = allPlans.find(p => p.iid == iid);
+
+      if (!plan) {
+        throw new Error(`Không tìm thấy khóa học với IID ${iid} trên Lotus LMS`);
+      }
+
+      // 2. Fetch all members for this plan
+      const membersResponse = await lotusApi.callWithRetry((auth) =>
+        lotusApi.getHocVienTheoKhoa(iid, { page: 1 }, auth)
+      );
+
+      const students = membersResponse.result || membersResponse.data || [];
+
+      if (students.length > 0) {
+        await SyncModel.upsertHocVien(students, plan);
+      }
+
+      summary.success++;
+      summary.details.push({
+        iid,
+        ma_khoa: plan.code,
+        ten_khoa: plan.name,
+        count: students.length,
+        status: 'success'
+      });
+    } catch (err) {
+      console.error(`[Sync] Lỗi đồng bộ học viên cho IID ${iid}:`, err.message);
+      summary.failed++;
+      summary.details.push({
+        iid,
+        status: 'failed',
+        error: err.message
+      });
+    }
+  }
+
+  return summary;
 }
 
 module.exports = {
