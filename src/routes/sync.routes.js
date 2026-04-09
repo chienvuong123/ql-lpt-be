@@ -10,5 +10,7 @@ router.post("/courses", syncController.syncCourses);
 // Payload: { enrolmentPlanIid: Number }
 router.post("/students", syncController.syncStudents);
 router.post("/import-sql", uploadSingle, syncController.importToSql);
+router.post("/tien-do", syncController.upsertTienDoDaoTao);
+router.get("/tien-do", syncController.getTienDoDaoTaoList);
 
 module.exports = router;

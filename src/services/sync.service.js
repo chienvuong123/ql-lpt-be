@@ -1,9 +1,6 @@
 const lotusApi = require("./lotusApi.service");
 const SyncModel = require("../models/sync.model");
 
-/**
- * Sync all enrolment plans (courses) from Lotus LMS to local DB
- */
 async function syncCourses() {
   const response = await lotusApi.callWithRetry((auth) =>
     lotusApi.getLopHocLyThuyet({ items_per_page: 500 }, auth)
@@ -17,14 +14,9 @@ async function syncCourses() {
   return courses.length;
 }
 
-/**
- * Sync all members for one or more enrolment plans
- * @param {Number|Array} enrolmentPlanIids 
- */
 async function syncStudents(enrolmentPlanIids) {
   const ids = Array.isArray(enrolmentPlanIids) ? enrolmentPlanIids : [enrolmentPlanIids];
 
-  // 1. Fetch enrolment plan details to get the metadata for mapping
   const planResponse = await lotusApi.callWithRetry((auth) =>
     lotusApi.getLopHocLyThuyet({ items_per_page: 500 }, auth)
   );
@@ -63,6 +55,7 @@ async function syncStudents(enrolmentPlanIids) {
         ma_khoa: plan.code,
         ten_khoa: plan.name,
         count: students.length,
+        total_member: plan.__expand?.learning_stats?.total_member,
         status: 'success'
       });
     } catch (err) {
@@ -79,7 +72,17 @@ async function syncStudents(enrolmentPlanIids) {
   return summary;
 }
 
+async function upsertTienDoDaoTao(data) {
+  return await SyncModel.upsertTienDoDaoTao(data);
+}
+
+async function getTienDoDaoTaoList(filters) {
+  return await SyncModel.getTienDoDaoTaoList(filters);
+}
+
 module.exports = {
   syncCourses,
-  syncStudents
+  syncStudents,
+  upsertTienDoDaoTao,
+  getTienDoDaoTaoList
 };

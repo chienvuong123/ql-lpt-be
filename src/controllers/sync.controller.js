@@ -158,6 +158,57 @@ class SyncController {
       return res.status(500).json({ success: false, message: "Import SQL thất bại.", error: error.message });
     }
   }
+  /**
+   * POST /api/sync/tien-do
+   * Add or update training progress
+   */
+  async upsertTienDoDaoTao(req, res) {
+    const data = req.body;
+
+    if (!data.ma_khoa) {
+      return res.status(400).json({
+        success: false,
+        message: "Thiếu ma_khoa",
+      });
+    }
+
+    try {
+      await syncService.upsertTienDoDaoTao(data);
+      res.status(200).json({
+        success: true,
+        message: "Cập nhật tiến độ đào tạo thành công",
+      });
+    } catch (err) {
+      console.error("[SyncController] upsertTienDoDaoTao error:", err);
+      res.status(500).json({
+        success: false,
+        message: "Lỗi cập nhật tiến độ đào tạo",
+        error: err.message,
+      });
+    }
+  }
+  /**
+   * GET /api/sync/tien-do
+   * Get list of training progress with filters
+   */
+  async getTienDoDaoTaoList(req, res) {
+    const { ma_khoa, tot_nghiep } = req.query;
+
+    try {
+      const list = await syncService.getTienDoDaoTaoList({ ma_khoa, tot_nghiep });
+      res.status(200).json({
+        success: true,
+        data: list,
+      });
+    } catch (err) {
+      console.error("[SyncController] getTienDoDaoTaoList error:", err);
+      res.status(500).json({
+        success: false,
+        message: "Lỗi lấy danh sách tiến độ đào tạo",
+        error: err.message,
+      });
+    }
+  }
 }
 
 module.exports = new SyncController();
