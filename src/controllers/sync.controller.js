@@ -209,6 +209,26 @@ class SyncController {
       });
     }
   }
+    /**
+   * GET /api/sync/courses
+   * Get list of all courses
+   */
+  async getKhoaHocList(req, res) {
+    try {
+      const list = await syncService.getKhoaHocList();
+      res.status(200).json({
+        success: true,
+        data: list,
+      });
+    } catch (err) {
+      console.error("[SyncController] getKhoaHocList error:", err);
+      res.status(500).json({
+        success: false,
+        message: "Lỗi lấy danh sách khóa học",
+        error: err.message,
+      });
+    }
+  }
 }
 
 module.exports = new SyncController();

@@ -5,6 +5,7 @@ const uploadSingle = require("../middlewares/upload.middlewares");
 
 // Route đồng bộ danh sách khóa học
 router.post("/courses", syncController.syncCourses);
+router.get("/courses", syncController.getKhoaHocList);
 
 // Route đồng bộ danh sách học viên của một khóa học
 // Payload: { enrolmentPlanIid: Number }

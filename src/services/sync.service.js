@@ -80,9 +80,14 @@ async function getTienDoDaoTaoList(filters) {
   return await SyncModel.getTienDoDaoTaoList(filters);
 }
 
+async function getKhoaHocList() {
+  return await SyncModel.getKhoaHocList();
+}
+
 module.exports = {
   syncCourses,
   syncStudents,
   upsertTienDoDaoTao,
-  getTienDoDaoTaoList
+  getTienDoDaoTaoList,
+  getKhoaHocList
 };

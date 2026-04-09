@@ -227,9 +227,19 @@ async function getTienDoDaoTaoList(filters = {}) {
   return result.recordset;
 }
 
+/**
+ * Get all courses from khoa_hoc table
+ */
+async function getKhoaHocList() {
+  const pool = await connectSQL();
+  const result = await pool.request().query("SELECT * FROM [dbo].[khoa_hoc] ORDER BY ngay_bat_dau DESC, ma_khoa ASC");
+  return result.recordset;
+}
+
 module.exports = {
   upsertKhoaHoc,
   upsertHocVien,
   upsertTienDoDaoTao,
-  getTienDoDaoTaoList
+  getTienDoDaoTaoList,
+  getKhoaHocList
 };
