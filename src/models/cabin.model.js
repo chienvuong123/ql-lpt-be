@@ -162,4 +162,109 @@ async function getAll({ page = 1, limit = 20, ma_khoa, ten_hoc_vien } = {}) {
   };
 }
 
-module.exports = { getDatCabin, createOrUpdate, getAll };
+async function saveLichPhanBo(weekKey, assignments) {
+  const pool = await connectSQL();
+  const transaction = new mssql.Transaction(pool);
+  try {
+    await transaction.begin();
+    const deleteRequest = new mssql.Request(transaction);
+    const startDate = new Date(weekKey);
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + 6);
+
+    deleteRequest.input("start", startDate);
+    deleteRequest.input("end", endDate);
+    await deleteRequest.query(`
+      DELETE FROM cabin_lich_phan_bo 
+      WHERE ngay >= @start AND ngay <= @end
+    `);
+
+    if (Array.isArray(assignments) && assignments.length > 0) {
+      for (const item of assignments) {
+        const isLocked = !!item.is_locked;
+        const insertRequest = new mssql.Request(transaction);
+
+        insertRequest.input("ma_dk", isLocked ? null : item.ma_dk || null);
+        insertRequest.input("ngay", new Date(item.ngay));
+        insertRequest.input("ca_hoc", parseInt(item.ca_hoc));
+        insertRequest.input("cabin_so", parseInt(item.cabin_so));
+        insertRequest.input("gio_bat_dau", item.gio_bat_dau || null);
+        insertRequest.input("gio_ket_thuc", item.gio_ket_thuc || null);
+        insertRequest.input("is_locked", isLocked ? 1 : 0);
+        insertRequest.input("ghi_chu", item.ghi_chu || null);
+        insertRequest.input("ma_khoa", isLocked ? null : item.ma_khoa || null);
+        insertRequest.input("giao_vien", isLocked ? null : item.giao_vien || null);
+        insertRequest.input("is_makeup", isLocked ? 0 : item.is_makeup ? 1 : 0);
+        insertRequest.input(
+          "is_thieu_gio",
+          isLocked ? 0 : item.is_thieu_gio ? 1 : 0,
+        );
+        insertRequest.input(
+          "thoi_gian_hoc",
+          isLocked ? null : item.thoi_gian_hoc || null,
+        );
+        insertRequest.input(
+          "thoi_gian_tong",
+          isLocked ? null : item.thoi_gian_tong || null,
+        );
+
+        await insertRequest.query(`
+          INSERT INTO cabin_lich_phan_bo (
+            ma_dk, ngay, ca_hoc, cabin_so, gio_bat_dau, gio_ket_thuc, 
+            is_locked, ghi_chu, ma_khoa, giao_vien, 
+            is_makeup, is_thieu_gio, thoi_gian_hoc, thoi_gian_tong
+          )
+          VALUES (
+            @ma_dk, @ngay, @ca_hoc, @cabin_so, @gio_bat_dau, @gio_ket_thuc, 
+            @is_locked, @ghi_chu, @ma_khoa, @giao_vien, 
+            @is_makeup, @is_thieu_gio, @thoi_gian_hoc, @thoi_gian_tong
+          )
+        `);
+      }
+    }
+
+    await transaction.commit();
+    return true;
+  } catch (err) {
+    await transaction.rollback();
+    throw err;
+  }
+}
+
+async function getLichPhanBo(weekKey) {
+  const pool = await connectSQL();
+  const startDate = new Date(weekKey);
+  const endDate = new Date(startDate);
+  endDate.setDate(endDate.getDate() + 6);
+
+  const result = await pool
+    .request()
+    .input("start", startDate)
+    .input("end", endDate).query(`
+      SELECT * FROM cabin_lich_phan_bo
+      WHERE ngay >= @start AND ngay <= @end
+      ORDER BY ngay, ca_hoc, cabin_so
+    `);
+
+  return result.recordset;
+}
+
+async function updateLichNote(id, ghi_chu) {
+  const pool = await connectSQL();
+  await pool
+    .request()
+    .input("id", id)
+    .input("ghi_chu", ghi_chu ?? null)
+    .query(`UPDATE cabin_lich_phan_bo SET ghi_chu = @ghi_chu WHERE id = @id`);
+
+  return true;
+}
+
+module.exports = {
+  getDatCabin,
+  createOrUpdate,
+  getAll,
+  saveLichPhanBo,
+  getLichPhanBo,
+  updateLichNote,
+};

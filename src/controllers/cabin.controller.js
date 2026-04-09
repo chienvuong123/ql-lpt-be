@@ -229,8 +229,51 @@ async function upsertCabinNote(req, res) {
   }
 }
 
+async function saveLichPhanBo(req, res) {
+  try {
+    const { week_key, assignments } = req.body;
+    if (!week_key) {
+      return res.status(400).json({ success: false, message: "Thieu week_key" });
+    }
+    await model.saveLichPhanBo(week_key, assignments);
+    return res.json({ success: true, message: "Luu lich thanh cong" });
+  } catch (err) {
+    console.error("[saveLichPhanBo]", err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+async function getLichPhanBo(req, res) {
+  try {
+    const { week_key } = req.query;
+    if (!week_key) {
+      return res.status(400).json({ success: false, message: "Thieu week_key" });
+    }
+    const data = await model.getLichPhanBo(week_key);
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error("[getLichPhanBo]", err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+async function updateLichNote(req, res) {
+  try {
+    const { id } = req.params;
+    const { ghi_chu } = req.body;
+    await model.updateLichNote(id, ghi_chu);
+    return res.json({ success: true, message: "Cap nhat ghi chu thanh cong" });
+  } catch (err) {
+    console.error("[updateLichNote]", err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
 module.exports = {
   getDanhSachDatCabin,
   getDanhSachHocVienCabin,
   upsertCabinNote,
+  saveLichPhanBo,
+  getLichPhanBo,
+  updateLichNote,
 };

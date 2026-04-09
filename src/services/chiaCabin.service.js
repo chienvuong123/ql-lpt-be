@@ -8,19 +8,9 @@ const API_GIAO_VIEN_XE_URL = "http://192.168.1.69:8000/api/check-data-student/";
 
 const PREFIX_KHOA = "30004";
 
-// ── Điều kiện 8 bài bắt buộc ────────────────────────────
-const DIEU_KIEN_BAI = [
-  { keywords: ["đô thị"], min_phut: 3, so_lan_min: 1 },
-  { keywords: ["cao tốc"], min_phut: 35, so_lan_min: 1 },
-  { keywords: ["đồi núi"], min_phut: 10, so_lan_min: 1 },
-  { keywords: ["phà"], min_phut: 3, so_lan_min: 1 },
-  { keywords: ["lầy"], min_phut: 3, so_lan_min: 1 },
-  { keywords: ["sương mù"], min_phut: 3, so_lan_min: 1 },
-  { keywords: ["ngập nước", "ngầm", "nước"], min_phut: 3, so_lan_min: 1 },
-  { keywords: ["tổng hợp"], min_phut: 5, so_lan_min: 1 },
-];
-
+// ── Điều kiện hoàn thành cabin ────────────────────────────
 const TONG_PHUT_MIN = 150;
+const THIEU_PHUT_LIMIT = 10; // Chỉ hiển thị nếu thiếu từ 10 phút trở lên
 
 // ── Entry point ──────────────────────────────────────────
 async function buildCabinSchedule(filters = {}) {
@@ -135,30 +125,11 @@ function buildKetQuaHocTapMap(dsKetQua, maDkFilter) {
   }, {});
 }
 
-// ── Kiểm tra đủ điều kiện 8 bài ─────────────────────────
-function kiemTraDuDieuKienBai(baiHocSummary, tongPhut) {
-  // Chưa đủ tổng thời gian
-  if (tongPhut < TONG_PHUT_MIN) return false;
-
-  // Kiểm tra từng bài trong DIEU_KIEN_BAI
-  for (const dieuKien of DIEU_KIEN_BAI) {
-    // Tìm bài học khớp với keywords (không phân biệt hoa thường)
-    const baiKhop = baiHocSummary.find((b) =>
-      dieuKien.keywords.some((kw) =>
-        b.ten_bai.toLowerCase().includes(kw.toLowerCase()),
-      ),
-    );
-
-    if (!baiKhop) return false; // chưa học bài này
-
-    // Kiểm tra thời gian tối thiểu
-    if (baiKhop.tong_phut < dieuKien.min_phut) return false;
-
-    // Kiểm tra số lần tối thiểu (quan trọng với bài cao tốc)
-    if (baiKhop.so_lan < dieuKien.so_lan_min) return false;
-  }
-
-  return true;
+// ── Kiểm tra đủ điều kiện hoàn thành ────────────────────
+function kiemTraDuDieuKien(tongPhut) {
+  // Chỉ hiển thị (return false) nếu thiếu >= 10 phút (tức là tongPhut <= 140)
+  // Ngược lại nếu tongPhut > 140 thì coi như đã đủ để ẩn đi (return true)
+  return tongPhut > TONG_PHUT_MIN - THIEU_PHUT_LIMIT;
 }
 
 // ── Lấy Hạng Xe ───────────────────────────────────
@@ -178,7 +149,7 @@ function mergeHocVien(hv, giaoVienXeMap, ketQuaHocTapMap) {
   const baiHocRaw = ketQuaHocTapMap[hv.ma_dk] || [];
   const baiHocSummary = aggregateBaiHoc(baiHocRaw);
   const tongPhut = baiHocSummary.reduce((s, b) => s + b.tong_phut, 0);
-  const daHoanThanh = kiemTraDuDieuKienBai(baiHocSummary, tongPhut);
+  const daHoanThanh = kiemTraDuDieuKien(tongPhut);
 
   return {
     ma_dk: hv.ma_dk,
