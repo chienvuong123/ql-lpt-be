@@ -42,6 +42,26 @@ async function getDanhSach(req, res) {
   }
 }
 
+async function getDanhSachLyThuyet(req, res) {
+  try {
+    const { maKhoa, tenKhoa } = req.query;
+    const data = (await model.getAllLyThuyet({ maKhoa, tenKhoa })).map(
+      normalizeStatusTime,
+    );
+    return res.json({
+      success: true,
+      total: data.length,
+      filter: { maKhoa: maKhoa || null, tenKhoa: tenKhoa || null },
+      data,
+    });
+  } catch (err) {
+    console.error("[getDanhSachLyThuyet]", err);
+    return res
+      .status(500)
+      .json({ success: false, message: "Loi server", error: err.message });
+  }
+}
+
 async function getChiTiet(req, res) {
   try {
     const { maDk } = req.params;
@@ -187,10 +207,66 @@ async function getLichSu(req, res) {
   }
 }
 
+async function capNhatTatCaTrangThaiLyThuyet(req, res) {
+  try {
+    const list = req.body;
+    const createdBy = req.headers["x-user"] || null;
+
+    if (!Array.isArray(list) || list.length === 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Danh sach rong" });
+    }
+
+    const result = await model.updateTatCaTrangThaiLyThuyet(list, createdBy);
+
+    return res.json({
+      success: true,
+      message: `Cap nhat trang thai ly thuyet thanh cong ${result.rowsAffected} ban ghi`,
+      data: { rowsAffected: result.rowsAffected },
+    });
+  } catch (err) {
+    console.error("[capNhatTatCaTrangThaiLyThuyet]", err);
+    return res
+      .status(500)
+      .json({ success: false, message: "Loi server", error: err.message });
+  }
+}
+
+async function capNhatHocVienLyThuyet(req, res) {
+  try {
+    const { maDk } = req.params;
+    const fields = req.body;
+    const createdBy = req.headers["x-user"] || null;
+
+    if (!fields || Object.keys(fields).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Khong co du lieu de cap nhat",
+      });
+    }
+
+    await model.updateHocVienLyThuyet(maDk, fields, createdBy);
+
+    return res.json({
+      success: true,
+      message: "Cap nhat trang thai ly thuyet hoc vien thanh cong",
+    });
+  } catch (err) {
+    console.error("[capNhatHocVienLyThuyet]", err);
+    return res
+      .status(500)
+      .json({ success: false, message: "Loi server", error: err.message });
+  }
+}
+
 module.exports = {
   getDanhSach,
+  getDanhSachLyThuyet,
   getChiTiet,
   capNhatTrangThai,
   getLichSu,
   capNhatTatCaTrangThai,
+  capNhatTatCaTrangThaiLyThuyet,
+  capNhatHocVienLyThuyet,
 };

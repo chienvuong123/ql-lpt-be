@@ -8,37 +8,65 @@ async function getAll(filters = {}) {
   const request = pool.request();
 
   let where = "WHERE 1=1";
-  if (filters.maKhoa) {
-    where += " AND tt.ma_khoa = @maKhoa";
-    request.input("maKhoa", filters.maKhoa);
+
+  // Normalize ma_khoa / maKhoa
+  const maKhoaValue = filters.maKhoa || filters.ma_khoa;
+
+  if (maKhoaValue) {
+    if (
+      typeof maKhoaValue === "object" &&
+      Array.isArray(maKhoaValue.$in) &&
+      maKhoaValue.$in.length > 0
+    ) {
+      // Xử lý toán tử $in
+      const inValues = maKhoaValue.$in;
+      const inParams = inValues.map((val, idx) => `@mk${idx}`);
+      where += ` AND tt.ma_khoa IN (${inParams.join(", ")})`;
+      inValues.forEach((val, idx) => {
+        request.input(`mk${idx}`, val);
+      });
+    } else if (typeof maKhoaValue === "string") {
+      where += " AND tt.ma_khoa = @maKhoa";
+      request.input("maKhoa", maKhoaValue);
+    }
   }
+
   if (filters.tenKhoa) {
-    where += " AND ISNULL(tt.ten_khoa, kh.ten_khoa) LIKE @tenKhoa";
+    where += " AND kh.ten_khoa LIKE @tenKhoa";
     request.input("tenKhoa", `%${filters.tenKhoa}%`);
   }
 
+  // Handle limit if present in filters (e.g. from Dashboard controller)
+  const limitClause = filters.limit ? `TOP ${parseInt(filters.limit)}` : "";
+
   const result = await request.query(`
-    SELECT
+    SELECT ${limitClause}
       tt.ma_dk,
       tt.ma_khoa,
-      tt.ho_ten,
-      tt.cccd,
-      tt.nam_sinh,
-      ISNULL(tt.ten_khoa, kh.ten_khoa) AS ten_khoa,
+      tt.code,
+      hv.ho_ten,
+      hv.cccd,
+      YEAR(hv.ngay_sinh) AS nam_sinh,
+      kh.ten_khoa,
       ISNULL(tt.loai_ly_thuyet, 0) AS loai_ly_thuyet,
       ISNULL(tt.loai_het_mon,  0) AS loai_het_mon,
       ISNULL(tt.dat_cabin,     0) AS dat_cabin,
       tt.ghi_chu,
-      tt.thoi_gian_thay_doi_trang_thai,
       tt.updated_at,
-      tt.updated_by
-    FROM trang_thai_hoc_vien tt
+      -- Backward compatibility for controller
+      tt.updated_at AS thoi_gian_thay_doi_trang_thai,
+      tt.created_by AS updated_by
+    FROM trang_thai_ly_thuyet tt
+    LEFT JOIN hoc_vien hv ON hv.ma_dk = tt.ma_dk
     LEFT JOIN khoa_hoc kh ON kh.ma_khoa = tt.ma_khoa
     ${where}
     ORDER BY tt.updated_at DESC
   `);
   return result.recordset;
 }
+
+// Keep this generic name or remove if no longer needed separately
+const getAllLyThuyet = getAll;
 
 async function getByMaDk(maDk) {
   const pool = await connectSQL();
@@ -52,146 +80,6 @@ async function getByMaDk(maDk) {
   return result.recordset[0] || null;
 }
 
-async function getByMaDkDirect(maDk) {
-  const pool = await connectSQL();
-  const result = await pool.request().input("maDk", maDk).query(`
-    SELECT
-      ma_dk,
-      ho_ten,
-      cccd,
-      nam_sinh,
-      loai_ly_thuyet,
-      loai_het_mon,
-      dat_cabin,   
-      ghi_chu,
-      thoi_gian_thay_doi_trang_thai,
-      updated_at,
-      updated_by
-    FROM trang_thai_hoc_vien
-    WHERE ma_dk = @maDk
-  `);
-  return result.recordset[0] || null;
-}
-
-async function updateTrangThai(maDk, fields, updatedBy = null) {
-  const validFields = Object.keys(fields).filter((f) =>
-    VALID_FIELDS.includes(f),
-  );
-  const hasGhiChu = Object.prototype.hasOwnProperty.call(fields, "ghi_chu");
-  const hasStatusUpdatedAt = Object.prototype.hasOwnProperty.call(
-    fields,
-    "status_updated_at",
-  );
-  const hasMaKhoa = Object.prototype.hasOwnProperty.call(fields, "ma_khoa");
-  const hasTenKhoa = Object.prototype.hasOwnProperty.call(fields, "ten_khoa");
-
-  if (
-    validFields.length === 0 &&
-    !hasGhiChu &&
-    !hasStatusUpdatedAt &&
-    !hasMaKhoa &&
-    !hasTenKhoa
-  ) {
-    throw new Error("Khong co field hop le de cap nhat");
-  }
-
-  const pool = await connectSQL();
-  const transaction = new mssql.Transaction(pool);
-
-  try {
-    await transaction.begin();
-
-    // UPSERT - không check FK
-    const upsertReq = new mssql.Request(transaction);
-    upsertReq.input("maDk", maDk);
-    upsertReq.input("maKhoa", fields.ma_khoa ?? null);
-    upsertReq.input("tenKhoa", fields.ten_khoa ?? null);
-    await upsertReq.query(`
-      IF NOT EXISTS (SELECT 1 FROM trang_thai_hoc_vien WHERE ma_dk = @maDk)
-        INSERT INTO trang_thai_hoc_vien (ma_dk, ma_khoa, ten_khoa, updated_at)
-        VALUES (@maDk, @maKhoa, @tenKhoa, GETDATE())
-    `);
-
-    // Lấy giá trị cũ để ghi lịch sử
-    const oldReq = new mssql.Request(transaction);
-    oldReq.input("maDk", maDk);
-    const oldSelectFields = [...validFields];
-    if (hasGhiChu) oldSelectFields.push("ghi_chu");
-    const oldResult = await oldReq.query(
-      `SELECT ${oldSelectFields.length ? oldSelectFields.join(", ") : "ma_dk"}
-       FROM trang_thai_hoc_vien WHERE ma_dk = @maDk`,
-    );
-    const oldData = oldResult.recordset[0] || {};
-
-    // Build UPDATE
-    const setClauses = [];
-    const updateReq = new mssql.Request(transaction);
-    updateReq.input("maDk", maDk);
-    updateReq.input("updatedBy", updatedBy);
-
-    for (const field of validFields) {
-      setClauses.push(`${field} = @${field}`);
-      updateReq.input(field, fields[field] ? 1 : 0);
-    }
-    if (hasGhiChu) {
-      setClauses.push("ghi_chu = @ghi_chu");
-      updateReq.input("ghi_chu", fields.ghi_chu ?? null);
-    }
-    if (hasMaKhoa) {
-      setClauses.push("ma_khoa = @ma_khoa");
-      updateReq.input("ma_khoa", fields.ma_khoa ?? null);
-    }
-    if (hasTenKhoa) {
-      setClauses.push("ten_khoa = @ten_khoa");
-      updateReq.input("ten_khoa", fields.ten_khoa ?? null);
-    }
-    if (hasStatusUpdatedAt) {
-      updateReq.input(
-        "statusUpdatedAt",
-        mssql.DateTime2,
-        new Date(fields.status_updated_at),
-      );
-    }
-
-    const timeClause = hasStatusUpdatedAt ? "@statusUpdatedAt" : "GETDATE()";
-    const dynamicSet = setClauses.length > 0 ? `${setClauses.join(", ")},` : "";
-
-    await updateReq.query(`
-      UPDATE trang_thai_hoc_vien
-      SET ${dynamicSet}
-          thoi_gian_thay_doi_trang_thai = ${timeClause},
-          updated_at = GETDATE(),
-          updated_by = @updatedBy
-      WHERE ma_dk = @maDk
-    `);
-
-    // Ghi lịch sử
-    for (const field of validFields) {
-      const oldValue = Number(oldData[field] ?? 0);
-      const newValue = fields[field] ? 1 : 0;
-      if (oldValue !== newValue) {
-        const histReq = new mssql.Request(transaction);
-        histReq.input("maDk", maDk);
-        histReq.input("field", field);
-        histReq.input("oldValue", oldValue);
-        histReq.input("newValue", newValue);
-        histReq.input("updatedBy", updatedBy);
-        await histReq.query(`
-          INSERT INTO lich_su_thay_doi
-            (ma_dk, truong_thay_doi, gia_tri_cu, gia_tri_moi, nguoi_thay_doi, thoi_gian)
-          VALUES (@maDk, @field, @oldValue, @newValue, @updatedBy, GETDATE())
-        `);
-      }
-    }
-
-    await transaction.commit();
-    return true;
-  } catch (err) {
-    await transaction.rollback();
-    throw err;
-  }
-}
-
 async function getLichSu(maDk) {
   const pool = await connectSQL();
   const result = await pool.request().input("maDk", maDk).query(`
@@ -203,38 +91,7 @@ async function getLichSu(maDk) {
   return result.recordset;
 }
 
-async function updateHocVien(maDk, fields) {
-  const allowed = ["ho_ten", "cccd", "nam_sinh"];
-  const validFields = Object.keys(fields).filter((f) => allowed.includes(f));
-  if (validFields.length === 0) return false;
-
-  const pool = await connectSQL();
-  const req = pool.request();
-  req.input("maDk", maDk);
-
-  const setClauses = [];
-  if (fields.ho_ten !== undefined) {
-    setClauses.push("ho_ten = @ho_ten");
-    req.input("ho_ten", fields.ho_ten ?? null);
-  }
-  if (fields.cccd !== undefined) {
-    setClauses.push("cccd = @cccd");
-    req.input("cccd", fields.cccd ?? null);
-  }
-  if (fields.nam_sinh !== undefined) {
-    setClauses.push("nam_sinh = @nam_sinh");
-    req.input("nam_sinh", fields.nam_sinh ?? null);
-  }
-
-  await req.query(`
-    UPDATE trang_thai_hoc_vien
-    SET ${setClauses.join(", ")}
-    WHERE ma_dk = @maDk
-  `);
-  return true;
-}
-
-async function updateTatCaTrangThai(list, updatedBy = null) {
+async function updateTatCaTrangThaiLyThuyet(list, createdBy = null) {
   const pool = await connectSQL();
   const transaction = new mssql.Transaction(pool);
 
@@ -247,52 +104,51 @@ async function updateTatCaTrangThai(list, updatedBy = null) {
       const {
         ma_dk,
         ma_khoa,
-        ten_khoa,
-        ho_ten,
-        can_cuoc,
-        nam_sinh,
         loai_ly_thuyet,
         loai_het_mon,
-        dat_cabin,
         ghi_chu,
+        code,
       } = item;
 
+      const loaiLyThuyet = !!loai_ly_thuyet;
+      const loaiHetMon = !!loai_het_mon;
+      const datCabin = loaiLyThuyet && loaiHetMon; // BE handles this logic
+
       const req = new mssql.Request(transaction);
-      req.input(`ma_dk`, ma_dk);
-      req.input(`ma_khoa`, ma_khoa ?? null);
-      req.input(`ten_khoa`, ten_khoa ?? null);
-      req.input(`ho_ten`, ho_ten ?? null);
-      req.input(`cccd`, can_cuoc ?? null);
-      req.input(`nam_sinh`, nam_sinh ?? null);
-      req.input(`loai_ly_thuyet`, loai_ly_thuyet ? 1 : 0);
-      req.input(`loai_het_mon`, loai_ly_thuyet ? (loai_het_mon ? 1 : 0) : 0);
-      req.input(`dat_cabin`, dat_cabin ? 1 : 0);
-      req.input(`ghi_chu`, ghi_chu ?? "");
-      req.input(`updatedBy`, updatedBy);
+      req.input("ma_dk", mssql.VarChar, ma_dk);
+      req.input("ma_khoa", mssql.VarChar, ma_khoa ?? null);
+      req.input("loai_ly_thuyet", mssql.Bit, loaiLyThuyet);
+      req.input("loai_het_mon", mssql.Bit, loaiHetMon);
+      req.input("dat_cabin", mssql.Bit, datCabin);
+      req.input("ghi_chu", mssql.NVarChar, ghi_chu ?? null);
+      req.input("code", mssql.VarChar, code ?? null);
+      req.input("createdBy", mssql.NVarChar, createdBy);
 
       const result = await req.query(`
-        IF EXISTS (SELECT 1 FROM trang_thai_hoc_vien WHERE ma_dk = @ma_dk)
-          UPDATE trang_thai_hoc_vien
+        -- Tự động lấy code từ bảng khoa_hoc nếu FE không gửi
+        DECLARE @actualCode VARCHAR(150) = @code;
+        IF @actualCode IS NULL AND @ma_khoa IS NOT NULL
+        BEGIN
+            SELECT TOP 1 @actualCode = code FROM khoa_hoc WHERE ma_khoa = @ma_khoa;
+        END
+
+        IF EXISTS (SELECT 1 FROM trang_thai_ly_thuyet WHERE ma_dk = @ma_dk)
+          UPDATE trang_thai_ly_thuyet
           SET
-            loai_ly_thuyet            = @loai_ly_thuyet,
-            loai_het_mon              = @loai_het_mon,
-            dat_cabin                 = @dat_cabin,
-            ghi_chu                   = @ghi_chu,
-            ma_khoa                   = @ma_khoa,
-            ten_khoa                  = @ten_khoa,
-            ho_ten                    = @ho_ten,
-            cccd                      = @cccd,
-            nam_sinh                  = @nam_sinh,
-            updated_at                = GETDATE(),
-            updated_by                = @updatedBy
+            ma_khoa = @ma_khoa,
+            loai_ly_thuyet = @loai_ly_thuyet,
+            loai_het_mon = @loai_het_mon,
+            dat_cabin = @dat_cabin,
+            ghi_chu = @ghi_chu,
+            code = @actualCode,
+            updated_at = GETDATE(),
+            created_by = @createdBy
           WHERE ma_dk = @ma_dk
         ELSE
-          INSERT INTO trang_thai_hoc_vien
-            (ma_dk, loai_ly_thuyet, loai_het_mon, dat_cabin, ghi_chu,
-             ma_khoa, ten_khoa, ho_ten, cccd, nam_sinh, updated_at, updated_by)
+          INSERT INTO trang_thai_ly_thuyet
+            (ma_dk, ma_khoa, loai_ly_thuyet, loai_het_mon, dat_cabin, ghi_chu, code, updated_at, created_by)
           VALUES
-            (@ma_dk, @loai_ly_thuyet, @loai_het_mon, @dat_cabin, @ghi_chu,
-             @ma_khoa, @ten_khoa, @ho_ten, @cccd, @nam_sinh, GETDATE(), @updatedBy)
+            (@ma_dk, @ma_khoa, @loai_ly_thuyet, @loai_het_mon, @dat_cabin, @ghi_chu, @actualCode, GETDATE(), @createdBy)
       `);
 
       totalAffected += result.rowsAffected[0];
@@ -301,18 +157,63 @@ async function updateTatCaTrangThai(list, updatedBy = null) {
     await transaction.commit();
     return { rowsAffected: totalAffected };
   } catch (err) {
-    await transaction.rollback();
+    if (transaction) await transaction.rollback();
     throw err;
   }
 }
 
+async function updateHocVienLyThuyet(maDk, fields, createdBy = null) {
+  const pool = await connectSQL();
+  const req = pool.request();
+
+  const loaiLyThuyet = !!fields.loai_ly_thuyet;
+  const loaiHetMon = !!fields.loai_het_mon;
+  const datCabin = loaiLyThuyet && loaiHetMon;
+
+  req.input("maDk", mssql.VarChar, maDk);
+  req.input("maKhoa", mssql.VarChar, fields.ma_khoa ?? null);
+  req.input("loaiLyThuyet", mssql.Bit, loaiLyThuyet);
+  req.input("loaiHetMon", mssql.Bit, loaiHetMon);
+  req.input("datCabin", mssql.Bit, datCabin);
+  req.input("ghiChu", mssql.NVarChar, fields.ghi_chu ?? null);
+  req.input("code", mssql.VarChar, fields.code ?? null);
+  req.input("createdBy", mssql.NVarChar, createdBy);
+
+  await req.query(`
+    -- Tự động lấy code từ bảng khoa_hoc nếu FE không gửi
+    DECLARE @actualCode VARCHAR(150) = @code;
+    IF @actualCode IS NULL AND @maKhoa IS NOT NULL
+    BEGIN
+        SELECT TOP 1 @actualCode = code FROM khoa_hoc WHERE ma_khoa = @maKhoa;
+    END
+
+    IF EXISTS (SELECT 1 FROM trang_thai_ly_thuyet WHERE ma_dk = @maDk)
+      UPDATE trang_thai_ly_thuyet
+      SET
+        ma_khoa = @maKhoa,
+        loai_ly_thuyet = @loaiLyThuyet,
+        loai_het_mon = @loaiHetMon,
+        dat_cabin = @datCabin,
+        ghi_chu = @ghiChu,
+        code = @actualCode,
+        updated_at = GETDATE(),
+        created_by = @createdBy
+      WHERE ma_dk = @maDk
+    ELSE
+      INSERT INTO trang_thai_ly_thuyet
+        (ma_dk, ma_khoa, loai_ly_thuyet, loai_het_mon, dat_cabin, ghi_chu, code, updated_at, created_by)
+      VALUES
+        (@maDk, @maKhoa, @loaiLyThuyet, @loaiHetMon, @datCabin, @ghiChu, @actualCode, GETDATE(), @createdBy)
+  `);
+  return true;
+}
+
 module.exports = {
   getAll,
+  getAllLyThuyet,
   getByMaDk,
-  getByMaDkDirect,
-  updateTrangThai,
   getLichSu,
-  updateHocVien,
-  updateTatCaTrangThai,
+  updateTatCaTrangThaiLyThuyet,
+  updateHocVienLyThuyet,
   VALID_FIELDS,
 };
