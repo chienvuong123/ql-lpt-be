@@ -15,7 +15,7 @@ async function upsertKhoaHoc(courses) {
       const request = new mssql.Request(transaction);
       request.input("ma_khoa", mssql.VarChar, course.code);
       request.input("ten_khoa", mssql.NVarChar, course.name);
-      request.input("code", mssql.VarChar, course.code);
+      request.input("code", mssql.VarChar, String(course.iid));
 
       // Chuyển đổi timestamp sang Date (Lotus trả về timestamp giây)
       const startDate = course.start_date ? new Date(course.start_date * 1000) : null;
@@ -33,7 +33,8 @@ async function upsertKhoaHoc(courses) {
               code = @code,
               ngay_bat_dau = @ngay_bat_dau,
               ngay_ket_thuc = @ngay_ket_thuc,
-              total_member = @total_member
+              total_member = @total_member,
+              updated_at = GETDATE()
           WHERE ma_khoa = @ma_khoa
         END
         ELSE
@@ -104,7 +105,8 @@ async function upsertHocVien(students, planInfo) {
               ma_khoa = @ma_khoa,
               hang_gplx = @hang_gplx,
               hang = @hang,
-              ma_csdt = @ma_csdt
+              ma_csdt = @ma_csdt,
+              updated_at = GETDATE()
           WHERE ma_dk = @ma_dk
         END
         ELSE
@@ -174,7 +176,8 @@ async function upsertTienDoDaoTao(data) {
           luu_luong = @luu_luong,
           so_luong_dat = @so_luong_dat,
           so_luong_truot = @so_luong_truot,
-          ghi_chu = @ghi_chu
+          ghi_chu = @ghi_chu,
+          updated_at = GETDATE()
       WHERE ma_khoa = @ma_khoa
     END
     ELSE
@@ -221,7 +224,7 @@ async function getTienDoDaoTaoList(filters = {}) {
     query += ` AND t.tot_nghiep = @tot_nghiep`;
   }
 
-  query += ` ORDER BY t.tot_nghiep DESC, t.ma_khoa ASC`;
+  query += ` ORDER BY t.updated_at DESC, t.ma_khoa ASC`;
 
   const result = await request.query(query);
   return result.recordset;
@@ -232,7 +235,7 @@ async function getTienDoDaoTaoList(filters = {}) {
  */
 async function getKhoaHocList() {
   const pool = await connectSQL();
-  const result = await pool.request().query("SELECT * FROM [dbo].[khoa_hoc] ORDER BY ngay_bat_dau DESC, ma_khoa ASC");
+  const result = await pool.request().query("SELECT * FROM [dbo].[khoa_hoc] ORDER BY updated_at DESC, ma_khoa ASC");
   return result.recordset;
 }
 
