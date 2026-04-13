@@ -129,13 +129,13 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
         : Promise.resolve([]),
       maKhoa
         ? getDanhSachKetQuaCabin({ khoa: maKhoa, hoTen: text || "" }).then(
-            (r) => r?.data || [],
-          )
+          (r) => r?.data || [],
+        )
         : Promise.resolve([]),
       enrolmentPlanIid
         ? model
-            .getAll({ ma_khoa: enrolmentPlanIid, limit: 9999 })
-            .then((r) => r?.data || [])
+          .getAll({ ma_khoa: enrolmentPlanIid, limit: 9999 })
+          .then((r) => r?.data || [])
         : Promise.resolve([]),
     ]);
 
@@ -160,9 +160,9 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
     const allMapped = allStudents.map((student) => {
       const maDk = String(
         student?.user?.admission_code ||
-          student?.user?.code ||
-          student?.id ||
-          "",
+        student?.user?.code ||
+        student?.id ||
+        "",
       );
       const dbRecord = dbMap[maDk] || null;
       const cabinInfo = cabinMap[maDk] || { tong_thoi_gian: 0, so_bai_hoc: 0 };
@@ -192,27 +192,27 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
         },
         learning: student?.learning_progress
           ? {
-              item_iid: student.learning_progress.item_iid,
-              total_hour_learned: student.learning_progress.total_hour_learned,
-              progress: student.learning_progress.progress,
-              passed: student.learning_progress.passed,
-              learned: student.learning_progress.learned,
-              score_by_rubrik: student.learning_progress.score_by_rubrik || [],
-            }
+            item_iid: student.learning_progress.item_iid,
+            total_hour_learned: student.learning_progress.total_hour_learned,
+            progress: student.learning_progress.progress,
+            passed: student.learning_progress.passed,
+            learned: student.learning_progress.learned,
+            score_by_rubrik: student.learning_progress.score_by_rubrik || [],
+          }
           : null,
         ma_dk: maDk,
         trang_thai: dbRecord
           ? {
-              loai_ly_thuyet: dbRecord.loai_ly_thuyet,
-              loai_het_mon: dbRecord.loai_het_mon,
-              dat_cabin: dbRecord.dat_cabin,
-              dat: dbRecord.dat,
-              ghi_chu: dbRecord.ghi_chu || null,
-              status_updated_at:
-                dbRecord.thoi_gian_thay_doi_trang_thai ||
-                dbRecord.updated_at ||
-                null,
-            }
+            loai_ly_thuyet: dbRecord.loai_ly_thuyet,
+            loai_het_mon: dbRecord.loai_het_mon,
+            dat_cabin: dbRecord.dat_cabin,
+            dat: dbRecord.dat,
+            ghi_chu: dbRecord.ghi_chu || null,
+            status_updated_at:
+              dbRecord.thoi_gian_thay_doi_trang_thai ||
+              dbRecord.updated_at ||
+              null,
+          }
           : null,
         cabin: {
           tong_thoi_gian: cabinInfo.tong_thoi_gian,
@@ -227,31 +227,31 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
     const filtered =
       loai_het_mon !== undefined
         ? allMapped.filter((s) => {
-            const val = s.trang_thai?.loai_het_mon;
-            const isTruthy = val === true || val === 1 || val === "1";
-            const filterTruthy = loai_het_mon === "true";
-            return isTruthy === filterTruthy;
-          })
+          const val = s.trang_thai?.loai_het_mon;
+          const isTruthy = val === true || val === 1 || val === "1";
+          const filterTruthy = loai_het_mon === "true";
+          return isTruthy === filterTruthy;
+        })
         : allMapped;
 
     const finalFiltered =
       loc_bat_thuong === "true"
         ? allMapped.filter((s) => {
-            const coCabin =
-              s.cabin?.tong_thoi_gian > 0 || s.cabin?.so_bai_hoc > 0;
+          const coCabin =
+            s.cabin?.tong_thoi_gian > 0 || s.cabin?.so_bai_hoc > 0;
 
-            const daPassLyThuyet =
-              s.trang_thai?.loai_ly_thuyet === true ||
-              s.trang_thai?.loai_ly_thuyet === 1 ||
-              s.trang_thai?.loai_ly_thuyet === "1";
+          const daPassLyThuyet =
+            s.trang_thai?.loai_ly_thuyet === true ||
+            s.trang_thai?.loai_ly_thuyet === 1 ||
+            s.trang_thai?.loai_ly_thuyet === "1";
 
-            const daPassHetMon =
-              s.trang_thai?.loai_het_mon === true ||
-              s.trang_thai?.loai_het_mon === 1 ||
-              s.trang_thai?.loai_het_mon === "1";
+          const daPassHetMon =
+            s.trang_thai?.loai_het_mon === true ||
+            s.trang_thai?.loai_het_mon === 1 ||
+            s.trang_thai?.loai_het_mon === "1";
 
-            return coCabin && (!daPassLyThuyet || !daPassHetMon);
-          })
+          return coCabin && (!daPassLyThuyet || !daPassHetMon);
+        })
         : filtered;
 
     const { data: pagedData, pagination } = paginate(
@@ -344,9 +344,9 @@ async function getDashboardLyThuyet(req, res) {
         return allStudents.map((student) => {
           const maDk = String(
             student?.user?.admission_code ||
-              student?.user?.code ||
-              student?.id ||
-              "",
+            student?.user?.code ||
+            student?.id ||
+            "",
           );
           const dbRecord = dbMap[maDk] || null;
           const cabinInfo = cabinMap[maDk] || {
@@ -383,29 +383,29 @@ async function getDashboardLyThuyet(req, res) {
             },
             learning: student?.learning_progress
               ? {
-                  item_iid: student.learning_progress.item_iid,
-                  total_hour_learned:
-                    student.learning_progress.total_hour_learned,
-                  progress: student.learning_progress.progress,
-                  passed: student.learning_progress.passed,
-                  learned: student.learning_progress.learned,
-                  score_by_rubrik:
-                    student.learning_progress.score_by_rubrik || [],
-                }
+                item_iid: student.learning_progress.item_iid,
+                total_hour_learned:
+                  student.learning_progress.total_hour_learned,
+                progress: student.learning_progress.progress,
+                passed: student.learning_progress.passed,
+                learned: student.learning_progress.learned,
+                score_by_rubrik:
+                  student.learning_progress.score_by_rubrik || [],
+              }
               : null,
             ma_dk: maDk,
             trang_thai: dbRecord
               ? {
-                  loai_ly_thuyet: dbRecord.loai_ly_thuyet,
-                  loai_het_mon: dbRecord.loai_het_mon,
-                  dat_cabin: dbRecord.dat_cabin,
-                  dat: dbRecord.dat,
-                  ghi_chu: dbRecord.ghi_chu || null,
-                  status_updated_at:
-                    dbRecord.thoi_gian_thay_doi_trang_thai ||
-                    dbRecord.updated_at ||
-                    null,
-                }
+                loai_ly_thuyet: dbRecord.loai_ly_thuyet,
+                loai_het_mon: dbRecord.loai_het_mon,
+                dat_cabin: dbRecord.dat_cabin,
+                dat: dbRecord.dat,
+                ghi_chu: dbRecord.ghi_chu || null,
+                status_updated_at:
+                  dbRecord.thoi_gian_thay_doi_trang_thai ||
+                  dbRecord.updated_at ||
+                  null,
+              }
               : null,
             cabin: {
               tong_thoi_gian: cabinInfo.tong_thoi_gian,
@@ -415,11 +415,11 @@ async function getDashboardLyThuyet(req, res) {
             },
             giang_vien: checkInfo
               ? {
-                  giao_vien: checkInfo.giaoVien || null,
-                  xe_b1: checkInfo.xeB1 || null,
-                  xe_b2: checkInfo.xeB2 || null,
-                  khoa_hoc: checkInfo.khoaHoc || null,
-                }
+                giao_vien: checkInfo.giaoVien || null,
+                xe_b1: checkInfo.xeB1 || null,
+                xe_b2: checkInfo.xeB2 || null,
+                khoa_hoc: checkInfo.khoaHoc || null,
+              }
               : null,
           };
         });

@@ -260,6 +260,64 @@ async function updateLichNote(id, ghi_chu) {
   return true;
 }
 
+async function getCabinStudentListSQL(filters = {}) {
+  const pool = await connectSQL();
+  const request = pool.request();
+
+  let where = "WHERE tt.loai_ly_thuyet = 1 AND tt.loai_het_mon = 1";
+
+  if (filters.maKhoa) {
+    where += " AND tt.ma_khoa = @maKhoa";
+    request.input("maKhoa", filters.maKhoa);
+  }
+
+  if (filters.hoTen) {
+    where += " AND (hv.ho_ten LIKE @hoTen OR dk.ho_ten LIKE @hoTen)";
+    request.input("hoTen", `%${filters.hoTen}%`);
+  }
+
+  const result = await request.query(`
+    SELECT 
+      tt.ma_dk,
+      -- Lấy ma_khoa chuẩn từ bảng khoa_hoc
+      ISNULL(kh.ma_khoa, tt.ma_khoa) AS ma_khoa,
+      tt.code,
+      tt.loai_ly_thuyet,
+      tt.loai_het_mon,
+      tt.dat_cabin,
+      tt.ghi_chu,
+      tt.updated_at AS status_updated_at,
+      
+      -- Thông tin từ tien_do_dao_tao
+      td.ngay_khai_giang,
+      td.bat_dau_cabin,
+      td.ket_thuc_cabin,
+      
+      -- Thông tin từ hoc_vien
+      hv.ho_ten,
+      hv.cccd,
+      hv.ngay_sinh,
+      hv.gioi_tinh,
+      hv.hang AS hang_gplx,
+      
+      -- Thông tin từ dang_ky_xe_gv
+      dk.giao_vien,
+      dk.xe_b1,
+      dk.xe_b2,
+      -- Tên khóa hiển thị chuẩn
+      ISNULL(kh.ten_khoa, dk.khoa) AS ten_khoa
+    FROM trang_thai_ly_thuyet tt
+    LEFT JOIN khoa_hoc kh ON tt.code = kh.code
+    LEFT JOIN tien_do_dao_tao td ON (td.ma_khoa = kh.ma_khoa OR td.ma_khoa = tt.ma_khoa)
+    LEFT JOIN hoc_vien hv ON tt.ma_dk = hv.ma_dk
+    LEFT JOIN dang_ky_xe_gv dk ON tt.ma_dk = dk.ma_dk
+    ${where}
+    ORDER BY tt.updated_at DESC
+  `);
+
+  return result.recordset;
+}
+
 module.exports = {
   getDatCabin,
   createOrUpdate,
@@ -267,4 +325,5 @@ module.exports = {
   saveLichPhanBo,
   getLichPhanBo,
   updateLichNote,
+  getCabinStudentListSQL,
 };

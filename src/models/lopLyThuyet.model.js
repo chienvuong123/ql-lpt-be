@@ -8,6 +8,33 @@ async function getAll(filters = {}) {
   const request = pool.request();
 
   let where = "WHERE 1=1";
+  if (filters.maKhoa) {
+    where += " AND tt.code = @maKhoa";
+    request.input("maKhoa", filters.maKhoa);
+  }
+
+  const result = await request.query(`
+    SELECT
+      tt.ma_dk,
+      tt.ma_khoa,
+      tt.code,
+      ISNULL(tt.loai_ly_thuyet, 0) AS loai_ly_thuyet,
+      ISNULL(tt.loai_het_mon,  0) AS loai_het_mon,
+      ISNULL(tt.dat_cabin,     0) AS dat_cabin,
+      tt.ghi_chu,
+      tt.updated_at
+    FROM trang_thai_ly_thuyet tt
+    ${where}
+    ORDER BY tt.updated_at DESC
+  `);
+  return result.recordset;
+}
+
+async function getAllLyThuyet(filters = {}) {
+  const pool = await connectSQL();
+  const request = pool.request();
+
+  let where = "WHERE 1=1";
 
   // Normalize ma_khoa / maKhoa
   const maKhoaValue = filters.maKhoa || filters.ma_khoa;
@@ -65,8 +92,6 @@ async function getAll(filters = {}) {
   return result.recordset;
 }
 
-// Keep this generic name or remove if no longer needed separately
-const getAllLyThuyet = getAll;
 
 async function getByMaDk(maDk) {
   const pool = await connectSQL();

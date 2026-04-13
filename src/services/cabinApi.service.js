@@ -18,21 +18,33 @@ function buildCabinMap(rawList) {
     if (!maDk) return;
 
     if (!map[maDk]) {
-      map[maDk] = { tongThoiGian: 0, baiTapSet: new Set() };
+      map[maDk] = {
+        tongThoiGian: 0,
+        baiTapMap: {}, // Để đếm số bài và tổng thời gian từng bài
+      };
     }
 
-    map[maDk].tongThoiGian += Number(item?.TongThoiGian || 0);
+    const duration = Number(item?.TongThoiGian || 0);
+    map[maDk].tongThoiGian += duration;
 
-    if (item?.ID_BaiTap || item?.Name) {
-      map[maDk].baiTapSet.add(item?.ID_BaiTap || item?.Name);
+    const tenBai = item?.Name || "Không rõ";
+    if (!map[maDk].baiTapMap[tenBai]) {
+      map[maDk].baiTapMap[tenBai] = 0;
     }
+    map[maDk].baiTapMap[tenBai] += duration;
   });
 
   const result = {};
   Object.entries(map).forEach(([maDk, value]) => {
+    const baiHoc = Object.entries(value.baiTapMap).map(([ten, giay]) => ({
+      ten_bai: ten,
+      tong_phut: Math.round(giay / 60),
+    }));
+
     result[maDk] = {
       tong_thoi_gian: value.tongThoiGian,
-      so_bai_hoc: value.baiTapSet.size,
+      so_bai_hoc: baiHoc.length,
+      bai_hoc: baiHoc,
     };
   });
 

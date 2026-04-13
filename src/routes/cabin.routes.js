@@ -14,7 +14,7 @@ const router = express.Router();
 router.get("/", getDanhSachDatCabin);
 router.get("/hoc-vien/:enrolmentPlanIid", getDanhSachHocVienCabin);
 router.post("/", upsertCabinNote);
-router.get("/danh-sach-chia-lich", controller.getXepLichCabin);
+router.get("/danh-sach-chia-lich", controller.getDanhSachCabinSQL);
 
 router.post("/save-lich", saveLichPhanBo);
 router.get("/get-lich", getLichPhanBo);
