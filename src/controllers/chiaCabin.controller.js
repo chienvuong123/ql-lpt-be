@@ -1,6 +1,10 @@
 const cabinModel = require("../models/cabin.model");
 const cabinApiService = require("../services/cabinApi.service");
 
+// Simple In-Memory Cache for External API Results
+const cabinApiCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes TTL
+
 const getDanhSachCabinSQL = async (req, res) => {
   try {
     const { khoa, hoTen } = req.query;
@@ -12,14 +16,33 @@ const getDanhSachCabinSQL = async (req, res) => {
       return res.json({ success: true, total: 0, data: [] });
     }
 
-    // 2. Lấy kết quả học tập từ API để có tổng thời gian (nếu cần hiển thị giống getXepLichCabin)
-    // Để tối ưu, ta gom danh sách mã khóa để gọi API 1 lần hoặc theo từng khóa
+    // 2. Lấy kết quả học tập từ API để có tổng thời gian
+    // Để tối ưu, ta sử dụng in-memory cache để tránh gọi API trùng lặp cho cùng một khóa
     const uniqueKhoas = [...new Set(students.map(s => s.ma_khoa))];
+    const now = Date.now();
 
-    // Gọi API kết quả học tập song song cho các khóa
     const allSessionResults = await Promise.all(
-      uniqueKhoas.map(k => cabinApiService.getDanhSachKetQuaCabin({ khoa: k }).then(r => r?.data || []))
+      uniqueKhoas.map(k => {
+        const cached = cabinApiCache.get(k);
+        if (cached && (now - cached.timestamp < CACHE_TTL)) {
+          return cached.data;
+        }
+        
+        // Fetch new data and update cache
+        return cabinApiService.getDanhSachKetQuaCabin({ khoa: k })
+          .then(r => {
+            const data = r?.data || [];
+            cabinApiCache.set(k, { data, timestamp: Date.now() });
+            return data;
+          })
+          .catch(err => {
+            console.warn(`[getDanhSachCabinSQL] Lỗi gọi API khóa ${k}:`, err.message);
+            // Nếu có dữ liệu cũ trong cache thì dùng tạm, không thì trả về mảng rỗng
+            return cached ? cached.data : [];
+          });
+      })
     );
+    
     const flatResults = allSessionResults.flat();
     const cabinMap = cabinApiService.buildCabinMap(flatResults);
 

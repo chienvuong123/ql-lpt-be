@@ -308,7 +308,8 @@ async function getCabinStudentListSQL(filters = {}) {
       ISNULL(kh.ten_khoa, dk.khoa) AS ten_khoa
     FROM trang_thai_ly_thuyet tt
     LEFT JOIN khoa_hoc kh ON tt.code = kh.code
-    LEFT JOIN tien_do_dao_tao td ON (td.ma_khoa = kh.ma_khoa OR td.ma_khoa = tt.ma_khoa)
+    -- Tối ưu JOIN bằng cách sử dụng ISNULL để tránh toán tử OR
+    LEFT JOIN tien_do_dao_tao td ON td.ma_khoa = ISNULL(kh.ma_khoa, tt.ma_khoa)
     LEFT JOIN hoc_vien hv ON tt.ma_dk = hv.ma_dk
     LEFT JOIN dang_ky_xe_gv dk ON tt.ma_dk = dk.ma_dk
     ${where}
