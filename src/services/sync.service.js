@@ -84,10 +84,15 @@ async function getKhoaHocList() {
   return await SyncModel.getKhoaHocList();
 }
 
+async function getHocVienSearch(filters) {
+  return await SyncModel.getHocVienSearch(filters);
+}
+
 module.exports = {
   syncCourses,
   syncStudents,
   upsertTienDoDaoTao,
   getTienDoDaoTaoList,
-  getKhoaHocList
+  getKhoaHocList,
+  getHocVienSearch
 };

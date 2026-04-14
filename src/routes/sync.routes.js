@@ -10,6 +10,7 @@ router.get("/courses", syncController.getKhoaHocList);
 // Route đồng bộ danh sách học viên của một khóa học
 // Payload: { enrolmentPlanIid: Number }
 router.post("/students", syncController.syncStudents);
+router.get("/students", syncController.getHocVienList);
 router.post("/import-sql", uploadSingle, syncController.importToSql);
 router.post("/tien-do", syncController.upsertTienDoDaoTao);
 router.get("/tien-do", syncController.getTienDoDaoTaoList);

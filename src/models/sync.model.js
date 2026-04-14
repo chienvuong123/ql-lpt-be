@@ -239,10 +239,42 @@ async function getKhoaHocList() {
   return result.recordset;
 }
 
+/**
+ * Search students by name/ma_dk and course
+ * @param {Object} filters { search, ma_khoa }
+ */
+async function getHocVienSearch(filters = {}) {
+  const pool = await connectSQL();
+  const request = new mssql.Request(pool);
+
+  let query = `
+    SELECT TOP 200 hv.*, kh.ten_khoa 
+    FROM [dbo].[hoc_vien] hv
+    LEFT JOIN [dbo].[khoa_hoc] kh ON hv.ma_khoa = kh.ma_khoa
+    WHERE 1=1
+  `;
+
+  if (filters.search) {
+    request.input("search", mssql.NVarChar, `%${filters.search}%`);
+    query += ` AND (hv.ho_ten LIKE @search OR hv.ma_dk LIKE @search)`;
+  }
+
+  if (filters.ma_khoa) {
+    request.input("ma_khoa", mssql.VarChar, filters.ma_khoa);
+    query += ` AND hv.ma_khoa = @ma_khoa`;
+  }
+
+  query += ` ORDER BY hv.ho_ten ASC`;
+
+  const result = await request.query(query);
+  return result.recordset;
+}
+
 module.exports = {
   upsertKhoaHoc,
   upsertHocVien,
   upsertTienDoDaoTao,
   getTienDoDaoTaoList,
-  getKhoaHocList
+  getKhoaHocList,
+  getHocVienSearch
 };

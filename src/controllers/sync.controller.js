@@ -213,6 +213,10 @@ class SyncController {
    * GET /api/sync/courses
    * Get list of all courses
    */
+  /**
+   * GET /api/sync/courses
+   * Get list of all courses
+   */
   async getKhoaHocList(req, res) {
     try {
       const list = await syncService.getKhoaHocList();
@@ -225,6 +229,29 @@ class SyncController {
       res.status(500).json({
         success: false,
         message: "Lỗi lấy danh sách khóa học",
+        error: err.message,
+      });
+    }
+  }
+
+  /**
+   * GET /api/sync/students
+   * Get list of students with search and course filters
+   */
+  async getHocVienList(req, res) {
+    const { search, ma_khoa } = req.query;
+
+    try {
+      const list = await syncService.getHocVienSearch({ search, ma_khoa });
+      res.status(200).json({
+        success: true,
+        data: list,
+      });
+    } catch (err) {
+      console.error("[SyncController] getHocVienList error:", err);
+      res.status(500).json({
+        success: false,
+        message: "Lỗi lấy danh sách học viên",
         error: err.message,
       });
     }
