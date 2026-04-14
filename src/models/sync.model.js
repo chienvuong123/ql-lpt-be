@@ -52,16 +52,29 @@ async function upsertKhoaHoc(courses) {
   }
 }
 
-/**
- * Upsert list of students into hoc_vien table and ensure status record exists
- * @param {Array} students 
- * @param {Object} planInfo 
- */
+function getRankFromCode(ma_khoa, currentRank) {
+  if (currentRank && !/bold/i.test(currentRank)) {
+    return currentRank.toUpperCase();
+  }
+
+  if (!ma_khoa) return currentRank;
+
+  const code = ma_khoa.toUpperCase();
+  if (code.includes("B01")) return "B1";
+  if (/K\d+B/i.test(code)) return "B";
+  if (/K\d+C/i.test(code)) return "C1";
+
+  return currentRank;
+}
+
 async function upsertHocVien(students, planInfo) {
   const pool = await connectSQL();
   const transaction = new mssql.Transaction(pool);
   const ma_khoa = planInfo.code;
-  const hang = planInfo.__expand?.program?.code || null;
+
+  // Use helper to detect correct rank
+  const originalHang = planInfo.__expand?.program?.code || null;
+  const hang = getRankFromCode(ma_khoa, originalHang);
   const hang_gplx = hang;
 
   try {
