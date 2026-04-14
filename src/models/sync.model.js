@@ -53,7 +53,8 @@ async function upsertKhoaHoc(courses) {
 }
 
 function getRankFromCode(ma_khoa, currentRank) {
-  if (currentRank && !/bold/i.test(currentRank)) {
+  // Loại bỏ các giá trị lỗi như bold, bold2, B.01old2 (do replace nhầm B thành B.01 trong chữ bold)
+  if (currentRank && !/bold|old/i.test(currentRank)) {
     return currentRank.toUpperCase();
   }
 
