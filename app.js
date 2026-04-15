@@ -42,6 +42,7 @@ app.use("/api", evaluateHanhTrinh);
 app.use("/api/kiem-tra", kiemTraToanKhoa);
 app.use("/api/kiem-tra-tot-nghiep", kiemTraTotNghiep);
 app.use("/api/sync", syncRoute);
+app.use("/api/tien-do-dao-tao", require("./src/routes/tienDoDaoTao.routes"));
 
 // Tự động quét và hiển thị danh sách API sạch đẹp
 app.get("/", (req, res) => {
