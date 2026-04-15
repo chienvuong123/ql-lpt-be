@@ -6,6 +6,7 @@ const {
   saveLichPhanBo,
   getLichPhanBo,
   updateLichNote,
+  checkOnlineStatus,
 } = require("../controllers/cabin.controller");
 const controller = require("../controllers/chiaCabin.controller");
 
@@ -19,5 +20,8 @@ router.get("/danh-sach-chia-lich", controller.getDanhSachCabinSQL);
 router.post("/save-lich", saveLichPhanBo);
 router.get("/get-lich", getLichPhanBo);
 router.patch("/update-lich-note/:id", updateLichNote);
+
+// API kiểm tra trạng thái online của học viên theo ca học
+router.post("/check-online", checkOnlineStatus);
 
 module.exports = router;

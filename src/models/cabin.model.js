@@ -319,6 +319,27 @@ async function getCabinStudentListSQL(filters = {}) {
   return result.recordset;
 }
 
+async function getTeacherByMaDkList(maDkList) {
+  if (!Array.isArray(maDkList) || maDkList.length === 0) return [];
+  const pool = await connectSQL();
+  const request = pool.request();
+
+  // Tạo câu truy vấn IN với danh sách mã đăng ký
+  // Lưu ý: với số lượng lớn có thể cần tối ưu, nhưng ở đây thường là danh sách học viên của 1 ca (ít)
+  const query = `
+    SELECT ma_dk, giao_vien 
+    FROM dang_ky_xe_gv 
+    WHERE ma_dk IN (${maDkList.map((id, index) => `@id${index}`).join(", ")})
+  `;
+
+  maDkList.forEach((id, index) => {
+    request.input(`id${index}`, id);
+  });
+
+  const result = await request.query(query);
+  return result.recordset;
+}
+
 module.exports = {
   getDatCabin,
   createOrUpdate,
@@ -327,4 +348,5 @@ module.exports = {
   getLichPhanBo,
   updateLichNote,
   getCabinStudentListSQL,
+  getTeacherByMaDkList,
 };

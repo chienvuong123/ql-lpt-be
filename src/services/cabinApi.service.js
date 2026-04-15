@@ -58,4 +58,16 @@ function getCabinStatus(tongThoiGian, soBaiHoc) {
   return "chua_dat";
 }
 
-module.exports = { getDanhSachKetQuaCabin, buildCabinMap, getCabinStatus };
+async function getKetQuaTapByMaDk(maDk) {
+  const response = await axios.get(CABIN_BASE, {
+    params: { maDK: maDk },
+  });
+  return response.data;
+}
+
+module.exports = {
+  getDanhSachKetQuaCabin,
+  buildCabinMap,
+  getCabinStatus,
+  getKetQuaTapByMaDk,
+};

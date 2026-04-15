@@ -5,6 +5,7 @@ const {
   buildCabinMap,
   getCabinStatus,
   getDanhSachKetQuaCabin,
+  getKetQuaTapByMaDk,
 } = require("../services/cabinApi.service");
 const {
   callWithRetry,
@@ -269,6 +270,89 @@ async function updateLichNote(req, res) {
   }
 }
 
+async function checkOnlineStatus(req, res) {
+  try {
+    const { maDkList, startTime, endTime } = req.body;
+
+    if (!Array.isArray(maDkList) || !startTime || !endTime) {
+      return res.status(400).json({ success: false, message: "Thiếu dữ liệu đầu vào (maDkList, startTime, endTime)" });
+    }
+
+    const startDt = new Date(startTime);
+    const endDt = new Date(endTime);
+    
+    if (isNaN(startDt.getTime()) || isNaN(endDt.getTime())) {
+      return res.status(400).json({ success: false, message: "Định dạng thời gian không hợp lệ" });
+    }
+
+    const start = startDt.getTime();
+    const end = endDt.getTime();
+    const buffer = 15 * 60 * 1000; // 15 phút tính bằng ms
+
+    const checkWindow = {
+      min: start - buffer,
+      max: end + buffer,
+    };
+
+    const [teacherList, results] = await Promise.all([
+      model.getTeacherByMaDkList(maDkList),
+      Promise.all(
+        maDkList.map(async (maDk) => {
+          try {
+            // fetch data cho tung hoc vien
+            const rawData = await getKetQuaTapByMaDk(maDk);
+            // Truy xuất mảng kết quả từ thuộc tính .data hoặc trực tiếp nếu là mảng
+            const records = Array.isArray(rawData?.data) ? rawData.data : (Array.isArray(rawData) ? rawData : []);
+
+            let onlineRecord = null;
+
+            // Kiem tra xem co ban ghi nao nam trong khoang thoi gian ca hoc hay khong
+            const isOnline = records.some((record) => {
+              const timeIn = record.Time_In ? new Date(record.Time_In).getTime() : null;
+              const timeOut = record.Time_Out ? new Date(record.Time_Out).getTime() : null;
+              const dateCreate = record.DateCreate ? new Date(record.DateCreate).getTime() : null;
+
+              // Check Time_In hoac Time_Out hoac DateCreate neu co
+              const checkTimes = [timeIn, timeOut, dateCreate].filter(t => t !== null);
+              
+              const match = checkTimes.some(t => t >= checkWindow.min && t <= checkWindow.max);
+              if (match) {
+                onlineRecord = record;
+              }
+              return match;
+            });
+
+            return { 
+              maDk, 
+              status: isOnline ? "online" : "warning",
+              cabin_so: isOnline ? onlineRecord?.ID_ThietBi : null
+            };
+          } catch (err) {
+            console.error(`[checkOnlineStatus] Loi khi kiem tra cho ${maDk}:`, err.message);
+            return { maDk, status: "warning", cabin_so: null, error: err.message };
+          }
+        })
+      )
+    ]);
+
+    // Anh xa thong tin giao vien vao ket qua
+    const teacherMap = {};
+    teacherList.forEach(t => {
+      teacherMap[t.ma_dk] = t.giao_vien;
+    });
+
+    const finalData = results.map(r => ({
+      ...r,
+      giao_vien: teacherMap[r.maDk] || null
+    }));
+
+    return res.json({ success: true, data: finalData });
+  } catch (err) {
+    console.error("[checkOnlineStatus]", err);
+    return res.status(500).json({ success: false, message: "Lỗi server", error: err.message });
+  }
+}
+
 module.exports = {
   getDanhSachDatCabin,
   getDanhSachHocVienCabin,
@@ -276,4 +360,5 @@ module.exports = {
   saveLichPhanBo,
   getLichPhanBo,
   updateLichNote,
+  checkOnlineStatus,
 };
