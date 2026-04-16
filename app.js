@@ -23,6 +23,10 @@ const HOST = process.env.HOST || "0.0.0.0";
 connectDB();
 connectSQL();
 
+// Khởi tạo các tác vụ tự động (Cron Jobs)
+const cronService = require("./src/services/cron.service");
+cronService.init();
+
 app.use(cors());
 
 app.use(express.json());

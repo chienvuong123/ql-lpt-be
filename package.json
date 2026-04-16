@@ -24,6 +24,7 @@
     "mongoose": "^9.2.0",
     "mssql": "^12.2.0",
     "multer": "^2.0.2",
+    "node-cron": "^4.2.1",
     "playwright": "^1.58.2",
     "sharp": "^0.34.5",
     "xlsx": "^0.18.5",
