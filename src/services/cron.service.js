@@ -29,7 +29,16 @@ class CronService {
           }
         }
 
-        if (theoryExpired.length === 0 && cabinExpired.length === 0) {
+        // 3. Quét DAT
+        const datExpired = await tienDoDaoTaoModel.getDatExpiredYesterday();
+        if (datExpired.length > 0) {
+          console.log(`[CronService] Tìm thấy ${datExpired.length} khóa hết hạn DAT: ${datExpired.join(", ")}`);
+          for (const mk of datExpired) {
+            await hocBuService.checkAndMoveDat(mk);
+          }
+        }
+
+        if (theoryExpired.length === 0 && cabinExpired.length === 0 && datExpired.length === 0) {
           console.log("[CronService] Không có khóa nào hết hạn hôm qua.");
         }
         

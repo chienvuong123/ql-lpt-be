@@ -53,10 +53,23 @@ class TienDoDaoTaoController {
 
     try {
       const result = await hocBuService.checkAndMoveCabin(ma_khoa);
-      res.status(200).json({ success: true, message: `Học bù Cabin: Đã chuyển ${result.movedCount} học viên.`, data: result });
-    } catch (error) {
-      console.error("[moveFailedCabinToHocBu] Error:", error);
-      res.status(500).json({ success: false, message: "Lỗi hệ thống", error: error.message });
+      res.json({ success: true, message: `Học bù Cabin: Đã chuyển ${result.movedCount} học viên.`, data: result });
+    } catch (err) {
+      console.error("[moveFailedCabinToHocBu]", err.message);
+      res.status(500).json({ success: false, message: "Lỗi server", error: err.message });
+    }
+  }
+
+  async moveFailedDatToHocBu(req, res) {
+    const { ma_khoa } = req.body;
+    if (!ma_khoa) return res.status(400).json({ success: false, message: "Thiếu ma_khoa" });
+
+    try {
+      const result = await hocBuService.checkAndMoveDat(ma_khoa);
+      res.json({ success: true, message: `Học bù DAT: Đã chuyển ${result.movedCount} học viên.`, data: result });
+    } catch (err) {
+      console.error("[moveFailedDatToHocBu]", err.message);
+      res.status(500).json({ success: false, message: "Lỗi server", error: err.message });
     }
   }
 }

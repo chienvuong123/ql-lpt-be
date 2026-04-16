@@ -11,4 +11,7 @@ router.post("/move-failed-theory-to-hoc-bu", tienDoDaoTaoController.moveFailedTh
 // Route kiểm tra và chuyển học viên chưa đạt CABIN vào học bù
 router.post("/move-failed-cabin-to-hoc-bu", tienDoDaoTaoController.moveFailedCabinToHocBu);
 
+// Route kiểm tra và chuyển học viên chưa đạt DAT vào học bù
+router.post("/move-failed-dat-to-hoc-bu", tienDoDaoTaoController.moveFailedDatToHocBu);
+
 module.exports = router;

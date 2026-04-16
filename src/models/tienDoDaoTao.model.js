@@ -55,6 +55,20 @@ class TienDoDaoTaoModel {
     `);
     return result.recordset.map((row) => row.ma_khoa);
   }
+
+  /**
+   * Lấy danh sách các khóa đã hết hạn DAT vào ngày hôm qua
+   * @returns {Array} Danh sách mã khóa
+   */
+  async getDatExpiredYesterday() {
+    const pool = await connectSQL();
+    const result = await pool.request().query(`
+      SELECT ma_khoa 
+      FROM [dbo].[tien_do_dao_tao]
+      WHERE CAST(ket_thuc_dat AS DATE) = CAST(DATEADD(day, -1, GETDATE()) AS DATE)
+    `);
+    return result.recordset.map((row) => row.ma_khoa);
+  }
 }
 
 module.exports = new TienDoDaoTaoModel();

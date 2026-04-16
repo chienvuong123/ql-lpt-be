@@ -11,13 +11,13 @@ async function upsertMany(records) {
 
   try {
     await transaction.begin();
-    
+
     let upsertedCount = 0;
     let modifiedCount = 0;
 
     for (const data of records) {
       const request = new mssql.Request(transaction);
-      
+
       request.input("stt", mssql.Int, data.stt || null);
       request.input("ma_dk", mssql.VarChar, data.ma_dk);
       request.input("khoa", mssql.NVarChar, data.khoa || null);
@@ -80,6 +80,32 @@ async function upsertMany(records) {
   }
 }
 
+/**
+ * Lấy danh sách đăng ký xe và giáo viên theo danh sách ma_dk
+ * @param {Array} maDkList 
+ */
+async function findByMaDkList(maDkList) {
+  if (!Array.isArray(maDkList) || maDkList.length === 0) return [];
+
+  const pool = await connectSQL();
+  const request = new mssql.Request(pool);
+
+  // Chuyển sang dùng IN để tránh lỗi Table Type chưa định nghĩa trong DB
+  const query = `
+    SELECT *
+    FROM [dbo].[dang_ky_xe_gv]
+    WHERE ma_dk IN (${maDkList.map((id, index) => {
+      const paramName = `id${index}`;
+      request.input(paramName, mssql.VarChar, id);
+      return `@${paramName}`;
+    }).join(',')})
+  `;
+
+  const result = await request.query(query);
+  return result.recordset;
+}
+
 module.exports = {
-  upsertMany
+  upsertMany,
+  findByMaDkList
 };
