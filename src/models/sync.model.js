@@ -270,7 +270,7 @@ async function getHocVienSearch(filters = {}) {
 
   if (filters.search) {
     request.input("search", mssql.NVarChar, `%${filters.search}%`);
-    query += ` AND (hv.ho_ten LIKE @search OR hv.ma_dk LIKE @search)`;
+    query += ` AND (hv.ho_ten LIKE @search OR hv.ma_dk LIKE @search OR hv.cccd LIKE @search)`;
   }
 
   if (filters.ma_khoa) {

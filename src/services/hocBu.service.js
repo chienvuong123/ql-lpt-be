@@ -86,8 +86,8 @@ class HocBuService {
     const students = await syncModel.getHocVienSearch({ ma_khoa });
     if (students.length === 0) return { totalChecked: 0, movedCount: 0, failedCount: 0 };
 
-    // Sử dụng ten_khoa (mã ngắn) cho API Cabin theo xác nhận của User
-    const cabinRaw = await cabinService.getDanhSachKetQuaCabin({ khoa: courseInfo.ten_khoa }).then(r => r?.data || []);
+    // Sử dụng ma_khoa (mã đầy đủ) cho API Cabin để đảm bảo khớp dữ liệu
+    const cabinRaw = await cabinService.getDanhSachKetQuaCabin({ khoa: ma_khoa }).then(r => r?.data || []);
     const cabinMap = cabinService.buildCabinMap(cabinRaw);
 
     const failedStudents = [];
@@ -98,6 +98,7 @@ class HocBuService {
       const cabin_duration = ttCabin.tong_thoi_gian || 0;
       const cabin_lessons = ttCabin.so_bai_hoc || 0;
 
+      // Điều kiện đạt: >= 150 phút (9000 giây) VÀ >= 8 bài
       if (cabin_duration < 9000 || cabin_lessons < 8) {
         failedStudents.push({
           ma_dk: maDk,

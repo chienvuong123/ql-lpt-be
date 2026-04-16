@@ -9,7 +9,10 @@ async function getDanhSachKetQuaCabin({ khoa, hoTen = "" }) {
   return response.data;
 }
 
-// Build map: { maDk -> { tongThoiGian, soBaiHoc } }
+/**
+ * Hàm tổng hợp dữ liệu Cabin dùng chung cho cả API Thống kê và Xử lý Học bù
+ * @param {Array} rawList Mảng dữ liệu thô từ API ngoài
+ */
 function buildCabinMap(rawList) {
   const map = {};
 
@@ -19,15 +22,20 @@ function buildCabinMap(rawList) {
 
     if (!map[maDk]) {
       map[maDk] = {
-        tongThoiGian: 0,
+        ma_dk: maDk,
+        ho_ten: item.HoTen,
+        cccd: item.SoCMT,
+        ngay_sinh: item.NgaySinh,
+        ma_khoa: item.Khoa,
+        tong_thoi_gian: 0,
         baiTapMap: {}, // Để đếm số bài và tổng thời gian từng bài
       };
     }
 
     const duration = Number(item?.TongThoiGian || 0);
-    map[maDk].tongThoiGian += duration;
+    map[maDk].tong_thoi_gian += duration;
 
-    const tenBai = item?.Name || "Không rõ";
+    const tenBai = item?.Name || "Chưa xác định";
     if (!map[maDk].baiTapMap[tenBai]) {
       map[maDk].baiTapMap[tenBai] = 0;
     }
@@ -38,23 +46,33 @@ function buildCabinMap(rawList) {
   Object.entries(map).forEach(([maDk, value]) => {
     const baiHoc = Object.entries(value.baiTapMap).map(([ten, giay]) => ({
       ten_bai: ten,
+      tong_thoi_gian: giay,
       tong_phut: Math.round(giay / 60),
     }));
 
     result[maDk] = {
-      tong_thoi_gian: value.tongThoiGian,
+      ma_dk: value.ma_dk,
+      ho_ten: value.ho_ten,
+      cccd: value.cccd,
+      ngay_sinh: value.ngay_sinh,
+      ma_khoa: value.ma_khoa,
+      tong_thoi_gian: value.tong_thoi_gian,
+      tong_phut: Math.round(value.tong_thoi_gian / 60),
       so_bai_hoc: baiHoc.length,
-      bai_hoc: baiHoc,
+      bai_hoc: baiHoc, // Dùng cho API thống kê
     };
   });
 
   return result;
 }
 
-// Tính trạng thái cabin
+/**
+ * Tính trạng thái cabin dựa trên điều kiện mới: >= 150 phút và >= 8 bài
+ */
 function getCabinStatus(tongThoiGian, soBaiHoc) {
   if (!tongThoiGian && !soBaiHoc) return "chua_hoc";
-  if (tongThoiGian >= 8400 && soBaiHoc >= 8) return "dat";
+  // 150 phút = 9000 giây
+  if (tongThoiGian >= 9000 && soBaiHoc >= 8) return "dat";
   return "chua_dat";
 }
 

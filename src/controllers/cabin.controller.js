@@ -353,6 +353,49 @@ async function checkOnlineStatus(req, res) {
   }
 }
 
+/**
+ * Lấy thống kê cabin theo khóa
+ * GET /api/cabin/thong-ke-khoa?ma_khoa=...
+ */
+async function getThongKeCabinKhoa(req, res) {
+  try {
+    const { ma_khoa } = req.query;
+    if (!ma_khoa) {
+      return res.status(400).json({ success: false, message: "Thiếu ma_khoa" });
+    }
+
+    const response = await getDanhSachKetQuaCabin({ khoa: ma_khoa });
+    const rawData = response?.data || [];
+
+    if (!Array.isArray(rawData) || rawData.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+
+    // Sử dụng logic tổng hợp dùng chung từ service
+    const cabinMap = buildCabinMap(rawData);
+
+    // Chuyển map sang array và bổ sung thuộc tính hiển thị
+    const result = Object.values(cabinMap).map((student) => {
+      return {
+        ma_dk: student.ma_dk,
+        ho_ten: student.ho_ten,
+        cccd: student.cccd,
+        ngay_sinh: student.ngay_sinh,
+        ma_khoa: student.ma_khoa,
+        tong_thoi_gian: student.tong_thoi_gian,
+        tong_phut: student.tong_phut,
+        tong_so_bai: student.so_bai_hoc,
+        chi_tiet_bai_tap: student.bai_hoc,
+      };
+    });
+
+    return res.json({ success: true, data: result });
+  } catch (err) {
+    console.error("[getThongKeCabinKhoa]", err.message);
+    return res.status(500).json({ success: false, message: "Lỗi server khi lấy thống kê cabin", error: err.message });
+  }
+}
+
 module.exports = {
   getDanhSachDatCabin,
   getDanhSachHocVienCabin,
@@ -361,4 +404,5 @@ module.exports = {
   getLichPhanBo,
   updateLichNote,
   checkOnlineStatus,
+  getThongKeCabinKhoa,
 };
