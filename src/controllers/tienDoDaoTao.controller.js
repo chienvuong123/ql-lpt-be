@@ -1,7 +1,57 @@
 const tienDoDaoTaoModel = require("../models/tienDoDaoTao.model");
 const hocBuService = require("../services/hocBu.service");
+const hocBuModel = require("../models/hocBu.model");
 
 class TienDoDaoTaoController {
+  /**
+   * GET /api/tien-do-dao-tao/hoc-bu
+   * Lấy danh sách học viên học bù với bộ lọc
+   */
+  async getHocBuList(req, res) {
+    const { ma_khoa, loai, search } = req.query;
+
+    try {
+      const data = await hocBuModel.getHocBuList({ ma_khoa, loai, search });
+      res.status(200).json({
+        success: true,
+        message: "Lấy danh sách học bù thành công",
+        data: data,
+      });
+    } catch (error) {
+      console.error("[getHocBuList] Error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Lỗi hệ thống khi lấy danh sách học bù",
+        error: error.message,
+      });
+    }
+  }
+
+  /**
+   * GET /api/tien-do-dao-tao/hoc-bu/detail
+   * Lấy dữ liệu chi tiết tiến độ (LT, Cabin, DAT) của 1 học viên
+   */
+  async getHocBuDetail(req, res) {
+    const { ma_dk, ma_khoa, enrolmentPlanIid } = req.query;
+    if (!ma_dk || !ma_khoa) {
+      return res.status(400).json({ success: false, message: "Thiếu ma_dk hoặc ma_khoa" });
+    }
+
+    try {
+      const data = await hocBuService.getStudentProgressDetail(ma_dk, ma_khoa, enrolmentPlanIid);
+      res.status(200).json({
+        success: true,
+        data: data
+      });
+    } catch (error) {
+      console.error("[getHocBuDetail] Error:", error.message);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Lỗi hệ thống khi lấy chi tiết học viên",
+      });
+    }
+  }
+
   /**
    * GET /api/tien-do-dao-tao
    * Lấy danh sách tiến độ đào tạo

@@ -273,6 +273,11 @@ async function getHocVienSearch(filters = {}) {
     query += ` AND (hv.ho_ten LIKE @search OR hv.ma_dk LIKE @search OR hv.cccd LIKE @search)`;
   }
 
+  if (filters.ma_dk) {
+    request.input("ma_dk", mssql.VarChar, filters.ma_dk);
+    query += ` AND hv.ma_dk = @ma_dk`;
+  }
+
   if (filters.ma_khoa) {
     request.input("ma_khoa", mssql.VarChar, filters.ma_khoa);
     query += ` AND hv.ma_khoa = @ma_khoa`;

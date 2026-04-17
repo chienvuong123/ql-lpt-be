@@ -5,6 +5,7 @@ const syncModel = require("../models/sync.model");
 const cabinService = require("../services/cabinApi.service");
 const lopLyThuyetModel = require("../models/lopLyThuyet.model");
 const vehicleRegistrationModel = require("../models/vehicleRegistration.model");
+const lotusApiService = require("./lotusApi.service");
 const evaluateUtils = require("../utils/evaluate");
 const connectSQL = require("../configs/sql");
 const mssql = require("mssql");
@@ -79,9 +80,12 @@ class HocBuService {
   async getCourseInfo(ma_khoa_full) {
     const pool = await connectSQL();
     const result = await pool.request().input("ma_khoa", mssql.VarChar, ma_khoa_full).query(`
-      SELECT TOP 1 ma_khoa, ten_khoa, code 
+      SELECT TOP 1 
+        LTRIM(RTRIM(ma_khoa)) as ma_khoa, 
+        ten_khoa, 
+        LTRIM(RTRIM(code)) as code 
       FROM khoa_hoc 
-      WHERE ma_khoa = @ma_khoa
+      WHERE ma_khoa = @ma_khoa OR LTRIM(RTRIM(ma_khoa)) = LTRIM(RTRIM(@ma_khoa))
     `);
     return result.recordset[0];
   }
@@ -238,12 +242,12 @@ class HocBuService {
     for (let i = 0; i < students.length; i++) {
       const student = students[i];
       const sessions = datResults[i] || [];
-      
+
       const regRecord = regMap[student.ma_dk];
-      const regInfo = regRecord ? { 
-        giaoVien: regRecord.giaoVien, 
-        xeB1: regRecord.xeB1, 
-        xeB2: regRecord.xeB2 
+      const regInfo = regRecord ? {
+        giaoVien: regRecord.giaoVien,
+        xeB1: regRecord.xeB1,
+        xeB2: regRecord.xeB2
       } : null;
 
       const summary = evaluateUtils.computeSummary(sessions, student.hang_gplx || student.hang, regInfo);
@@ -267,6 +271,117 @@ class HocBuService {
 
     console.log(`[HocBuService] [DAT] Hoàn tất khóa ${ma_khoa}: Kiểm tra ${students.length}, Chuyển ${movedCount}/${failedStudents.length} vào học bù.`);
     return { totalChecked: students.length, movedCount, failedCount: failedStudents.length };
+  }
+
+  /**
+   * Lấy dữ liệu chi tiết tiến độ của một học viên từ tất cả các nguồn
+   * @param {string} ma_dk 
+   * @param {string} ma_khoa 
+   * @param {string} enrolmentPlanIid (Tùy chọn) ID lớp học trên Lotus
+   */
+  async getStudentProgressDetail(ma_dk, ma_khoa, enrolmentPlanIid = null) {
+    console.log(`[HocBuService] [Detail] Lấy chi tiết cho: ${ma_dk} - ${ma_khoa}`);
+
+    const courseInfo = await this.getCourseInfo(ma_khoa);
+    // Sử dụng bộ lọc ma_dk chính xác thay vì search tổng quát
+    const studentInfo = await syncModel.getHocVienSearch({ ma_dk: ma_dk });
+    const student = studentInfo[0];
+
+    if (!student) throw new Error("Không tìm thấy học viên trong hệ thống.");
+
+    // 1. Lấy chi tiết Lý thuyết (Rubriks) từ Lotus
+    let theoryDetails = { scoreByRubrik: [], raw: null };
+    const lotusPlanIid = enrolmentPlanIid || (courseInfo ? courseInfo.code : null);
+
+    if (lotusPlanIid) {
+      try {
+        const lotusData = await lotusApiService.callWithRetry(async (auth) => {
+          // Tìm kiếm theo ma_dk hoặc cccd trong lớp học
+          return await lotusApiService.getHocVienTheoKhoa(lotusPlanIid, { text: student.ma_dk }, auth);
+        });
+
+        const members = lotusData?.result || [];
+        // Tìm member khớp ma_dk hoặc CCCD nhất
+        const member = members.find(m =>
+          String(m?.user?.code || "").trim() === String(student.ma_dk || "").trim() ||
+          String(m?.user?.identification_card || "").trim() === String(student.cccd || "").trim()
+        );
+
+        if (member) {
+          theoryDetails.scoreByRubrik = member.learning_progress?.score_by_rubrik || [];
+          theoryDetails.raw = member;
+        }
+      } catch (err) {
+        console.error("[Detail] Lỗi lấy lý thuyết Lotus:", err.message);
+      }
+    }
+
+    // 2. Lấy chi tiết Cabin
+    let cabinDetails = { cabinSessions: [], summary: { tongPhut: 0, soBai: 0 } };
+    try {
+      const cabinRaw = await cabinService.getKetQuaTapByMaDk(ma_dk);
+      const cabinResult = Array.isArray(cabinRaw) ? cabinRaw : (cabinRaw?.data || []);
+      const map = cabinService.buildCabinMap(cabinResult);
+      const tt = map[ma_dk];
+      if (tt) {
+        cabinDetails.cabinSessions = tt.bai_hoc || [];
+        cabinDetails.summary = {
+          tongPhut: tt.tong_phut,
+          soBai: tt.so_bai_hoc
+        };
+      }
+    } catch (err) {
+      console.error("[Detail] Lỗi lấy Cabin:", err.message);
+    }
+
+    // 3. Lấy chi tiết DAT
+    let datDetails = { sessions: [], summary: { tongKm: 0, tongPhut: 0, soPhien: 0 } };
+    try {
+      const datSessions = await fetchRawHanhTrinhRecords(ma_dk, ma_khoa);
+
+      // Lấy thông tin đăng ký để evaluate
+      const registration = await vehicleRegistrationModel.findByMaDkList([ma_dk]);
+      const r = registration[0];
+      const regInfo = r ? { giaoVien: r.giao_vien, xeB1: r.xe_b1, xeB2: r.xe_b2 } : null;
+
+      const resultsSummary = evaluateUtils.computeSummary(datSessions, student.hang_gplx || student.hang, regInfo);
+      const evaluation = evaluateUtils.evaluate(resultsSummary, datSessions, regInfo);
+
+      // Map lại danh sách session kèm trạng thái lỗi nếu có
+      const enrichedSessions = datSessions.map(sess => {
+        // Tìm xem phiên này có nằm trong danh sách lỗi của evaluation không
+        const isError = evaluation.errors?.some(err => err.sessionId === sess.SessionId || err.details?.some(d => d.SessionId === sess.SessionId));
+        return {
+          ...sess,
+          isError: !!isError,
+          // Bạn có thể thêm chi tiết lỗi cụ thể nếu muốn ở đây
+        };
+      });
+
+      datDetails.sessions = enrichedSessions;
+      datDetails.summary = {
+        tongKm: resultsSummary.totalDistance,
+        tongPhut: Math.round(resultsSummary.totalDuration / 60),
+        soPhien: datSessions.length,
+        evaluationStatus: evaluation.status,
+        errors: evaluation.errors
+      };
+    } catch (err) {
+      console.error("[Detail] Lỗi lấy DAT:", err.message);
+    }
+
+    return {
+      student: {
+        ma_dk: student.ma_dk,
+        ho_ten: student.ho_ten,
+        cccd: student.cccd,
+        ma_khoa: student.ma_khoa,
+        ten_khoa: student.ten_khoa
+      },
+      theoryDetails,
+      cabinDetails,
+      datDetails
+    };
   }
 }
 

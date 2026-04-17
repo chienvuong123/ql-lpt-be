@@ -71,8 +71,13 @@ class HocBuModel {
     }
 
     if (filters.loai) {
-      request.input("loai", mssql.NVarChar, filters.loai);
+      request.input("loai", mssql.Int, filters.loai);
       query += " AND h.loai = @loai";
+    }
+
+    if (filters.search) {
+      request.input("search", mssql.NVarChar, `%${filters.search}%`);
+      query += " AND (h.ma_dk LIKE @search OR hv.ho_ten LIKE @search OR hv.cccd LIKE @search)";
     }
 
     query += " ORDER BY h.created_at DESC";
