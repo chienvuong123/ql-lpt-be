@@ -320,9 +320,8 @@ class HocBuService {
 
     const results = studentList.map(s => {
       const tt = theoryMap[s.ma_dk] || {};
-      const { ma_khoa: _, ...cleanStudent } = s;
       return {
-        student: cleanStudent,
+        student: s,
         theoryInfo: {
           loai_ly_thuyet: tt.loai_ly_thuyet || 0,
           loai_het_mon: tt.loai_het_mon || 0,
@@ -416,9 +415,8 @@ class HocBuService {
 
       const results = studentList.map(s => {
         const tt = cabinMap[s.ma_dk] || { bai_hoc: [], tong_thoi_gian: 0, so_bai_hoc: 0, tong_phut: 0 };
-        const { ma_khoa: _, ...cleanStudent } = s;
         return {
-          student: cleanStudent,
+          student: s,
           tong_thoi_gian: tt.tong_phut || 0,
           tong_bai: tt.so_bai_hoc || 0,
           cabinDetails: tt.bai_hoc || []
@@ -480,9 +478,9 @@ class HocBuService {
               };
             });
 
-            // Tính toán tổng tuyệt đối từ tất cả các phiên thô
-            const totalKm = datSessions.reduce((sum, sess) => sum + (Number(sess.Distance) || 0), 0);
-            const totalSeconds = datSessions.reduce((sum, sess) => sum + (Number(sess.Duration) || 0), 0);
+            // Tính toán tổng tuyệt đối từ tất cả các phiên thô (Sử dụng đúng trường TongQuangDuong và TongThoiGian)
+            const totalKm = datSessions.reduce((sum, sess) => sum + (Number(sess.TongQuangDuong || sess.Distance) || 0), 0);
+            const totalSeconds = datSessions.reduce((sum, sess) => sum + (Number(sess.TongThoiGian || sess.Duration) || 0), 0);
 
             datDetails.summary = {
               tongKm: Number(totalKm.toFixed(2)),
@@ -495,10 +493,9 @@ class HocBuService {
             console.error(`[DAT Fetch Error] ${currentMaDk}:`, err.message);
           }
 
-          const { ma_khoa: _, ...cleanStudent } = s;
           return {
             student: {
-              ...cleanStudent,
+              ...s,
               ky_dat: kyDatInfo.trang_thai || null,
               ghi_chu_1: kyDatInfo.ghi_chu_1 || null,
               ghi_chu_2: kyDatInfo.ghi_chu_2 || null
