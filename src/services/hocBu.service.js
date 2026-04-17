@@ -274,6 +274,253 @@ class HocBuService {
   }
 
   /**
+   * Helper: Lấy thông tin cơ bản của học viên cho các API progress
+   * @param {string} ma_dk 
+   */
+  async getStudentBaseInfo(ma_dk) {
+    const studentInfo = await syncModel.getHocVienSearch({ ma_dk: ma_dk });
+    const student = studentInfo[0];
+    if (!student) throw new Error("Không tìm thấy học viên trong hệ thống.");
+
+    const registration = await vehicleRegistrationModel.findByMaDkList([ma_dk]);
+    const regRecord = registration[0];
+
+    return {
+      ma_dk: student.ma_dk,
+      ho_ten: student.ho_ten,
+      thay_giao: regRecord ? regRecord.giao_vien : null,
+      cccd: student.cccd,
+      ngay_sinh: student.ngay_sinh,
+      ten_khoa: student.ten_khoa,
+      hang: student.hang_gplx || student.hang,
+      anh: student.anh,
+      ma_khoa: student.ma_khoa // Giữ lại nội bộ để dùng cho các hàm khác
+    };
+  }
+
+  /**
+   * API 1: Lấy tiến độ Lý thuyết (Nội bộ)
+   */
+  async getTheoryProgress(ma_dk = null, ma_khoa = null) {
+    let studentList = [];
+    if (ma_dk) {
+      const base = await this.getStudentBaseInfo(ma_dk);
+      studentList.push(base);
+    } else {
+      // Lấy danh sách học viên học bù loại 1 (Lý thuyết)
+      studentList = await hocBuModel.getHocBuList({ loai: 1, ma_khoa });
+    }
+
+    if (studentList.length === 0) return ma_dk ? null : [];
+
+    const maDks = studentList.map(s => s.ma_dk);
+    const theoryData = await lopLyThuyetModel.getAll({ ma_dk_list: maDks });
+    const theoryMap = {};
+    theoryData.forEach(item => { theoryMap[item.ma_dk] = item; });
+
+    const results = studentList.map(s => {
+      const tt = theoryMap[s.ma_dk] || {};
+      const { ma_khoa: _, ...cleanStudent } = s;
+      return {
+        student: cleanStudent,
+        theoryInfo: {
+          loai_ly_thuyet: tt.loai_ly_thuyet || 0,
+          loai_het_mon: tt.loai_het_mon || 0,
+          ghi_chu: tt.ghi_chu || ""
+        }
+      };
+    });
+
+    return ma_dk ? results[0] : results;
+  }
+
+  /**
+   * API 2: Lấy chi tiết bài học Lý thuyết từ Lotus (Giữ nguyên cho chi tiết 1 người)
+   */
+  async getTheoryLotusDetail(ma_dk) {
+    let studentBase = null;
+    try {
+      studentBase = await this.getStudentBaseInfo(ma_dk);
+    } catch (e) {
+      console.error("[Theory Detail] Error getting base info:", e.message);
+    }
+
+    const studentInfo = await syncModel.getHocVienSearch({ ma_dk: ma_dk });
+    const student = studentInfo[0];
+    if (!student) throw new Error("Không tìm thấy học viên.");
+
+    const courseInfo = await this.getCourseInfo(student.ma_khoa);
+    const lotusPlanIid = courseInfo ? courseInfo.code : null;
+
+    if (!lotusPlanIid) return { student: studentBase, scoreByRubrik: [] };
+
+    try {
+      const lotusData = await lotusApiService.callWithRetry(async (auth) => {
+        return await lotusApiService.getHocVienTheoKhoa(lotusPlanIid, { text: student.ma_dk }, auth);
+      });
+      const members = lotusData?.result || [];
+      const member = members.find(m =>
+        String(m?.user?.code || "").trim() === String(student.ma_dk || "").trim() ||
+        String(m?.user?.identification_card || "").trim() === String(student.cccd || "").trim()
+      );
+      
+      return {
+        student: studentBase,
+        scoreByRubrik: member?.learning_progress?.score_by_rubrik || []
+      };
+    } catch (err) {
+      console.error("[Detail Lotus] Error:", err.message);
+      return { student: studentBase, scoreByRubrik: [] };
+    }
+  }
+
+  /**
+   * API 3: Lấy tiến độ Cabin
+   */
+  async getCabinProgress(ma_dk = null, ma_khoa = null) {
+    let studentList = [];
+    try {
+      if (ma_dk) {
+        const base = await this.getStudentBaseInfo(ma_dk);
+        studentList.push(base);
+      } else {
+        studentList = await hocBuModel.getHocBuList({ loai: 2, ma_khoa });
+      }
+
+      if (studentList.length === 0) return ma_dk ? null : [];
+
+      // Lấy dữ liệu Cabin
+      let cabinMap = {};
+      try {
+        if (ma_dk) {
+          // Trường hợp xem chi tiết 1 người
+          const cabinRaw = await cabinService.getKetQuaTapByMaDk(ma_dk);
+          const cabinResult = Array.isArray(cabinRaw) ? cabinRaw : (cabinRaw?.data || []);
+          cabinMap = cabinService.buildCabinMap(cabinResult);
+        } else if (studentList.length > 0) {
+          // Trường hợp danh sách: Gọi song song cho từng người trong danh sách bù (Lấy tối đa 8 người cùng lúc)
+          const cabinRawResults = await mapConcurrent(studentList, 8, async (s) => {
+            try {
+              const res = await cabinService.getKetQuaTapByMaDk(s.ma_dk);
+              return Array.isArray(res) ? res : (res?.data || []);
+            } catch (e) { return []; }
+          });
+          
+          // Gộp tất cả kết quả vào map
+          const allCabinData = cabinRawResults.flat();
+          cabinMap = cabinService.buildCabinMap(allCabinData);
+        }
+      } catch (err) {
+        console.error("[Cabin API Error]", err.message);
+      }
+
+      const results = studentList.map(s => {
+        const tt = cabinMap[s.ma_dk] || { bai_hoc: [], tong_thoi_gian: 0, so_bai_hoc: 0, tong_phut: 0 };
+        const { ma_khoa: _, ...cleanStudent } = s;
+        return {
+          student: cleanStudent,
+          tong_thoi_gian: tt.tong_phut || 0,
+          tong_bai: tt.so_bai_hoc || 0,
+          cabinDetails: tt.bai_hoc || []
+        };
+      });
+
+      return ma_dk ? results[0] : results;
+    } catch (error) {
+      console.error("[getCabinProgress] Error:", error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * API 4: Lấy tiến độ DAT
+   */
+  async getDatProgress(ma_dk = null, ma_khoa = null) {
+    let studentList = [];
+    try {
+      if (ma_dk) {
+        const base = await this.getStudentBaseInfo(ma_dk);
+        studentList.push(base);
+      } else {
+        studentList = await hocBuModel.getHocBuList({ loai: 3, ma_khoa });
+      }
+
+      if (studentList.length === 0) return ma_dk ? null : [];
+
+      const results = await mapConcurrent(studentList, 5, async (s) => {
+        try {
+          const currentMaDk = s.ma_dk;
+          const currentMaKhoa = s.ma_khoa;
+
+          // Lấy dữ liệu từ bảng ky_dat (Không làm sập nếu lỗi)
+          let kyDatInfo = {};
+          try {
+            const pool = await connectSQL();
+            const kyDatResult = await pool.request().input("ma_dk", mssql.VarChar, currentMaDk).query(`
+              SELECT TOP 1 trang_thai, ghi_chu_1, ghi_chu_2 FROM ky_dat WHERE ma_dk = @ma_dk
+            `);
+            kyDatInfo = kyDatResult.recordset[0] || {};
+          } catch (e) { console.error("ky_dat query error:", e.message); }
+
+          let datDetails = { sessions: [], summary: { tongKm: 0, tongPhut: 0, soPhien: 0 } };
+          try {
+            const datSessions = await fetchRawHanhTrinhRecords(currentMaDk, currentMaKhoa);
+            const registration = await vehicleRegistrationModel.findByMaDkList([currentMaDk]);
+            const r = registration[0];
+            const regInfo = r ? { giaoVien: r.giao_vien, xeB1: r.xe_b1, xeB2: r.xe_b2 } : null;
+
+            const summary = evaluateUtils.computeSummary(datSessions, s.hang, regInfo);
+            const evaluation = evaluateUtils.evaluate(summary, datSessions, regInfo);
+
+            datDetails.sessions = datSessions.map(sess => {
+              const { SrcdxAvatar, srcAvatar, SrcdnAvatar, ...sessionData } = sess;
+              return {
+                ...sessionData,
+                isError: !!evaluation.errors?.some(err => err.sessionId === sess.SessionId)
+              };
+            });
+
+            // Tính toán tổng tuyệt đối từ tất cả các phiên thô
+            const totalKm = datSessions.reduce((sum, sess) => sum + (Number(sess.Distance) || 0), 0);
+            const totalSeconds = datSessions.reduce((sum, sess) => sum + (Number(sess.Duration) || 0), 0);
+
+            datDetails.summary = {
+              tongKm: Number(totalKm.toFixed(2)),
+              tongPhut: Math.round(totalSeconds / 60),
+              soPhien: datSessions.length,
+              evaluationStatus: evaluation.status,
+              errors: evaluation.errors
+            };
+          } catch (err) {
+            console.error(`[DAT Fetch Error] ${currentMaDk}:`, err.message);
+          }
+
+          const { ma_khoa: _, ...cleanStudent } = s;
+          return {
+            student: {
+              ...cleanStudent,
+              ky_dat: kyDatInfo.trang_thai || null,
+              ghi_chu_1: kyDatInfo.ghi_chu_1 || null,
+              ghi_chu_2: kyDatInfo.ghi_chu_2 || null
+            },
+            tong_quang_duong: datDetails.summary.tongKm,
+            tong_thoi_gian: datDetails.summary.tongPhut,
+            datDetails
+          };
+        } catch (innerError) {
+          console.error(`[inner DAT error] ${s.ma_dk}:`, innerError.message);
+          return { student: s, datDetails: { sessions: [], summary: {} } };
+        }
+      });
+
+      return ma_dk ? results[0] : results;
+    } catch (error) {
+      console.error("[getDatProgress] Error:", error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Lấy dữ liệu chi tiết tiến độ của một học viên từ tất cả các nguồn
    * @param {string} ma_dk 
    */
@@ -346,10 +593,10 @@ class HocBuService {
     let datDetails = { sessions: [], summary: { tongKm: 0, tongPhut: 0, soPhien: 0 } };
     try {
       const datSessions = await fetchRawHanhTrinhRecords(ma_dk, ma_khoa);
-      const regInfo = regRecord ? { 
-        giaoVien: regRecord.giao_vien, 
-        xeB1: regRecord.xe_b1, 
-        xeB2: regRecord.xe_b2 
+      const regInfo = regRecord ? {
+        giaoVien: regRecord.giao_vien,
+        xeB1: regRecord.xe_b1,
+        xeB2: regRecord.xe_b2
       } : null;
 
       const resultsSummary = evaluateUtils.computeSummary(datSessions, student.hang_gplx || student.hang, regInfo);

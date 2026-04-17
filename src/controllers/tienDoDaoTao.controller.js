@@ -89,7 +89,62 @@ class TienDoDaoTaoController {
       res.status(200).json({ success: true, message: `Học bù Lý thuyết: Đã chuyển ${result.movedCount} học viên.`, data: result });
     } catch (error) {
       console.error("[moveFailedTheoryToHocBu] Error:", error);
-      res.status(500).json({ success: false, message: "Lỗi hệ thống", error: error.message });
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * GET /api/tien-do-dao-tao/hoc-bu/theory
+   */
+  async getTheoryProgress(req, res) {
+    const { ma_dk, ma_khoa } = req.query;
+    try {
+      const data = await hocBuService.getTheoryProgress(ma_dk, ma_khoa);
+      res.status(200).json({ success: true, data });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * GET /api/tien-do-dao-tao/hoc-bu/theory-detail
+   */
+  async getTheoryLotusDetail(req, res) {
+    const { ma_dk } = req.query;
+    if (!ma_dk) return res.status(400).json({ success: false, message: "Thiếu ma_dk cho chi tiết Lotus" });
+
+    try {
+      const data = await hocBuService.getTheoryLotusDetail(ma_dk);
+      res.status(200).json({ success: true, data });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * GET /api/tien-do-dao-tao/hoc-bu/cabin
+   */
+  async getCabinProgress(req, res) {
+    console.log("[getCabinProgress]", req.query);
+    const { ma_dk, ma_khoa } = req.query;
+    try {
+      const data = await hocBuService.getCabinProgress(ma_dk, ma_khoa);
+      res.status(200).json({ success: true, data });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * GET /api/tien-do-dao-tao/hoc-bu/dat
+   */
+  async getDatProgress(req, res) {
+    const { ma_dk, ma_khoa } = req.query;
+    try {
+      const data = await hocBuService.getDatProgress(ma_dk, ma_khoa);
+      res.status(200).json({ success: true, data });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
     }
   }
 

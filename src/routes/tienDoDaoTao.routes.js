@@ -10,6 +10,10 @@ router.get("/hoc-bu", tienDoDaoTaoController.getHocBuList);
 
 // Route lấy chi tiết học bù của 1 học viên
 router.get("/hoc-bu/detail", tienDoDaoTaoController.getHocBuDetail);
+router.get("/hoc-bu/ly-thuyet", tienDoDaoTaoController.getTheoryProgress);
+router.get("/hoc-bu/ly-thuyet/detail", tienDoDaoTaoController.getTheoryLotusDetail);
+router.get("/hoc-bu/cabin", tienDoDaoTaoController.getCabinProgress);
+router.get("/hoc-bu/dat", tienDoDaoTaoController.getDatProgress);
 
 // Route kiểm tra và chuyển học viên chưa đạt LÝ THUYẾT vào học bù
 router.post("/move-failed-theory-to-hoc-bu", tienDoDaoTaoController.moveFailedTheoryToHocBu);

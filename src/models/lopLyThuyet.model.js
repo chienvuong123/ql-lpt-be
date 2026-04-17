@@ -13,6 +13,14 @@ async function getAll(filters = {}) {
     request.input("maKhoa", filters.maKhoa);
   }
 
+  if (filters.ma_dk_list && Array.isArray(filters.ma_dk_list) && filters.ma_dk_list.length > 0) {
+    const params = filters.ma_dk_list.map((dk, i) => `@dk${i}`);
+    where += ` AND tt.ma_dk IN (${params.join(", ")})`;
+    filters.ma_dk_list.forEach((dk, i) => {
+      request.input(`dk${i}`, mssql.VarChar, dk);
+    });
+  }
+
   const result = await request.query(`
     SELECT
       tt.ma_dk,
