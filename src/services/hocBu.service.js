@@ -276,47 +276,55 @@ class HocBuService {
   /**
    * Lấy dữ liệu chi tiết tiến độ của một học viên từ tất cả các nguồn
    * @param {string} ma_dk 
-   * @param {string} ma_khoa 
-   * @param {string} enrolmentPlanIid (Tùy chọn) ID lớp học trên Lotus
    */
-  async getStudentProgressDetail(ma_dk, ma_khoa, enrolmentPlanIid = null) {
-    console.log(`[HocBuService] [Detail] Lấy chi tiết cho: ${ma_dk} - ${ma_khoa}`);
+  async getStudentProgressDetail(ma_dk) {
+    console.log(`[HocBuService] [Detail] Lấy chi tiết cho: ${ma_dk}`);
 
-    const courseInfo = await this.getCourseInfo(ma_khoa);
-    // Sử dụng bộ lọc ma_dk chính xác thay vì search tổng quát
+    // 1. Tìm học viên để lấy thông tin khóa học và thông tin cơ bản
     const studentInfo = await syncModel.getHocVienSearch({ ma_dk: ma_dk });
     const student = studentInfo[0];
 
     if (!student) throw new Error("Không tìm thấy học viên trong hệ thống.");
 
-    // 1. Lấy chi tiết Lý thuyết (Rubriks) từ Lotus
-    let theoryDetails = { scoreByRubrik: [], raw: null };
-    const lotusPlanIid = enrolmentPlanIid || (courseInfo ? courseInfo.code : null);
+    const ma_khoa = student.ma_khoa;
+    const courseInfo = await this.getCourseInfo(ma_khoa);
+    const lotusPlanIid = courseInfo ? courseInfo.code : null;
 
+    // 2. Lấy thông tin giáo viên từ bảng đăng ký
+    const registration = await vehicleRegistrationModel.findByMaDkList([ma_dk]);
+    const regRecord = registration[0];
+    const thay_giao = regRecord ? regRecord.giao_vien : null;
+
+    // 3. Lấy thêm thông tin từ bảng ky_dat (Trạng thái kỳ thi DAT)
+    const pool = await connectSQL();
+    const kyDatResult = await pool.request().input("ma_dk", mssql.VarChar, ma_dk).query(`
+      SELECT TOP 1 trang_thai, ghi_chu_1, ghi_chu_2 
+      FROM ky_dat 
+      WHERE ma_dk = @ma_dk
+    `);
+    const kyDatInfo = kyDatResult.recordset[0] || {};
+
+    // 3. Lấy chi tiết Lý thuyết (Rubriks) từ Lotus
+    let theoryDetails = { scoreByRubrik: [] };
     if (lotusPlanIid) {
       try {
         const lotusData = await lotusApiService.callWithRetry(async (auth) => {
-          // Tìm kiếm theo ma_dk hoặc cccd trong lớp học
           return await lotusApiService.getHocVienTheoKhoa(lotusPlanIid, { text: student.ma_dk }, auth);
         });
-
         const members = lotusData?.result || [];
-        // Tìm member khớp ma_dk hoặc CCCD nhất
         const member = members.find(m =>
           String(m?.user?.code || "").trim() === String(student.ma_dk || "").trim() ||
           String(m?.user?.identification_card || "").trim() === String(student.cccd || "").trim()
         );
-
         if (member) {
           theoryDetails.scoreByRubrik = member.learning_progress?.score_by_rubrik || [];
-          theoryDetails.raw = member;
         }
       } catch (err) {
         console.error("[Detail] Lỗi lấy lý thuyết Lotus:", err.message);
       }
     }
 
-    // 2. Lấy chi tiết Cabin
+    // 4. Lấy chi tiết Cabin
     let cabinDetails = { cabinSessions: [], summary: { tongPhut: 0, soBai: 0 } };
     try {
       const cabinRaw = await cabinService.getKetQuaTapByMaDk(ma_dk);
@@ -334,31 +342,27 @@ class HocBuService {
       console.error("[Detail] Lỗi lấy Cabin:", err.message);
     }
 
-    // 3. Lấy chi tiết DAT
+    // 5. Lấy chi tiết DAT
     let datDetails = { sessions: [], summary: { tongKm: 0, tongPhut: 0, soPhien: 0 } };
     try {
       const datSessions = await fetchRawHanhTrinhRecords(ma_dk, ma_khoa);
-
-      // Lấy thông tin đăng ký để evaluate
-      const registration = await vehicleRegistrationModel.findByMaDkList([ma_dk]);
-      const r = registration[0];
-      const regInfo = r ? { giaoVien: r.giao_vien, xeB1: r.xe_b1, xeB2: r.xe_b2 } : null;
+      const regInfo = regRecord ? { 
+        giaoVien: regRecord.giao_vien, 
+        xeB1: regRecord.xe_b1, 
+        xeB2: regRecord.xe_b2 
+      } : null;
 
       const resultsSummary = evaluateUtils.computeSummary(datSessions, student.hang_gplx || student.hang, regInfo);
       const evaluation = evaluateUtils.evaluate(resultsSummary, datSessions, regInfo);
 
-      // Map lại danh sách session kèm trạng thái lỗi nếu có
-      const enrichedSessions = datSessions.map(sess => {
-        // Tìm xem phiên này có nằm trong danh sách lỗi của evaluation không
-        const isError = evaluation.errors?.some(err => err.sessionId === sess.SessionId || err.details?.some(d => d.SessionId === sess.SessionId));
+      datDetails.sessions = datSessions.map(sess => {
+        const { SrcdxAvatar, srcAvatar, SrcdnAvatar, ...sessionData } = sess;
         return {
-          ...sess,
-          isError: !!isError,
-          // Bạn có thể thêm chi tiết lỗi cụ thể nếu muốn ở đây
+          ...sessionData,
+          isError: !!evaluation.errors?.some(err => err.sessionId === sess.SessionId || err.details?.some(d => d.SessionId === sess.SessionId))
         };
       });
 
-      datDetails.sessions = enrichedSessions;
       datDetails.summary = {
         tongKm: resultsSummary.totalDistance,
         tongPhut: Math.round(resultsSummary.totalDuration / 60),
@@ -373,10 +377,15 @@ class HocBuService {
     return {
       student: {
         ma_dk: student.ma_dk,
-        ho_ten: student.ho_ten,
-        cccd: student.cccd,
         ma_khoa: student.ma_khoa,
-        ten_khoa: student.ten_khoa
+        ten_khoa: student.ten_khoa,
+        ngay_sinh: student.ngay_sinh,
+        thay_giao: thay_giao,
+        hang: student.hang_gplx || student.hang,
+        anh: student.anh,
+        ky_dat: kyDatInfo.trang_thai || null,
+        ghi_chu_1: kyDatInfo.ghi_chu_1 || null,
+        ghi_chu_2: kyDatInfo.ghi_chu_2 || null
       },
       theoryDetails,
       cabinDetails,

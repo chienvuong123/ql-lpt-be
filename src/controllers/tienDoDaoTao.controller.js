@@ -32,13 +32,13 @@ class TienDoDaoTaoController {
    * Lấy dữ liệu chi tiết tiến độ (LT, Cabin, DAT) của 1 học viên
    */
   async getHocBuDetail(req, res) {
-    const { ma_dk, ma_khoa, enrolmentPlanIid } = req.query;
-    if (!ma_dk || !ma_khoa) {
-      return res.status(400).json({ success: false, message: "Thiếu ma_dk hoặc ma_khoa" });
+    const { ma_dk } = req.query;
+    if (!ma_dk) {
+      return res.status(400).json({ success: false, message: "Thiếu ma_dk" });
     }
 
     try {
-      const data = await hocBuService.getStudentProgressDetail(ma_dk, ma_khoa, enrolmentPlanIid);
+      const data = await hocBuService.getStudentProgressDetail(ma_dk);
       res.status(200).json({
         success: true,
         data: data
