@@ -102,7 +102,8 @@ class HocBuService {
     const students = await syncModel.getHocVienSearch({ ma_khoa });
     if (students.length === 0) return { totalChecked: 0, movedCount: 0, failedCount: 0 };
 
-    const theoryData = await lopLyThuyetModel.getAll({ maKhoa: courseInfo.code });
+    // Sử dụng ma_khoa (mã đầy đủ) để query bảng trang_thai_ly_thuyet cho chính xác
+    const theoryData = await lopLyThuyetModel.getAll({ ma_khoa: ma_khoa });
     const theoryMap = {};
     theoryData.forEach(item => {
       theoryMap[item.ma_dk] = item;
@@ -110,11 +111,11 @@ class HocBuService {
 
     const failedStudents = [];
     for (const student of students) {
-      const maDk = student.ma_dk;
+      const maDk = String(student.ma_dk || "").trim();
       const ttTheory = theoryMap[maDk];
 
-      const th_online = ttTheory ? Boolean(ttTheory.loai_ly_thuyet) : false;
-      const th_het_mon = ttTheory ? Boolean(ttTheory.loai_het_mon) : false;
+      const th_online = ttTheory ? Boolean(Number(ttTheory.loai_ly_thuyet)) : false;
+      const th_het_mon = ttTheory ? Boolean(Number(ttTheory.loai_het_mon)) : false;
 
       if (!th_online || !th_het_mon) {
         failedStudents.push({
@@ -148,9 +149,19 @@ class HocBuService {
       return { totalChecked: 0, movedCount: 0, failedCount: 0 };
     }
 
-    const students = await syncModel.getHocVienSearch({ ma_khoa });
-    if (students.length === 0) return { totalChecked: 0, movedCount: 0, failedCount: 0 };
+    const studentsRaw = await syncModel.getHocVienSearch({ ma_khoa });
+    if (studentsRaw.length === 0) return { totalChecked: 0, movedCount: 0, failedCount: 0 };
 
+    // Lọc bỏ các học viên đã có trong danh sách Học bù Lý thuyết (loai: 1)
+    const maDkInTheory = await hocBuModel.getMaDkByKhoaAndLoai(ma_khoa, [1]);
+    const students = studentsRaw.filter(s => !maDkInTheory.has(s.ma_dk));
+
+    if (students.length === 0) {
+      console.log(`[HocBuService] [Cabin] Toàn bộ học viên đã ở trong danh sách bù Lý thuyết. Bỏ qua.`);
+      return { totalChecked: studentsRaw.length, movedCount: 0, failedCount: 0 };
+    }
+
+    // Sử dụng ma_khoa (mã đầy đủ) cho API Cabin để đảm bảo khớp dữ liệu
     const cabinRaw = await cabinService.getDanhSachKetQuaCabin({ khoa: ma_khoa }).then(r => r?.data || []);
     const cabinMap = cabinService.buildCabinMap(cabinRaw);
 
@@ -194,8 +205,17 @@ class HocBuService {
       return { totalChecked: 0, movedCount: 0, failedCount: 0 };
     }
 
-    const students = await syncModel.getHocVienSearch({ ma_khoa });
-    if (students.length === 0) return { totalChecked: 0, movedCount: 0, failedCount: 0 };
+    const studentsRaw = await syncModel.getHocVienSearch({ ma_khoa });
+    if (studentsRaw.length === 0) return { totalChecked: 0, movedCount: 0, failedCount: 0 };
+
+    // Lọc bỏ các học viên đã có trong danh sách Học bù Lý thuyết (loai: 1) hoặc Cabin (loai: 2)
+    const maDkInPrevious = await hocBuModel.getMaDkByKhoaAndLoai(ma_khoa, [1, 2]);
+    const students = studentsRaw.filter(s => !maDkInPrevious.has(s.ma_dk));
+
+    if (students.length === 0) {
+      console.log(`[HocBuService] [DAT] Toàn bộ học viên đã ở trong danh sách bù Lý thuyết hoặc Cabin. Bỏ qua.`);
+      return { totalChecked: studentsRaw.length, movedCount: 0, failedCount: 0 };
+    }
 
     const maDkList = students.map(s => s.ma_dk);
 

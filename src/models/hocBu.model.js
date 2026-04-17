@@ -80,6 +80,28 @@ class HocBuModel {
     const result = await request.query(query);
     return result.recordset;
   }
+
+  /**
+   * Lấy danh sách ma_dk đã có trong bảng học bù theo khóa và loại
+   * @param {string} ma_khoa 
+   * @param {Array} loaiList 
+   */
+  async getMaDkByKhoaAndLoai(ma_khoa, loaiList = []) {
+    if (!ma_khoa) return new Set();
+
+    const pool = await connectSQL();
+    const request = new mssql.Request(pool);
+    request.input("ma_khoa", mssql.VarChar, ma_khoa);
+
+    let query = "SELECT ma_dk FROM hoc_bu WHERE ma_khoa = @ma_khoa";
+    
+    if (loaiList.length > 0) {
+      query += ` AND loai IN (${loaiList.join(",")})`;
+    }
+
+    const result = await request.query(query);
+    return new Set(result.recordset.map(row => row.ma_dk));
+  }
 }
 
 module.exports = new HocBuModel();
