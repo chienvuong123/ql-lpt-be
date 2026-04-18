@@ -4,7 +4,7 @@ const bcrypt = require("bcryptjs");
 async function getAll() {
   const pool = await connectSQL();
   const result = await pool.request().query(`
-    SELECT u.id, u.username, u.ho_ten, u.role_id, r.name as role_name, u.is_active, u.created_at, u.updated_at
+    SELECT u.id, u.username, u.email, u.ho_ten, u.role_id, r.name as role_name, u.is_active, u.created_at, u.updated_at
     FROM users u
     LEFT JOIN roles r ON u.role_id = r.id
     ORDER BY u.created_at DESC
@@ -18,7 +18,7 @@ async function getById(id) {
     .request()
     .input("id", id)
     .query(`
-      SELECT u.id, u.username, u.ho_ten, u.role_id, r.name as role_name, u.is_active, u.created_at, u.updated_at
+      SELECT u.id, u.username, u.email, u.ho_ten, u.role_id, r.name as role_name, u.is_active, u.created_at, u.updated_at
       FROM users u
       LEFT JOIN roles r ON u.role_id = r.id
       WHERE u.id = @id
@@ -41,19 +41,20 @@ async function findByUsername(username) {
 }
 
 async function create(userData) {
-  const { username, password, ho_ten, role_id } = userData;
+  const { username, email, password, ho_ten, role_id } = userData;
   const pool = await connectSQL();
   const hashedPassword = await bcrypt.hash(password, 10);
 
   const result = await pool
     .request()
     .input("username", username)
+    .input("email", email || null)
     .input("password", hashedPassword)
     .input("ho_ten", ho_ten)
     .input("role_id", role_id)
     .query(`
-      INSERT INTO users (username, password, ho_ten, role_id)
-      VALUES (@username, @password, @ho_ten, @role_id);
+      INSERT INTO users (username, email, password, ho_ten, role_id)
+      VALUES (@username, @email, @password, @ho_ten, @role_id);
       SELECT SCOPE_IDENTITY() AS id;
     `);
 
@@ -61,7 +62,7 @@ async function create(userData) {
 }
 
 async function update(id, userData) {
-  const { username, ho_ten, role_id, is_active, password } = userData;
+  const { username, email, ho_ten, role_id, is_active, password } = userData;
   const pool = await connectSQL();
   const request = pool.request();
   request.input("id", id);
@@ -71,6 +72,10 @@ async function update(id, userData) {
   if (username !== undefined) {
     query += ", username = @username";
     request.input("username", username);
+  }
+  if (email !== undefined) {
+    query += ", email = @email";
+    request.input("email", email);
   }
   if (ho_ten !== undefined) {
     query += ", ho_ten = @ho_ten";

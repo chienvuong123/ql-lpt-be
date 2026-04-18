@@ -38,11 +38,37 @@ async function getUserById(req, res) {
 
 async function createUser(req, res) {
   try {
-    const { username, password, ho_ten, role_id } = req.body;
+    const { username, email, password, ho_ten, role_id } = req.body;
     if (!username || !password || !ho_ten || !role_id) {
       return res.status(400).json({
         success: false,
-        message: "All fields are required",
+        message: "All fields except email are required",
+      });
+    }
+
+    // Validation email
+    if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: "Email không đúng định dạng",
+        });
+      }
+    }
+
+    // Validation password
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Mật khẩu phải có ít nhất 6 ký tự",
+      });
+    }
+    const specialCharRegex = /[\W_]/;
+    if (!specialCharRegex.test(password)) {
+      return res.status(400).json({
+        success: false,
+        message: "Mật khẩu phải chứa ít nhất một ký tự đặc biệt",
       });
     }
 
@@ -54,7 +80,7 @@ async function createUser(req, res) {
       });
     }
 
-    const id = await User.create({ username, password, ho_ten, role_id });
+    const id = await User.create({ username, email, password, ho_ten, role_id });
     const newUser = await User.getById(id);
 
     res.status(201).json({
@@ -72,6 +98,36 @@ async function createUser(req, res) {
 
 async function updateUser(req, res) {
   try {
+    const { email, password } = req.body;
+
+    // Validation email nếu có thay đổi
+    if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: "Email không đúng định dạng",
+        });
+      }
+    }
+
+    // Validation password nếu có thay đổi
+    if (password) {
+      if (password.length < 6) {
+        return res.status(400).json({
+          success: false,
+          message: "Mật khẩu phải có ít nhất 6 ký tự",
+        });
+      }
+      const specialCharRegex = /[\W_]/;
+      if (!specialCharRegex.test(password)) {
+        return res.status(400).json({
+          success: false,
+          message: "Mật khẩu phải chứa ít nhất một ký tự đặc biệt",
+        });
+      }
+    }
+
     await User.update(req.params.id, req.body);
     const updatedUser = await User.getById(req.params.id);
     res.json({
