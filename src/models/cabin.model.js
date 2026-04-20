@@ -212,12 +212,12 @@ async function saveLichPhanBo(weekKey, assignments) {
           INSERT INTO cabin_lich_phan_bo (
             ma_dk, ngay, ca_hoc, cabin_so, gio_bat_dau, gio_ket_thuc, 
             is_locked, ghi_chu, ma_khoa, giao_vien, 
-            is_makeup, is_thieu_gio, thoi_gian_hoc, thoi_gian_tong
+            is_makeup, is_thieu_gio, thoi_gian_hoc, thoi_gian_tong, so_lan_chia
           )
           VALUES (
             @ma_dk, @ngay, @ca_hoc, @cabin_so, @gio_bat_dau, @gio_ket_thuc, 
             @is_locked, @ghi_chu, @ma_khoa, @giao_vien, 
-            @is_makeup, @is_thieu_gio, @thoi_gian_hoc, @thoi_gian_tong
+            @is_makeup, @is_thieu_gio, @thoi_gian_hoc, @thoi_gian_tong, 1
           )
         `);
       }
@@ -257,6 +257,54 @@ async function updateLichNote(id, ghi_chu) {
     .input("ghi_chu", ghi_chu ?? null)
     .query(`UPDATE cabin_lich_phan_bo SET ghi_chu = @ghi_chu WHERE id = @id`);
 
+  return true;
+}
+
+async function updateSoLanChia(id, count) {
+  const pool = await connectSQL();
+  await pool
+    .request()
+    .input("id", id)
+    .input("count", mssql.Int, count)
+    .query(`UPDATE cabin_lich_phan_bo SET so_lan_chia = @count WHERE id = @id`);
+
+  return true;
+}
+
+async function getPastAssignments(maDkList) {
+  if (!Array.isArray(maDkList) || maDkList.length === 0) return [];
+  const pool = await connectSQL();
+  const request = pool.request();
+  
+  // Lấy các ca học trong quá khứ chưa được đánh dấu là lỡ (so_lan_chia = 1)
+  // Và chỉ lấy các bản ghi có ma_dk (đã gán học viên)
+  const query = `
+    SELECT id, ma_dk, ngay, ca_hoc, so_lan_chia, is_makeup
+    FROM cabin_lich_phan_bo
+    WHERE so_lan_chia = 1 
+      AND (ngay < CAST(GETDATE() AS DATE) 
+           OR (ngay = CAST(GETDATE() AS DATE) AND ca_hoc < 7)) -- Giả định ca 7 là buổi tối, hoặc đơn giản là lấy ngày < today
+      AND ma_dk IN (${maDkList.map((id, index) => `@id${index}`).join(", ")})
+  `;
+
+  maDkList.forEach((id, index) => {
+    request.input(`id${index}`, id);
+  });
+
+  const result = await request.query(query);
+  return result.recordset;
+}
+
+async function updateSoLanChiaBatch(ids, count) {
+  if (!Array.isArray(ids) || ids.length === 0) return true;
+  const pool = await connectSQL();
+  const request = pool.request();
+  
+  await request.query(`
+    UPDATE cabin_lich_phan_bo 
+    SET so_lan_chia = ${parseInt(count)}
+    WHERE id IN (${ids.join(", ")})
+  `);
   return true;
 }
 
@@ -305,13 +353,24 @@ async function getCabinStudentListSQL(filters = {}) {
       dk.xe_b1,
       dk.xe_b2,
       -- Tên khóa hiển thị chuẩn
-      ISNULL(kh.ten_khoa, dk.khoa) AS ten_khoa
+      ISNULL(kh.ten_khoa, dk.khoa) AS ten_khoa,
+
+      -- Thông tin chia lịch (lấy bản ghi mới nhất)
+      lich.so_lan_chia,
+      lich.is_makeup
     FROM trang_thai_ly_thuyet tt
     LEFT JOIN khoa_hoc kh ON tt.code = kh.code
     -- Tối ưu JOIN bằng cách sử dụng ISNULL để tránh toán tử OR
     LEFT JOIN tien_do_dao_tao td ON td.ma_khoa = ISNULL(kh.ma_khoa, tt.ma_khoa)
     LEFT JOIN hoc_vien hv ON tt.ma_dk = hv.ma_dk
     LEFT JOIN dang_ky_xe_gv dk ON tt.ma_dk = dk.ma_dk
+    -- JOIN để lấy thông tin lần chia lịch gần nhất
+    LEFT JOIN (
+      SELECT ma_dk, MAX(so_lan_chia) AS so_lan_chia, MAX(CAST(is_makeup AS INT)) AS is_makeup
+      FROM cabin_lich_phan_bo
+      WHERE ma_dk IS NOT NULL
+      GROUP BY ma_dk
+    ) lich ON tt.ma_dk = lich.ma_dk
     ${where}
     ORDER BY tt.updated_at DESC
   `);
@@ -347,6 +406,9 @@ module.exports = {
   saveLichPhanBo,
   getLichPhanBo,
   updateLichNote,
+  updateSoLanChia,
+  getPastAssignments,
+  updateSoLanChiaBatch,
   getCabinStudentListSQL,
   getTeacherByMaDkList,
 };

@@ -1,5 +1,13 @@
 const cabinModel = require("../models/cabin.model");
 const cabinApiService = require("../services/cabinApi.service");
+const { CA_HOC_CONFIG } = require("../constants/caHoc");
+
+const normalizeMaDk = (val) => String(val || "").replace(/[^\d]/g, "");
+
+const isMaDkMatch = (val1, val2) => {
+  if (!val1 || !val2) return false;
+  return normalizeMaDk(val1) === normalizeMaDk(val2);
+};
 
 // Simple In-Memory Cache for External API Results
 const cabinApiCache = new Map();
@@ -46,7 +54,39 @@ const getDanhSachCabinSQL = async (req, res) => {
     const flatResults = allSessionResults.flat();
     const cabinMap = cabinApiService.buildCabinMap(flatResults);
 
-    // 3. Merge và format
+    // 4. Tự động kiểm tra các ca trong quá khứ và cập nhật so_lan_chia
+    // Lấy danh sách ma_dk để truy vấn lịch
+    const maDkList = students.map(s => s.ma_dk);
+    const pastAssignments = await cabinModel.getPastAssignments(maDkList);
+    
+    const missedIds = [];
+    const missedMap = {}; // Để cập nhật nhanh vào local object bên dưới
+
+    if (pastAssignments.length > 0) {
+      pastAssignments.forEach(asm => {
+        // Tìm thông tin học tập hiện tại của học viên này trong cabinMap
+        // Vì ma_dk trong cabinMap đến từ API, nên ta cần dùng isMaDkMatch
+        const studentMaDkFromApi = Object.keys(cabinMap).find(k => isMaDkMatch(k, asm.ma_dk));
+        const session = studentMaDkFromApi ? cabinMap[studentMaDkFromApi] : { tong_thoi_gian: 0, so_bai_hoc: 0 };
+        
+        const status = cabinApiService.getCabinStatus(session.tong_thoi_gian, session.so_bai_hoc);
+
+        // Nếu trạng thái hiện tại vẫn là "chua_dat" (chưa đủ 150p và 8 bài)
+        // Mà đã có lịch trong quá khứ -> Đánh dấu là cần chia lại (so_lan_chia = 2)
+        if (status !== 'dat') {
+          missedIds.push(asm.id);
+          missedMap[asm.ma_dk] = 2;
+        }
+      });
+
+      // Cập nhật Database hàng loạt
+      if (missedIds.length > 0) {
+        await cabinModel.updateSoLanChiaBatch(missedIds, 2);
+        console.log(`[getDanhSachCabinSQL] Đã tự động tăng so_lan_chia cho ${missedIds.length} ca chưa đạt.`);
+      }
+    }
+
+    // 5. Merge và format
     const data = students.map(s => {
       const session = cabinMap[s.ma_dk] || { tong_thoi_gian: 0, so_bai_hoc: 0 };
       const tongPhut = Math.round(session.tong_thoi_gian / 60);
@@ -81,11 +121,18 @@ const getDanhSachCabinSQL = async (req, res) => {
         bat_dau_cabin: s.bat_dau_cabin,
         ket_thuc_cabin: s.ket_thuc_cabin,
         ngay_khai_giang: s.ngay_khai_giang,
-        ma_khoa_api: s.code // IID
+        ma_khoa_api: s.code, // IID
+
+        // Tracking info
+        so_lan_chia: missedMap[s.ma_dk] || s.so_lan_chia || 0,
+        is_makeup: s.is_makeup || false
       };
     }).filter(s => {
       const phut = s.phut_cabin || 0;
-      return phut <= 140; // Lấy phut_cabin = 0 hoặc <= 140 phút
+      // Trả về nếu:
+      // 1. Chưa đủ 150 phút (ở đây là <= 140)
+      // 2. HOẶC (số lần chia > 1 và không phải là học bù)
+      return (phut <= 140) || (s.so_lan_chia > 1 && !s.is_makeup);
     });
 
     return res.json({ success: true, total: data.length, data });
