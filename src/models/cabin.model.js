@@ -313,6 +313,9 @@ async function getCabinStudentListSQL(filters = {}) {
   const request = pool.request();
 
   let where = "WHERE tt.loai_ly_thuyet = 1 AND tt.loai_het_mon = 1";
+  
+  // Chỉ lấy những khóa từ K26 trở đi (Năm 2026+)
+  where += " AND (ISNULL(kh.ma_khoa, tt.ma_khoa) LIKE '%K2[6-9]%' OR ISNULL(kh.ma_khoa, tt.ma_khoa) LIKE '%K[3-9]%')";
 
   if (filters.maKhoa) {
     where += " AND tt.ma_khoa = @maKhoa";
