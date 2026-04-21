@@ -8,10 +8,10 @@ class TienDoDaoTaoController {
    * Lấy danh sách học viên học bù với bộ lọc
    */
   async getHocBuList(req, res) {
-    const { ma_khoa, loai, search } = req.query;
+    const { ma_khoa, loai, search, sync } = req.query;
 
     try {
-      const data = await hocBuModel.getHocBuList({ ma_khoa, loai, search });
+      const data = await hocBuService.getHocBuListDetailed({ ma_khoa, loai, search, sync });
       res.status(200).json({
         success: true,
         message: "Lấy danh sách học bù thành công",
@@ -32,13 +32,13 @@ class TienDoDaoTaoController {
    * Lấy dữ liệu chi tiết tiến độ (LT, Cabin, DAT) của 1 học viên
    */
   async getHocBuDetail(req, res) {
-    const { ma_dk } = req.query;
+    const { ma_dk, sync } = req.query;
     if (!ma_dk) {
       return res.status(400).json({ success: false, message: "Thiếu ma_dk" });
     }
 
     try {
-      const data = await hocBuService.getStudentProgressDetail(ma_dk);
+      const data = await hocBuService.getStudentProgressDetail(ma_dk, sync === 'true' || sync === true);
       res.status(200).json({
         success: true,
         data: data
@@ -139,9 +139,9 @@ class TienDoDaoTaoController {
    * GET /api/tien-do-dao-tao/hoc-bu/dat
    */
   async getDatProgress(req, res) {
-    const { ma_dk, ma_khoa } = req.query;
+    const { ma_dk, ma_khoa, sync } = req.query;
     try {
-      const data = await hocBuService.getDatProgress(ma_dk, ma_khoa);
+      const data = await hocBuService.getDatProgress(ma_dk, ma_khoa, sync === 'true' || sync === true);
       res.status(200).json({ success: true, data });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });

@@ -60,12 +60,15 @@ class HocBuModel {
     let query = `
       SELECT 
         h.*, 
+        hv.ho,
+        hv.ten,
         hv.ho_ten, 
         hv.cccd, 
         hv.ngay_sinh, 
         hv.anh,
         hv.hang,
         k.ten_khoa,
+        dk.khoa,
         dk.giao_vien AS thay_giao
       FROM hoc_bu h
       LEFT JOIN hoc_vien hv ON h.ma_dk = hv.ma_dk
