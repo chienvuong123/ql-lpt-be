@@ -51,6 +51,7 @@ app.use("/api/sync", syncRoute);
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/tien-do-dao-tao", require("./src/routes/tienDoDaoTao.routes"));
+app.use("/api/student-detail", require("./src/routes/studentDetail.routes"));
 
 // Tự động quét và hiển thị danh sách API sạch đẹp
 app.get("/", (req, res) => {
