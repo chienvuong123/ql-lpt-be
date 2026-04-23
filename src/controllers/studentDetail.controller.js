@@ -128,6 +128,31 @@ class StudentDetailController {
       );
     }
   }
+
+  /**
+   * POST /api/student-detail/detail-learning-time
+   * Proxy API Lotus để lấy chi tiết thời gian học tập của một môn học
+   */
+  async getDetailLearningTime(req, res) {
+    try {
+      const combinedParams = { ...req.query, ...req.body };
+
+      const data = await callWithRetry(async (auth) => {
+        return await studentDetailService.getDetailLearningTime(combinedParams, auth);
+      });
+
+      res.status(200).json(data);
+    } catch (error) {
+      console.error("[getDetailLearningTime] Error:", error.message);
+      res.status(error.response?.status || 500).json(
+        error.response?.data || {
+          success: false,
+          message: "Lỗi hệ thống khi lấy chi tiết thời gian học từ Lotus",
+          error: error.message,
+        }
+      );
+    }
+  }
 }
 
 module.exports = new StudentDetailController();
