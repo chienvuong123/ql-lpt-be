@@ -11,6 +11,7 @@ const {
   getCabinStatus,
 } = require("../services/cabinApi.service");
 const { LOCAL_BASE } = require("../constants/base");
+const googleSheetService = require("../services/googleSheet.service");
 
 // GET /api/ly-thuyet/lop-hoc
 async function getDanhSachLop(req, res) {
@@ -116,7 +117,7 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
     const { maKhoa, text, page, limit, loai_het_mon, loc_bat_thuong } =
       req.query;
 
-    const [lotusData, dbData, cabinRaw, cabinNotes] = await Promise.all([
+    const [lotusData, dbData, cabinRaw, cabinNotes, googleSheetData] = await Promise.all([
       callWithRetry((auth) =>
         getHocVienTheoKhoa(
           enrolmentPlanIid,
@@ -137,11 +138,18 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
           .getAll({ ma_khoa: enrolmentPlanIid, limit: 9999 })
           .then((r) => r?.data || [])
         : Promise.resolve([]),
+      // Lấy dữ liệu từ Google Sheet
+      googleSheetService.fetchSheetData("1TEeB_qAGJz_aLCzjDOUxEitgrwNWohcy6VjU3k6DppU", "1754545655")
+        .catch(() => []),
     ]);
 
     const allStudents = Array.isArray(lotusData?.result)
       ? lotusData.result
       : [];
+
+    // Trích xuất danh sách ma_dk để lấy thông tin giáo viên chính xác nhất
+    const maDkList = allStudents.map(s => String(s?.user?.admission_code || s?.user?.code || s?.id || ""));
+    const dangKyXeGvData = await model.getDangKyXeGvByMaDkList(maDkList);
 
     // Build maps
     const dbMap = {};
@@ -150,6 +158,19 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
     });
 
     const cabinMap = buildCabinMap(cabinRaw);
+
+    // Build map cho dang_ky_xe_gv (theo ma_dk)
+    const dangKyXeGvMap = {};
+    (dangKyXeGvData || []).forEach((item) => {
+      if (item?.ma_dk) dangKyXeGvMap[String(item.ma_dk)] = item;
+    });
+
+    // Build map cho Google Sheet (theo CCCD)
+    const googleSheetMap = {};
+    (googleSheetData || []).forEach((item) => {
+      const cccd = item["Căn cước /CMND"] ? String(item["Căn cước /CMND"]).trim() : null;
+      if (cccd) googleSheetMap[cccd] = item;
+    });
 
     // Build cabin note map theo ma_dk
     const cabinNoteMap = {};
@@ -164,12 +185,20 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
         student?.id ||
         "",
       );
+      const identificationCard = student?.user?.identification_card ? String(student?.user?.identification_card).trim() : "";
+      
       const dbRecord = dbMap[maDk] || null;
       const cabinInfo = cabinMap[maDk] || { tong_thoi_gian: 0, so_bai_hoc: 0 };
       const trangThaiCabin = getCabinStatus(
         cabinInfo.tong_thoi_gian,
         cabinInfo.so_bai_hoc,
       );
+
+      // Thông tin giáo viên từ Database
+      const dangKyXeRecord = dangKyXeGvMap[maDk] || null;
+      
+      // Thông tin từ Google Sheet
+      const sheetRecord = googleSheetMap[identificationCard] || null;
 
       return {
         user: {
@@ -220,6 +249,19 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
           trang_thai: trangThaiCabin,
           note: cabinNoteMap[maDk] || null,
         },
+        // Thông tin khớp từ Database Local
+        giao_vien_theo_xe: dangKyXeRecord ? {
+          giao_vien: dangKyXeRecord.giao_vien,
+          xe_b1: dangKyXeRecord.xe_b1,
+          xe_b2: dangKyXeRecord.xe_b2,
+        } : null,
+        // Thông tin khớp từ Google Sheet
+        sheet_info: sheetRecord ? {
+          sdt_hoc_vien: sheetRecord["SĐT học viên"] || null,
+          nguoi_tuyen_sinh: sheetRecord["Người tuyển sinh"] || null,
+          ghi_chu_sheet: sheetRecord["Ghi chú"] || null,
+          dat_coc: sheetRecord["Đặt cọc"] || null,
+        } : null,
       };
     });
 
