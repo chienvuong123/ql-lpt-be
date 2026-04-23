@@ -1,4 +1,4 @@
-﻿const connectSQL = require("../configs/sql");
+const connectSQL = require("../configs/sql");
 const sql = require("mssql");
 const { logChanges } = require("../utils/logChanges");
 
@@ -7,13 +7,14 @@ const toNullableString = (value) => {
   return String(value);
 };
 
-const getPhienHocDATByMaDK = async (ma_dk) => {
+const getPhienHocDATByMaDK = async (ma_dk, ma_khoa = null) => {
   const pool = await connectSQL();
-  const result = await pool.request().input("ma_dk", sql.VarChar, ma_dk).query(`
+  let query = `
       SELECT
         id,
         phien_hoc_id,
         ma_dk,
+        ma_khoa,
         ma_hoc_vien,
         ngay,
         gio_tu      AS gio_vao,
@@ -28,13 +29,30 @@ const getPhienHocDATByMaDK = async (ma_dk) => {
         duyet_tong,
         duyet_tu_dong,
         duyet_dem, 
+        id_gv,
+        ho_ten_gv,
+        ho_ten_hv,
+        thoi_gian_dem,
+        quang_duong_dem,
+        tile,
+        guid_session_id,
         nguoi_thay_doi,
         thoi_gian_thay_doi,
         updated_at
       FROM phien_hoc_dat
       WHERE ma_dk = @ma_dk
-      ORDER BY ngay DESC, gio_tu DESC
-    `);
+    `;
+
+  const request = pool.request().input("ma_dk", sql.VarChar, ma_dk);
+
+  if (ma_khoa) {
+    request.input("ma_khoa", sql.NVarChar, ma_khoa);
+    query += ` AND ma_khoa = @ma_khoa`;
+  }
+
+  query += ` ORDER BY ngay DESC, gio_tu DESC`;
+
+  const result = await request.query(query);
   return result.recordset;
 };
 
@@ -217,8 +235,94 @@ const updateDuyetByMaDK = async ({
   };
 };
 
+const upsertPhienHocDATMany = async (ma_dk, sessions, ma_khoa = null) => {
+  if (!Array.isArray(sessions) || sessions.length === 0) return 0;
+
+  const pool = await connectSQL();
+  const transaction = new sql.Transaction(pool);
+
+  try {
+    await transaction.begin();
+    let totalAffected = 0;
+
+    for (const s of sessions) {
+      const request = new sql.Request(transaction);
+      
+      // Mapping API fields to DB fields
+      request.input("phien_hoc_id", sql.Int, s.ID || s.phien_hoc_id);
+      request.input("ma_dk", sql.VarChar, ma_dk);
+      request.input("ma_khoa", sql.NVarChar, toNullableString(ma_khoa || s.MaKhoaHoc || s.ma_khoa));
+      request.input("ma_hoc_vien", sql.NVarChar, toNullableString(s.MaDK || s.ma_hoc_vien));
+      request.input("ngay", sql.VarChar, toNullableString(s.ngay || s.ThoiDiemDangNhap?.split('T')[0]));
+      request.input("gio_tu", sql.VarChar, toNullableString(s.ThoiDiemDangNhap || s.gio_tu));
+      request.input("gio_den", sql.VarChar, toNullableString(s.ThoiDiemDangXuat || s.gio_den));
+      request.input("bien_so_xe", sql.VarChar, toNullableString(s.BienSo || s.bien_so_xe));
+      request.input("so_km", sql.Float, s.TongQuangDuong || s.so_km || 0);
+      request.input("thoi_gian", sql.NVarChar, toNullableString(s.TongThoiGian || s.thoi_gian));
+      
+      // New metadata fields
+      request.input("id_gv", sql.NVarChar, toNullableString(s.IDGV || s.id_gv));
+      request.input("ho_ten_gv", sql.NVarChar, toNullableString(s.HoTenGV || s.ho_ten_gv));
+      request.input("ho_ten_hv", sql.NVarChar, toNullableString(s.HoTen || s.ho_ten_hv));
+      request.input("thoi_gian_dem", sql.Float, s.ThoiGianBanDem ?? s.thoi_gian_dem ?? 0);
+      request.input("quang_duong_dem", sql.Float, s.QuangDuongBanDem ?? s.quang_duong_dem ?? 0);
+      request.input("tile", sql.Float, s.Tile ?? s.tile ?? 0);
+      request.input("guid_session_id", sql.NVarChar, toNullableString(s.SessionId || s.guid_session_id));
+      
+      // Mặc định là CHO_DUYET nếu là phiên mới
+      request.input("trang_thai", sql.NVarChar, "CHO_DUYET");
+      request.input("nguoi_thay_doi", sql.NVarChar, "SYSTEM_SYNC");
+
+      await request.query(`
+        IF EXISTS (SELECT 1 FROM phien_hoc_dat WHERE ma_dk = @ma_dk AND phien_hoc_id = @phien_hoc_id)
+        BEGIN
+          UPDATE phien_hoc_dat
+          SET ma_hoc_vien = COALESCE(@ma_hoc_vien, ma_hoc_vien),
+              ma_khoa = COALESCE(@ma_khoa, ma_khoa),
+              ngay = COALESCE(@ngay, ngay),
+              gio_tu = COALESCE(@gio_tu, gio_tu),
+              gio_den = COALESCE(@gio_den, gio_den),
+              bien_so_xe = COALESCE(@bien_so_xe, bien_so_xe),
+              so_km = COALESCE(@so_km, so_km),
+              thoi_gian = COALESCE(@thoi_gian, thoi_gian),
+              id_gv = COALESCE(@id_gv, id_gv),
+              ho_ten_gv = COALESCE(@ho_ten_gv, ho_ten_gv),
+              ho_ten_hv = COALESCE(@ho_ten_hv, ho_ten_hv),
+              thoi_gian_dem = COALESCE(@thoi_gian_dem, thoi_gian_dem),
+              quang_duong_dem = COALESCE(@quang_duong_dem, quang_duong_dem),
+              tile = COALESCE(@tile, tile),
+              guid_session_id = COALESCE(@guid_session_id, guid_session_id),
+              updated_at = SYSDATETIME()
+          WHERE ma_dk = @ma_dk AND phien_hoc_id = @phien_hoc_id
+        END
+        ELSE
+        BEGIN
+          INSERT INTO phien_hoc_dat
+            (phien_hoc_id, ma_dk, ma_khoa, ma_hoc_vien, ngay, gio_tu, gio_den,
+             bien_so_xe, so_km, thoi_gian, trang_thai,
+             id_gv, ho_ten_gv, ho_ten_hv, thoi_gian_dem, quang_duong_dem, tile, guid_session_id,
+             nguoi_thay_doi, thoi_gian_thay_doi, updated_at, created_at)
+          VALUES
+            (@phien_hoc_id, @ma_dk, @ma_khoa, @ma_hoc_vien, @ngay, @gio_tu, @gio_den,
+             @bien_so_xe, @so_km, @thoi_gian, @trang_thai,
+             @id_gv, @ho_ten_gv, @ho_ten_hv, @thoi_gian_dem, @quang_duong_dem, @tile, @guid_session_id,
+             @nguoi_thay_doi, SYSDATETIME(), SYSDATETIME(), SYSDATETIME())
+        END
+      `);
+      totalAffected++;
+    }
+
+    await transaction.commit();
+    return totalAffected;
+  } catch (err) {
+    if (!transaction._aborted) await transaction.rollback();
+    throw err;
+  }
+};
+
 module.exports = {
   getPhienHocDATByMaDK,
   updateTrangThaiPhienHocDAT,
   updateDuyetByMaDK,
+  upsertPhienHocDATMany,
 };

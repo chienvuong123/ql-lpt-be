@@ -9,6 +9,7 @@ const lotusApiService = require("./lotusApi.service");
 const evaluateUtils = require("../utils/evaluate");
 const connectSQL = require("../configs/sql");
 const mssql = require("mssql");
+const phienHocDATModel = require("../models/phienHocDAT.model");
 
 // Helper for concurrency
 async function mapConcurrent(items, limit, fn) {
@@ -32,43 +33,133 @@ async function mapConcurrent(items, limit, fn) {
  * Fetch raw road training records from API HanhTrinh
  */
 async function fetchRawHanhTrinhRecords(maDk, maKhoaHoc) {
+  const trimmedMaDk = String(maDk || "").trim();
+  const trimmedMaKhoa = String(maKhoaHoc || "").trim();
+
   const ngaybatdau = "2020-01-01";
   const today = new Date();
   const offset = today.getTimezoneOffset();
   const localToday = new Date(today.getTime() - (offset * 60 * 1000));
   const endDateStr = localToday.toISOString().split('T')[0] + "T23:59:00";
 
-  const params = new URLSearchParams({
-    ngaybatdau,
-    ngayketthuc: endDateStr,
-    ten: maDk,
-    makhoahoc: maKhoaHoc,
-    limit: 200,
-    page: 1,
-  });
-
-  const hanhTrinhAxios = axios.create({ baseURL: "http://113.160.131.3:7782", timeout: 15000 });
-
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const resToken = await getHanhTrinhToken();
-      const token = resToken?.token;
-      const response = await hanhTrinhAxios.get(`/api/HanhTrinh?${params}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      return response.data?.Data || [];
-    } catch (err) {
-      if (err?.response?.status === 401) {
-        invalidateHanhTrinhToken();
-        if (attempt < 2) continue;
-      }
-      if (attempt < 2) {
-        await new Promise(r => setTimeout(r, 500));
-        continue;
-      }
-      console.error(`[HT Fetch Raw Error] ${maDk}:`, err.message);
-      return [];
+  const buildParams = (useKhoa = true) => {
+    const p = {
+      ngaybatdau,
+      ngayketthuc: endDateStr,
+      ten: trimmedMaDk,
+      limit: 500, // Tăng giới hạn lên để lấy đủ phiên
+      page: 1,
+    };
+    if (useKhoa && trimmedMaKhoa) {
+      p.makhoahoc = trimmedMaKhoa;
     }
+    return new URLSearchParams(p);
+  };
+
+  const hanhTrinhAxios = axios.create({ baseURL: "http://113.160.131.3:7782", timeout: 20000 });
+
+  const fetchAttempt = async (useKhoa) => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const resToken = await getHanhTrinhToken();
+        const token = resToken?.token;
+        const params = buildParams(useKhoa);
+        const response = await hanhTrinhAxios.get(`/api/HanhTrinh?${params}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        return response.data?.Data || [];
+      } catch (err) {
+        if (err?.response?.status === 401) {
+          invalidateHanhTrinhToken();
+          if (attempt < 2) continue;
+        }
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, 800));
+          continue;
+        }
+        console.error(`[HT Fetch Raw Error] ${trimmedMaDk} (useKhoa=${useKhoa}):`, err.message);
+        return [];
+      }
+    }
+    return [];
+  };
+
+  // 1. Thử lấy chính xác theo khóa
+  let data = await fetchAttempt(true);
+
+  // 2. Nếu không có dữ liệu, thử lấy toàn bộ theo maDk (Fallback)
+  if (data.length === 0 && trimmedMaKhoa) {
+    console.log(`[HocBuService] No DAT found for ${trimmedMaDk} under course ${trimmedMaKhoa}. Retrying without course filter...`);
+    data = await fetchAttempt(false);
+  }
+
+  return data;
+}
+
+/**
+ * Normalize session duration to seconds
+ * Handles both decimal hours (2.63) and seconds (476)
+ */
+function normalizeDurationToSeconds(s) {
+  const raw = Number(s.TongThoiGian || s.Duration || 0);
+  if (raw === 0) return 0;
+
+  // Nếu là số nhỏ (ví dụ < 100) hoặc có phần thập phân, khả năng cao là GIỜ (decimal hours)
+  // Thực tế một phiên học hiếm khi kéo dài quá 24h liên tục.
+  if (raw < 100 || !Number.isInteger(raw)) {
+    return Math.round(raw * 3600);
+  }
+
+  // Ngược lại giả định là GIÂY
+  return raw;
+}
+
+/**
+ * Format seconds to "Xh Y phút"
+ */
+function formatSecondsToHms(totalSeconds) {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  return `${h}h ${m} phút`;
+}
+
+/**
+ * Fetch DAT records from LOCAL database cache
+ */
+async function fetchCachedHanhTrinhRecords(maDk, maKhoa = null) {
+  try {
+    const localSessions = await phienHocDATModel.getPhienHocDATByMaDK(maDk, maKhoa);
+    if (!localSessions || localSessions.length === 0) return [];
+
+    // Map back to HanhTrinh API format expected by evaluation utils
+    return localSessions.map(s => ({
+      ID: s.phien_hoc_id,
+      SessionId: s.guid_session_id || s.guid_session_id, // Map to SessionId (GUID)
+      MaDK: s.ma_dk,
+      MaHocVien: s.ma_hoc_vien,
+      ThoiDiemDangNhap: s.gio_vao,
+      ThoiDiemDangXuat: s.gio_ra,
+      BienSo: s.bien_so_xe,
+      TongQuangDuong: s.tong_km,
+      TongThoiGian: s.thoi_gian,
+      TrangThai: s.trang_thai,
+
+      // Metadata fields from cache
+      IDGV: s.id_gv,
+      HoTenGV: s.ho_ten_gv,
+      HoTen: s.ho_ten_hv,
+      ThoiGianBanDem: s.thoi_gian_dem,
+      QuangDuongBanDem: s.quang_duong_dem,
+      Tile: s.tile,
+
+      // Fallback/Legacy keys
+      Distance: s.tong_km,
+      Duration: s.thoi_gian,
+      GuidSessionId: s.guid_session_id
+    }));
+  } catch (err) {
+    console.error(`[HT Fetch Cached Error] ${maDk}:`, err.message);
+    return [];
   }
 }
 
@@ -362,7 +453,7 @@ class HocBuService {
         String(m?.user?.code || "").trim() === String(student.ma_dk || "").trim() ||
         String(m?.user?.identification_card || "").trim() === String(student.cccd || "").trim()
       );
-      
+
       return {
         student: studentBase,
         scoreByRubrik: member?.learning_progress?.score_by_rubrik || []
@@ -404,7 +495,7 @@ class HocBuService {
               return Array.isArray(res) ? res : (res?.data || []);
             } catch (e) { return []; }
           });
-          
+
           // Gộp tất cả kết quả vào map
           const allCabinData = cabinRawResults.flat();
           cabinMap = cabinService.buildCabinMap(allCabinData);
@@ -433,7 +524,7 @@ class HocBuService {
   /**
    * API 4: Lấy tiến độ DAT
    */
-  async getDatProgress(ma_dk = null, ma_khoa = null) {
+  async getDatProgress(ma_dk = null, ma_khoa = null, isSync = false) {
     let studentList = [];
     try {
       if (ma_dk) {
@@ -447,8 +538,9 @@ class HocBuService {
 
       const results = await mapConcurrent(studentList, 5, async (s) => {
         try {
-          const currentMaDk = s.ma_dk;
-          const currentMaKhoa = s.ma_khoa;
+          const currentMaDk = String(s.ma_dk || "").trim();
+          const currentMaKhoa = String(s.ma_khoa || "").trim();
+          const hocVienHang = String(s.hang || "").trim() || "B2";
 
           // Lấy dữ liệu từ bảng ky_dat (Không làm sập nếu lỗi)
           let kyDatInfo = {};
@@ -460,14 +552,29 @@ class HocBuService {
             kyDatInfo = kyDatResult.recordset[0] || {};
           } catch (e) { console.error("ky_dat query error:", e.message); }
 
+          const registration = await vehicleRegistrationModel.findByMaDkList([currentMaDk]);
+          const r = registration[0];
+          const regInfo = r ? { giaoVien: r.giao_vien, xeB1: r.xe_b1, xeB2: r.xe_b2 } : null;
+
           let datDetails = { sessions: [], summary: { tongKm: 0, tongPhut: 0, soPhien: 0 } };
           try {
-            const datSessions = await fetchRawHanhTrinhRecords(currentMaDk, currentMaKhoa);
-            const registration = await vehicleRegistrationModel.findByMaDkList([currentMaDk]);
-            const r = registration[0];
-            const regInfo = r ? { giaoVien: r.giao_vien, xeB1: r.xe_b1, xeB2: r.xe_b2 } : null;
+            let datSessions = [];
+            if (isSync) {
+              datSessions = await fetchRawHanhTrinhRecords(currentMaDk, currentMaKhoa);
+              if (datSessions.length > 0) {
+                await phienHocDATModel.upsertPhienHocDATMany(currentMaDk, datSessions, currentMaKhoa);
+              }
+            } else {
+              datSessions = await fetchCachedHanhTrinhRecords(currentMaDk, currentMaKhoa);
+              if (datSessions.length === 0) {
+                datSessions = await fetchRawHanhTrinhRecords(currentMaDk, currentMaKhoa);
+                if (datSessions.length > 0) {
+                  await phienHocDATModel.upsertPhienHocDATMany(currentMaDk, datSessions, currentMaKhoa);
+                }
+              }
+            }
 
-            const summary = evaluateUtils.computeSummary(datSessions, s.hang, regInfo);
+            const summary = evaluateUtils.computeSummary(datSessions, hocVienHang, regInfo);
             const evaluation = evaluateUtils.evaluate(summary, datSessions, regInfo);
 
             datDetails.sessions = datSessions.map(sess => {
@@ -478,13 +585,9 @@ class HocBuService {
               };
             });
 
-            // Tính toán tổng tuyệt đối từ tất cả các phiên thô (Sử dụng đúng trường TongQuangDuong và TongThoiGian)
-            const totalKm = datSessions.reduce((sum, sess) => sum + (Number(sess.TongQuangDuong || sess.Distance) || 0), 0);
-            const totalSeconds = datSessions.reduce((sum, sess) => sum + (Number(sess.TongThoiGian || sess.Duration) || 0), 0);
-
             datDetails.summary = {
-              tongKm: Number(totalKm.toFixed(2)),
-              tongPhut: Math.round(totalSeconds / 60),
+              tongKm: Number((summary.tongQuangDuong || 0).toFixed(2)),
+              tongPhut: Math.round((summary.tongThoiGianGio || 0) * 60),
               soPhien: datSessions.length,
               evaluationStatus: evaluation.status,
               errors: evaluation.errors
@@ -493,15 +596,21 @@ class HocBuService {
             console.error(`[DAT Fetch Error] ${currentMaDk}:`, err.message);
           }
 
+          // Tính tổng tuyệt đối tất cả các phiên
+          const absTotalKm = datSessions.reduce((sum, sess) => sum + (Number(sess.TongQuangDuong || sess.Distance) || 0), 0);
+          const absTotalSeconds = datSessions.reduce((sum, sess) => sum + normalizeDurationToSeconds(sess), 0);
+
           return {
             student: {
               ...s,
+              xe_b1: r?.xe_b1 || null,
+              xe_b2: r?.xe_b2 || null,
               ky_dat: kyDatInfo.trang_thai || null,
               ghi_chu_1: kyDatInfo.ghi_chu_1 || null,
               ghi_chu_2: kyDatInfo.ghi_chu_2 || null
             },
-            tong_quang_duong: datDetails.summary.tongKm,
-            tong_thoi_gian: datDetails.summary.tongPhut,
+            tong_quang_duong: Number(absTotalKm.toFixed(2)),
+            tong_thoi_gian: formatSecondsToHms(absTotalSeconds),
             datDetails
           };
         } catch (innerError) {
@@ -518,30 +627,179 @@ class HocBuService {
   }
 
   /**
+   * Lấy danh sách học bù kèm đầy đủ thông tin tiến độ (LT, Cabin, DAT)
+   * @param {Object} filters { ma_khoa, loai, search, sync }
+   */
+  async getHocBuListDetailed(filters = {}) {
+    const isSync = filters.sync === true || filters.sync === "true";
+    console.log("[HocBuService] [ListDetailed] Fetching with filters:", filters, "Sync:", isSync);
+    const studentList = await hocBuModel.getHocBuList(filters);
+    if (studentList.length === 0) return [];
+
+    const maDks = studentList.map(s => s.ma_dk);
+
+    // 1. Lấy dữ liệu Lý thuyết (Local SQL) cho toàn bộ list để tối ưu
+    let theoryMap = {};
+    try {
+      const theoryData = await lopLyThuyetModel.getAll({ ma_dk_list: maDks });
+      theoryData.forEach(item => { theoryMap[item.ma_dk] = item; });
+    } catch (e) {
+      console.error("[HocBuService] [Theory] Query error:", e.message);
+    }
+
+    // 2. Lấy dữ liệu KyDat cho toàn bộ list
+    let kyDatMap = {};
+    try {
+      if (maDks.length > 0) {
+        const pool = await connectSQL();
+        const escapedMaDks = maDks.map(m => `'${String(m).replace(/'/g, "''")}'`).join(",");
+        const kyDatResult = await pool.request().query(`
+          SELECT ma_dk, trang_thai, ghi_chu_1, ghi_chu_2 FROM ky_dat WHERE ma_dk IN (${escapedMaDks})
+        `);
+        kyDatResult.recordset.forEach(row => { kyDatMap[row.ma_dk] = row; });
+      }
+    } catch (e) {
+      console.error("[HocBuService] [KyDat] Query error:", e.message);
+    }
+
+    // 3. Dùng mapConcurrent để lấy Cabin và DAT (API ngoài) cho từng người
+    // Sử dụng giới hạn worker thấp (3-5) để tránh làm nghẽn server/API
+    return await mapConcurrent(studentList, 5, async (s) => {
+      try {
+        const maDk = String(s.ma_dk || "").trim();
+        const maKhoa = String(s.ma_khoa || "").trim();
+        const hocVienHang = String(s.hang || s.hang_gplx || "").trim() || "B2";
+
+        // a. Theory Detail
+        const ttTheory = theoryMap[maDk] || {};
+        const theoryInfo = {
+          loai_ly_thuyet: ttTheory.loai_ly_thuyet || 0,
+          loai_het_mon: ttTheory.loai_het_mon || 0,
+          ghi_chu: ttTheory.ghi_chu || ""
+        };
+
+        // b. Cabin Detail
+        let cabinInfo = { tong_thoi_gian: 0, tong_bai: 0, cabinDetails: [] };
+        try {
+          const cabinRaw = await cabinService.getKetQuaTapByMaDk(maDk);
+          const cabinResult = Array.isArray(cabinRaw) ? cabinRaw : (cabinRaw?.data || []);
+          const map = cabinService.buildCabinMap(cabinResult);
+          const ttCabin = map[maDk];
+          if (ttCabin) {
+            cabinInfo = {
+              tong_thoi_gian: ttCabin.tong_phut || 0,
+              tong_bai: ttCabin.so_bai_hoc || 0,
+              cabinDetails: ttCabin.bai_hoc || []
+            };
+          }
+        } catch (err) {
+          // console.warn(`[HocBuService] Cabin fetch error for ${maDk}:`, err.message);
+        }
+
+        // Lấy regInfo chung
+        const registration = await vehicleRegistrationModel.findByMaDkList([maDk]);
+        const r = registration[0];
+        const regInfo = r ? { giaoVien: r.giao_vien, xeB1: r.xe_b1, xeB2: r.xe_b2 } : null;
+
+        // c. DAT Detail
+        let datInfo = { tong_quang_duong: 0, tong_thoi_gian: 0, datDetails: { sessions: [], summary: {} } };
+        try {
+          let datSessions = [];
+          if (isSync) {
+            datSessions = await fetchRawHanhTrinhRecords(maDk, maKhoa);
+            if (datSessions.length > 0) {
+              // Lưu vào cache
+              await phienHocDATModel.upsertPhienHocDATMany(maDk, datSessions, maKhoa);
+            }
+          } else {
+            datSessions = await fetchCachedHanhTrinhRecords(maDk, maKhoa);
+            // Nếu cache trống, thử sync luôn lần đầu? (Optional, tùy UX mong muốn)
+            if (datSessions.length === 0) {
+              datSessions = await fetchRawHanhTrinhRecords(maDk, maKhoa);
+              if (datSessions.length > 0) {
+                await phienHocDATModel.upsertPhienHocDATMany(maDk, datSessions, maKhoa);
+              }
+            }
+          }
+
+          const summary = evaluateUtils.computeSummary(datSessions, hocVienHang, regInfo);
+          const evaluation = evaluateUtils.evaluate(summary, datSessions, regInfo);
+
+          // Tính tổng tuyệt đối tất cả các phiên (kể cả lỗi)
+          const absTotalKm = datSessions.reduce((sum, s) => sum + (Number(s.TongQuangDuong || s.Distance) || 0), 0);
+          const absTotalSeconds = datSessions.reduce((sum, s) => sum + normalizeDurationToSeconds(s), 0);
+
+          datInfo = {
+            tong_quang_duong: Number(absTotalKm.toFixed(2)),
+            tong_thoi_gian: formatSecondsToHms(absTotalSeconds),
+            datDetails: {
+              sessions: datSessions.map(sess => {
+                const { SrcdxAvatar, srcAvatar, SrcdnAvatar, ...sessionData } = sess;
+                return {
+                  ...sessionData,
+                  isError: !!evaluation.errors?.some(err => err.sessionId === sess.SessionId)
+                };
+              }),
+              summary: {
+                tongKm: Number((summary.tongQuangDuong || 0).toFixed(2)),
+                tongPhut: Math.round((summary.tongThoiGianGio || 0) * 60),
+                soPhien: datSessions.length,
+                evaluationStatus: evaluation.status,
+                errors: evaluation.errors
+              }
+            }
+          };
+        } catch (err) {
+          // console.warn(`[HocBuService] DAT fetch error for ${maDk}:`, err.message);
+        }
+
+        const kd = kyDatMap[maDk] || {};
+
+        return {
+          ...s,
+          xe_b1: r?.xe_b1 || null,
+          xe_b2: r?.xe_b2 || null,
+          ky_dat: kd.trang_thai || null,
+          ghi_chu_1: kd.ghi_chu_1 || null,
+          ghi_chu_2: kd.ghi_chu_2 || null,
+          detail: {
+            theoryInfo,
+            cabinInfo,
+            datInfo
+          }
+        };
+      } catch (innerErr) {
+        console.error(`[HocBuService] [ListDetailed] Process error for ${s.ma_dk}:`, innerErr.message);
+        return { ...s, detail: { error: innerErr.message } };
+      }
+    });
+  }
+
+  /**
    * Lấy dữ liệu chi tiết tiến độ của một học viên từ tất cả các nguồn
    * @param {string} ma_dk 
    */
-  async getStudentProgressDetail(ma_dk) {
+  async getStudentProgressDetail(ma_dk, isSync = false) {
     console.log(`[HocBuService] [Detail] Lấy chi tiết cho: ${ma_dk}`);
 
-    // 1. Tìm học viên để lấy thông tin khóa học và thông tin cơ bản
-    const studentInfo = await syncModel.getHocVienSearch({ ma_dk: ma_dk });
+    const ma_dk_trimmed = String(ma_dk || "").trim();
+    const studentInfo = await syncModel.getHocVienSearch({ ma_dk: ma_dk_trimmed });
     const student = studentInfo[0];
 
     if (!student) throw new Error("Không tìm thấy học viên trong hệ thống.");
 
-    const ma_khoa = student.ma_khoa;
+    const ma_khoa = String(student.ma_khoa || "").trim();
     const courseInfo = await this.getCourseInfo(ma_khoa);
     const lotusPlanIid = courseInfo ? courseInfo.code : null;
 
     // 2. Lấy thông tin giáo viên từ bảng đăng ký
-    const registration = await vehicleRegistrationModel.findByMaDkList([ma_dk]);
+    const registration = await vehicleRegistrationModel.findByMaDkList([ma_dk_trimmed]);
     const regRecord = registration[0];
     const thay_giao = regRecord ? regRecord.giao_vien : null;
 
     // 3. Lấy thêm thông tin từ bảng ky_dat (Trạng thái kỳ thi DAT)
     const pool = await connectSQL();
-    const kyDatResult = await pool.request().input("ma_dk", mssql.VarChar, ma_dk).query(`
+    const kyDatResult = await pool.request().input("ma_dk", mssql.VarChar, ma_dk_trimmed).query(`
       SELECT TOP 1 trang_thai, ghi_chu_1, ghi_chu_2 
       FROM ky_dat 
       WHERE ma_dk = @ma_dk
@@ -553,11 +811,11 @@ class HocBuService {
     if (lotusPlanIid) {
       try {
         const lotusData = await lotusApiService.callWithRetry(async (auth) => {
-          return await lotusApiService.getHocVienTheoKhoa(lotusPlanIid, { text: student.ma_dk }, auth);
+          return await lotusApiService.getHocVienTheoKhoa(lotusPlanIid, { text: ma_dk_trimmed }, auth);
         });
         const members = lotusData?.result || [];
         const member = members.find(m =>
-          String(m?.user?.code || "").trim() === String(student.ma_dk || "").trim() ||
+          String(m?.user?.code || "").trim() === ma_dk_trimmed ||
           String(m?.user?.identification_card || "").trim() === String(student.cccd || "").trim()
         );
         if (member) {
@@ -571,10 +829,10 @@ class HocBuService {
     // 4. Lấy chi tiết Cabin
     let cabinDetails = { cabinSessions: [], summary: { tongPhut: 0, soBai: 0 } };
     try {
-      const cabinRaw = await cabinService.getKetQuaTapByMaDk(ma_dk);
+      const cabinRaw = await cabinService.getKetQuaTapByMaDk(ma_dk_trimmed);
       const cabinResult = Array.isArray(cabinRaw) ? cabinRaw : (cabinRaw?.data || []);
       const map = cabinService.buildCabinMap(cabinResult);
-      const tt = map[ma_dk];
+      const tt = map[ma_dk_trimmed];
       if (tt) {
         cabinDetails.cabinSessions = tt.bai_hoc || [];
         cabinDetails.summary = {
@@ -589,14 +847,28 @@ class HocBuService {
     // 5. Lấy chi tiết DAT
     let datDetails = { sessions: [], summary: { tongKm: 0, tongPhut: 0, soPhien: 0 } };
     try {
-      const datSessions = await fetchRawHanhTrinhRecords(ma_dk, ma_khoa);
+      let datSessions = [];
+      if (isSync) {
+        datSessions = await fetchRawHanhTrinhRecords(ma_dk_trimmed, ma_khoa);
+        if (datSessions.length > 0) {
+          await phienHocDATModel.upsertPhienHocDATMany(ma_dk_trimmed, datSessions, ma_khoa);
+        }
+      } else {
+        datSessions = await fetchCachedHanhTrinhRecords(ma_dk_trimmed, ma_khoa);
+        if (datSessions.length === 0) {
+          datSessions = await fetchRawHanhTrinhRecords(ma_dk_trimmed, ma_khoa);
+          if (datSessions.length > 0) {
+            await phienHocDATModel.upsertPhienHocDATMany(ma_dk_trimmed, datSessions, ma_khoa);
+          }
+        }
+      }
       const regInfo = regRecord ? {
         giaoVien: regRecord.giao_vien,
         xeB1: regRecord.xe_b1,
         xeB2: regRecord.xe_b2
       } : null;
 
-      const resultsSummary = evaluateUtils.computeSummary(datSessions, student.hang_gplx || student.hang, regInfo);
+      const resultsSummary = evaluateUtils.computeSummary(datSessions, student.hang_gplx || student.hang || "B2", regInfo);
       const evaluation = evaluateUtils.evaluate(resultsSummary, datSessions, regInfo);
 
       datDetails.sessions = datSessions.map(sess => {
@@ -607,9 +879,15 @@ class HocBuService {
         };
       });
 
+      // Tính tổng tuyệt đối cho detail summary
+      const absTotalKm = datSessions.reduce((sum, s) => sum + (Number(s.TongQuangDuong || s.Distance) || 0), 0);
+      const absTotalSeconds = datSessions.reduce((sum, s) => sum + normalizeDurationToSeconds(s), 0);
+
       datDetails.summary = {
-        tongKm: resultsSummary.totalDistance,
-        tongPhut: Math.round(resultsSummary.totalDuration / 60),
+        tongKm: Number((resultsSummary.tongQuangDuong || 0).toFixed(2)),
+        tongPhut: Math.round((resultsSummary.tongThoiGianGio || 0) * 60),
+        tongKmRaw: Number(absTotalKm.toFixed(2)),
+        tongThoiGianRaw: formatSecondsToHms(absTotalSeconds),
         soPhien: datSessions.length,
         evaluationStatus: evaluation.status,
         errors: evaluation.errors
@@ -625,12 +903,17 @@ class HocBuService {
         ten_khoa: student.ten_khoa,
         ngay_sinh: student.ngay_sinh,
         thay_giao: thay_giao,
+        xe_b1: regRecord?.xe_b1 || null,
+        xe_b2: regRecord?.xe_b2 || null,
         hang: student.hang_gplx || student.hang,
         anh: student.anh,
         ky_dat: kyDatInfo.trang_thai || null,
         ghi_chu_1: kyDatInfo.ghi_chu_1 || null,
         ghi_chu_2: kyDatInfo.ghi_chu_2 || null
       },
+      // Tính tổng tuyệt đối cho main view
+      tong_quang_duong: datDetails.summary.tongKmRaw || 0,
+      tong_thoi_gian: datDetails.summary.tongThoiGianRaw || "0h 0 phút",
       theoryDetails,
       cabinDetails,
       datDetails
@@ -638,4 +921,13 @@ class HocBuService {
   }
 }
 
-module.exports = new HocBuService();
+const service = new HocBuService();
+module.exports = {
+  getHocBuListDetailed: service.getHocBuListDetailed.bind(service),
+  getStudentProgressDetail: service.getStudentProgressDetail.bind(service),
+  getTheoryProgress: service.getTheoryProgress.bind(service),
+  getCabinProgress: service.getCabinProgress.bind(service),
+  getDatProgress: service.getDatProgress.bind(service),
+  getCourseInfo: service.getCourseInfo.bind(service),
+  fetchRawHanhTrinhRecords // Export helper
+};
