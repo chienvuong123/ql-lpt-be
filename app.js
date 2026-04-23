@@ -17,6 +17,7 @@ const kiemTraTotNghiep = require("./src/routes/kiemTraTotNghiep.routes");
 const syncRoute = require("./src/routes/sync.routes");
 const authRoutes = require("./src/routes/auth.routes");
 const userRoutes = require("./src/routes/user.routes");
+const googleSheetRoute = require("./src/routes/googleSheet.routes");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -50,6 +51,7 @@ app.use("/api/kiem-tra-tot-nghiep", kiemTraTotNghiep);
 app.use("/api/sync", syncRoute);
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/google-sheet", googleSheetRoute);
 app.use("/api/tien-do-dao-tao", require("./src/routes/tienDoDaoTao.routes"));
 app.use("/api/student-detail", require("./src/routes/studentDetail.routes"));
 
