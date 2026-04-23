@@ -106,7 +106,7 @@ async function getByMaDk(maDk) {
 
   const result = await pool.request().input("maDk", mssql.VarChar, maDk).query(`
       SELECT TOP 1 *
-      FROM trang_thai_hoc_vien
+      FROM trang_thai_ly_thuyet
       WHERE ma_dk = @maDk
     `);
 
