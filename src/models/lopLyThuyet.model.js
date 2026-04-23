@@ -241,6 +241,29 @@ async function updateHocVienLyThuyet(maDk, fields, createdBy = null) {
   return true;
 }
 
+async function getDangKyXeGvByMaDkList(maDkList) {
+  if (!maDkList || maDkList.length === 0) return [];
+
+  const pool = await connectSQL();
+  const request = pool.request();
+
+  const params = maDkList.map((dk, i) => `@dk${i}`);
+  maDkList.forEach((dk, i) => {
+    request.input(`dk${i}`, mssql.VarChar, dk);
+  });
+
+  const result = await request.query(`
+    SELECT
+      ma_dk,
+      giao_vien,
+      xe_b1,
+      xe_b2
+    FROM [dbo].[dang_ky_xe_gv]
+    WHERE ma_dk IN (${params.join(", ")})
+  `);
+  return result.recordset;
+}
+
 module.exports = {
   getAll,
   getAllLyThuyet,
@@ -248,5 +271,6 @@ module.exports = {
   getLichSu,
   updateTatCaTrangThaiLyThuyet,
   updateHocVienLyThuyet,
+  getDangKyXeGvByMaDkList,
   VALID_FIELDS,
 };

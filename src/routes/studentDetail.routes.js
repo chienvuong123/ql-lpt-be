@@ -17,4 +17,7 @@ router.post("/time-tracking", studentDetailController.getTimeTrackingLog);
 // Route proxy lấy thời gian học chi tiết (Learning Time Tracking) từ Lotus
 router.post("/learning-time", studentDetailController.getLearningTimeTracking);
 
+// Route proxy lấy chi tiết thời gian học của một môn từ Lotus
+router.post("/detail-learning-time", studentDetailController.getDetailLearningTime);
+
 module.exports = router;
