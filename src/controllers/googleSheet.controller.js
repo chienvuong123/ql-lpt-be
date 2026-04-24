@@ -22,6 +22,22 @@ class GoogleSheetController {
       });
     }
   }
+
+  async syncData(req, res) {
+    try {
+      const result = await googleSheetService.syncAllSheetsToDatabase();
+      res.status(200).json({ 
+        success: true, 
+        message: "Đồng bộ dữ liệu thành công", 
+        count: result.count 
+      });
+    } catch (error) {
+      res.status(500).json({ 
+        success: false, 
+        message: error.message 
+      });
+    }
+  }
 }
 
 module.exports = new GoogleSheetController();

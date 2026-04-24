@@ -11,7 +11,7 @@ const {
   getCabinStatus,
 } = require("../services/cabinApi.service");
 const { LOCAL_BASE } = require("../constants/base");
-const googleSheetService = require("../services/googleSheet.service");
+const googleSheetModel = require("../models/googleSheet.model");
 
 // GET /api/ly-thuyet/lop-hoc
 async function getDanhSachLop(req, res) {
@@ -117,7 +117,7 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
     const { maKhoa, text, page, limit, loai_het_mon, loc_bat_thuong } =
       req.query;
 
-    const [lotusData, dbData, cabinRaw, cabinNotes, googleSheetData] = await Promise.all([
+    const [lotusData, dbData, cabinRaw, cabinNotes] = await Promise.all([
       callWithRetry((auth) =>
         getHocVienTheoKhoa(
           enrolmentPlanIid,
@@ -138,13 +138,19 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
           .getAll({ ma_khoa: enrolmentPlanIid, limit: 9999 })
           .then((r) => r?.data || [])
         : Promise.resolve([]),
-      // Lấy dữ liệu từ Google Sheet
-      googleSheetService.fetchSheetData("1TEeB_qAGJz_aLCzjDOUxEitgrwNWohcy6VjU3k6DppU", "1754545655")
-        .catch(() => []),
     ]);
 
     const allStudents = Array.isArray(lotusData?.result)
       ? lotusData.result
+      : [];
+
+    // Trích xuất danh sách CCCD để lấy thông tin từ Google Sheet SQL
+    const cccdList = allStudents
+      .map(s => s?.user?.identification_card ? String(s?.user?.identification_card).trim() : null)
+      .filter(Boolean);
+
+    const googleSheetData = cccdList.length > 0 
+      ? await googleSheetModel.getAllDataByCccdList(cccdList)
       : [];
 
     // Trích xuất danh sách ma_dk để lấy thông tin giáo viên chính xác nhất
@@ -168,7 +174,7 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
     // Build map cho Google Sheet (theo CCCD)
     const googleSheetMap = {};
     (googleSheetData || []).forEach((item) => {
-      const cccd = item["Căn cước /CMND"] ? String(item["Căn cước /CMND"]).trim() : null;
+      const cccd = item.cccd ? String(item.cccd).trim() : null;
       if (cccd) googleSheetMap[cccd] = item;
     });
 
@@ -257,10 +263,12 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
         } : null,
         // Thông tin khớp từ Google Sheet
         sheet_info: sheetRecord ? {
-          sdt_hoc_vien: sheetRecord["SĐT học viên"] || null,
-          nguoi_tuyen_sinh: sheetRecord["Người tuyển sinh"] || null,
-          ghi_chu_sheet: sheetRecord["Ghi chú"] || null,
-          dat_coc: sheetRecord["Đặt cọc"] || null,
+          sdt_hoc_vien: sheetRecord.dien_thoai || null,
+          nguoi_tuyen_sinh: sheetRecord.nguoi_tuyen_sinh || null,
+          ghi_chu_sheet: sheetRecord.ghi_chu || null,
+          dat_coc: sheetRecord.dat_coc || null,
+          ctv: sheetRecord.ctv || null,
+          cccd_pho_to: sheetRecord.cccd_pho_to || false,
         } : null,
       };
     });
