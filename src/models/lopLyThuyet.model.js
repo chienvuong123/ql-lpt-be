@@ -82,18 +82,26 @@ async function getAllLyThuyet(filters = {}) {
       hv.ho_ten,
       hv.cccd,
       YEAR(hv.ngay_sinh) AS nam_sinh,
+      hv.ngay_sinh,
       kh.ten_khoa,
       ISNULL(tt.loai_ly_thuyet, 0) AS loai_ly_thuyet,
       ISNULL(tt.loai_het_mon,  0) AS loai_het_mon,
       ISNULL(tt.dat_cabin,     0) AS dat_cabin,
       tt.ghi_chu,
       tt.updated_at,
-      -- Backward compatibility for controller
       tt.updated_at AS thoi_gian_thay_doi_trang_thai,
-      tt.created_by AS updated_by
+      tt.created_by AS updated_by,
+      -- Thông tin từ Google Sheet
+      gs.dien_thoai AS sdt_sheet,
+      gs.nguoi_tuyen_sinh,
+      gs.ghi_chu AS ghi_chu_sheet,
+      gs.dat_coc,
+      gs.ctv,
+      gs.cccd_pho_to
     FROM trang_thai_ly_thuyet tt
     LEFT JOIN hoc_vien hv ON hv.ma_dk = tt.ma_dk
     LEFT JOIN khoa_hoc kh ON kh.ma_khoa = tt.ma_khoa
+    LEFT JOIN google_sheet_data gs ON gs.cccd = hv.cccd
     ${where}
     ORDER BY tt.updated_at DESC
   `);
