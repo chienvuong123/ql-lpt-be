@@ -114,8 +114,17 @@ async function getDanhSachHocVien(req, res) {
 async function getDanhSachHocVienTheoKhoa(req, res) {
   try {
     const { enrolmentPlanIid } = req.params;
-    const { maKhoa, text, page, limit, loai_het_mon, loc_bat_thuong } =
-      req.query;
+    const {
+      maKhoa,
+      text,
+      page,
+      limit,
+      loai_het_mon,
+      loai_ly_thuyet,
+      loc_ly_thuyet_online,
+      loc_dang_nhap,
+      loc_bat_thuong,
+    } = req.query;
 
     const [lotusData, dbData, cabinRaw, cabinNotes] = await Promise.all([
       callWithRetry((auth) =>
@@ -146,8 +155,8 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
     const cccdList = allStudents
       .map(s => s?.user?.identification_card ? String(s?.user?.identification_card).trim() : null)
       .filter(Boolean);
-    
-    const googleSheetData = cccdList.length > 0 
+
+    const googleSheetData = cccdList.length > 0
       ? await googleSheetModel.getAllDataByCccdList(cccdList)
       : [];
 
@@ -189,7 +198,7 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
         "",
       );
       const identificationCard = student?.user?.identification_card ? String(student?.user?.identification_card).trim() : "";
-      
+
       const dbRecord = dbMap[maDk] || null;
       const cabinInfo = cabinMap[maDk] || { tong_thoi_gian: 0, so_bai_hoc: 0 };
       const trangThaiCabin = getCabinStatus(
@@ -229,6 +238,7 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
           school: student?.user?.schools?.[0] || student?.user?.school,
           status: student?.user?.status,
           code: maDk,
+          last_login: student?.last_login_info || student?.__expand?.last_login_info || null,
         },
         learning: student?.learning_progress
           ? {
@@ -271,32 +281,42 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
       };
     });
 
-    // Lọc theo loai_het_mon nếu có
-    const filtered =
-      loai_het_mon !== undefined
-        ? allMapped.filter((s) => {
-          const val = s.trang_thai?.loai_het_mon;
-          const isTruthy = val === true || val === 1 || val === "1";
-          const filterTruthy = loai_het_mon === "true";
-          return isTruthy === filterTruthy;
-        })
-        : allMapped;
+    // Helper to check truthy from query/db
+    const isTrue = (val) => val === true || val === 1 || val === "1" || val === "true";
 
+    let filtered = allMapped;
+
+    // 1. Lọc theo loai_het_mon (đã làm bài hết môn)
+    if (loai_het_mon !== undefined && loai_het_mon !== "") {
+      filtered = filtered.filter((s) => isTrue(s.trang_thai?.loai_het_mon) === isTrue(loai_het_mon));
+    }
+
+    // 2. Lọc theo loai_ly_thuyet (Local status Đạt/Chưa đạt lý thuyết)
+    if (loai_ly_thuyet !== undefined && loai_ly_thuyet !== "") {
+      filtered = filtered.filter((s) => isTrue(s.trang_thai?.loai_ly_thuyet) === isTrue(loai_ly_thuyet));
+    }
+
+    // 3. Lọc theo lý thuyết online (LotusLMS passed status)
+    if (loc_ly_thuyet_online === "dat") {
+      filtered = filtered.filter((s) => s.learning?.passed === true);
+    } else if (loc_ly_thuyet_online === "chua_dat") {
+      filtered = filtered.filter((s) => s.learning?.passed === false);
+    }
+
+    // 4. Lọc theo chưa đăng nhập
+    if (loc_dang_nhap === "chua_login") {
+      filtered = filtered.filter((s) => !s.user?.last_login || !s.user.last_login.ts);
+    }
+
+    // 5. Lọc bất thường (đã có cabin nhưng chưa pass lý thuyết hoặc hết môn)
     const finalFiltered =
       loc_bat_thuong === "true"
-        ? allMapped.filter((s) => {
+        ? filtered.filter((s) => {
           const coCabin =
             s.cabin?.tong_thoi_gian > 0 || s.cabin?.so_bai_hoc > 0;
 
-          const daPassLyThuyet =
-            s.trang_thai?.loai_ly_thuyet === true ||
-            s.trang_thai?.loai_ly_thuyet === 1 ||
-            s.trang_thai?.loai_ly_thuyet === "1";
-
-          const daPassHetMon =
-            s.trang_thai?.loai_het_mon === true ||
-            s.trang_thai?.loai_het_mon === 1 ||
-            s.trang_thai?.loai_het_mon === "1";
+          const daPassLyThuyet = isTrue(s.trang_thai?.loai_ly_thuyet);
+          const daPassHetMon = isTrue(s.trang_thai?.loai_het_mon);
 
           return coCabin && (!daPassLyThuyet || !daPassHetMon);
         })
