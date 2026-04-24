@@ -47,7 +47,19 @@ class CronService {
       }
     });
 
+    // Đồng bộ Google Sheets vào 12:00 và 17:00 hàng ngày
+    cron.schedule("0 12,17 * * *", async () => {
+      console.log(`[CronService] [${new Date().toLocaleString()}] Bắt đầu đồng bộ Google Sheets...`);
+      try {
+        const googleSheetService = require("./googleSheet.service");
+        await googleSheetService.syncAllSheetsToDatabase();
+      } catch (error) {
+        console.error("[CronService] Lỗi đồng bộ Google Sheets:", error.message);
+      }
+    });
+
     console.log("[CronService] Tác vụ quét tự động đã được lên lịch (01:00 mỗi ngày).");
+    console.log("[CronService] Tác vụ đồng bộ Google Sheets đã được lên lịch (12:00 & 17:00 hàng ngày).");
   }
 }
 

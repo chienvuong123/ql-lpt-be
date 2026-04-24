@@ -11,7 +11,7 @@ const {
   getCabinStatus,
 } = require("../services/cabinApi.service");
 const { LOCAL_BASE } = require("../constants/base");
-const googleSheetService = require("../services/googleSheet.service");
+const googleSheetModel = require("../models/googleSheet.model");
 
 // GET /api/ly-thuyet/lop-hoc
 async function getDanhSachLop(req, res) {
@@ -117,7 +117,7 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
     const { maKhoa, text, page, limit, loai_het_mon, loc_bat_thuong } =
       req.query;
 
-    const [lotusData, dbData, cabinRaw, cabinNotes, googleSheetData] = await Promise.all([
+    const [lotusData, dbData, cabinRaw, cabinNotes] = await Promise.all([
       callWithRetry((auth) =>
         getHocVienTheoKhoa(
           enrolmentPlanIid,
@@ -125,9 +125,7 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
           auth,
         ),
       ),
-      enrolmentPlanIid
-        ? model.getAll({ maKhoa: enrolmentPlanIid })
-        : Promise.resolve([]),
+      model.getAll({ maKhoa: enrolmentPlanIid }),
       maKhoa
         ? getDanhSachKetQuaCabin({ khoa: maKhoa, hoTen: text || "" }).then(
           (r) => r?.data || [],
@@ -138,14 +136,25 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
           .getAll({ ma_khoa: enrolmentPlanIid, limit: 9999 })
           .then((r) => r?.data || [])
         : Promise.resolve([]),
-      // Lấy dữ liệu từ Google Sheet
-      googleSheetService.fetchSheetData("1TEeB_qAGJz_aLCzjDOUxEitgrwNWohcy6VjU3k6DppU", "1754545655")
-        .catch(() => []),
     ]);
 
     const allStudents = Array.isArray(lotusData?.result)
       ? lotusData.result
       : [];
+
+    // Lấy thông tin từ Google Sheet trong SQL dựa trên danh sách CCCD từ Lotus
+    const cccdList = allStudents
+      .map(s => s?.user?.identification_card ? String(s?.user?.identification_card).trim() : null)
+      .filter(Boolean);
+    
+    const googleSheetData = cccdList.length > 0 
+      ? await googleSheetModel.getAllDataByCccdList(cccdList)
+      : [];
+
+    const googleSheetMap = {};
+    googleSheetData.forEach(item => {
+      if (item.cccd) googleSheetMap[String(item.cccd).trim()] = item;
+    });
 
     // Trích xuất danh sách ma_dk để lấy thông tin giáo viên chính xác nhất
     const maDkList = allStudents.map(s => String(s?.user?.admission_code || s?.user?.code || s?.id || ""));
@@ -165,12 +174,6 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
       if (item?.ma_dk) dangKyXeGvMap[String(item.ma_dk)] = item;
     });
 
-    // Build map cho Google Sheet (theo CCCD)
-    const googleSheetMap = {};
-    (googleSheetData || []).forEach((item) => {
-      const cccd = item["Căn cước /CMND"] ? String(item["Căn cước /CMND"]).trim() : null;
-      if (cccd) googleSheetMap[cccd] = item;
-    });
 
     // Build cabin note map theo ma_dk
     const cabinNoteMap = {};
@@ -194,11 +197,19 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
         cabinInfo.so_bai_hoc,
       );
 
+      // Thông tin từ Google Sheet (lấy từ SQL google_sheet_data theo CCCD)
+      const sheetRecord = googleSheetMap[identificationCard] || null;
+      const sheetInfo = sheetRecord ? {
+        sdt_hoc_vien: sheetRecord.dien_thoai || null,
+        nguoi_tuyen_sinh: sheetRecord.nguoi_tuyen_sinh || null,
+        ghi_chu_sheet: sheetRecord.ghi_chu || null,
+        dat_coc: sheetRecord.dat_coc || null,
+        ctv: sheetRecord.ctv || null,
+        cccd_pho_to: sheetRecord.cccd_pho_to || false,
+      } : null;
+
       // Thông tin giáo viên từ Database
       const dangKyXeRecord = dangKyXeGvMap[maDk] || null;
-      
-      // Thông tin từ Google Sheet
-      const sheetRecord = googleSheetMap[identificationCard] || null;
 
       return {
         user: {
@@ -255,13 +266,8 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
           xe_b1: dangKyXeRecord.xe_b1,
           xe_b2: dangKyXeRecord.xe_b2,
         } : null,
-        // Thông tin khớp từ Google Sheet
-        sheet_info: sheetRecord ? {
-          sdt_hoc_vien: sheetRecord["SĐT học viên"] || null,
-          nguoi_tuyen_sinh: sheetRecord["Người tuyển sinh"] || null,
-          ghi_chu_sheet: sheetRecord["Ghi chú"] || null,
-          dat_coc: sheetRecord["Đặt cọc"] || null,
-        } : null,
+        // Thông tin từ Google Sheet
+        sheet_info: sheetInfo,
       };
     });
 
