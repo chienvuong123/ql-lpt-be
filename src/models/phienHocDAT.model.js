@@ -320,9 +320,65 @@ const upsertPhienHocDATMany = async (ma_dk, sessions, ma_khoa = null) => {
   }
 };
 
+const getPhienHocDATByMaDKList = async (ma_dk_list, ma_khoa = null) => {
+  if (!Array.isArray(ma_dk_list) || ma_dk_list.length === 0) return [];
+
+  const pool = await connectSQL();
+  const request = pool.request();
+
+  let query = `
+      SELECT
+        id,
+        phien_hoc_id,
+        ma_dk,
+        ma_khoa,
+        ma_hoc_vien,
+        ngay,
+        gio_tu      AS gio_vao,
+        gio_den     AS gio_ra,
+        bien_so_xe,
+        so_km       AS tong_km,
+        thoi_gian,
+        trang_thai,
+        ly_do_tong,
+        ly_do_td,
+        ly_do_dem,  
+        duyet_tong,
+        duyet_tu_dong,
+        duyet_dem, 
+        id_gv,
+        ho_ten_gv,
+        ho_ten_hv,
+        thoi_gian_dem,
+        quang_duong_dem,
+        tile,
+        guid_session_id,
+        nguoi_thay_doi,
+        thoi_gian_thay_doi,
+        updated_at
+      FROM phien_hoc_dat
+      WHERE ma_dk IN (${ma_dk_list.map((id, index) => {
+    const paramName = `id${index}`;
+    request.input(paramName, sql.VarChar, id);
+    return `@${paramName}`;
+  }).join(',')})
+    `;
+
+  if (ma_khoa) {
+    request.input("ma_khoa", sql.NVarChar, ma_khoa);
+    query += ` AND ma_khoa = @ma_khoa`;
+  }
+
+  query += ` ORDER BY ngay DESC, gio_tu DESC`;
+
+  const result = await request.query(query);
+  return result.recordset;
+};
+
 module.exports = {
   getPhienHocDATByMaDK,
   updateTrangThaiPhienHocDAT,
   updateDuyetByMaDK,
   upsertPhienHocDATMany,
+  getPhienHocDATByMaDKList,
 };
