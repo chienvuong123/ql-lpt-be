@@ -341,8 +341,16 @@ class HocBuService {
         xeB2: regRecord.xeB2
       } : null;
 
-      const summary = evaluateUtils.computeSummary(sessions, student.hang_gplx || student.hang, regInfo);
-      const evaluation = evaluateUtils.evaluate(summary, sessions, regInfo);
+      const normalizedForEval = sessions.map(sess => ({
+        ...sess,
+        TongThoiGian: normalizeDurationToSeconds(sess),
+        TongQuangDuong: Number(sess.TongQuangDuong || sess.Distance || 0),
+        ThoiGianBanDem: Number(sess.ThoiGianBanDem || 0),
+        QuangDuongBanDem: Number(sess.QuangDuongBanDem || 0)
+      }));
+
+      const summary = evaluateUtils.computeSummary(normalizedForEval, student.hang_gplx || student.hang, regInfo);
+      const evaluation = evaluateUtils.evaluate(summary, normalizedForEval, regInfo);
 
       if (evaluation.status === 'fail') {
         const errorReasons = (evaluation.errors || []).map(e => e.label).join(", ");
@@ -574,8 +582,16 @@ class HocBuService {
               }
             }
 
-            const summary = evaluateUtils.computeSummary(datSessions, hocVienHang, regInfo);
-            const evaluation = evaluateUtils.evaluate(summary, datSessions, regInfo);
+            const normalizedForEval = datSessions.map(sess => ({
+              ...sess,
+              TongThoiGian: normalizeDurationToSeconds(sess),
+              TongQuangDuong: Number(sess.TongQuangDuong || sess.Distance || 0),
+              ThoiGianBanDem: Number(sess.ThoiGianBanDem || 0),
+              QuangDuongBanDem: Number(sess.QuangDuongBanDem || 0)
+            }));
+
+            const summary = evaluateUtils.computeSummary(normalizedForEval, hocVienHang, regInfo);
+            const evaluation = evaluateUtils.evaluate(summary, normalizedForEval, regInfo);
 
             datDetails.sessions = datSessions.map(sess => {
               const { SrcdxAvatar, srcAvatar, SrcdnAvatar, ...sessionData } = sess;
@@ -636,8 +652,19 @@ class HocBuService {
     const studentList = await hocBuModel.getHocBuList(filters);
     if (studentList.length === 0) return [];
 
-    const maDks = studentList.map(s => String(s.ma_dk).trim());
     const ma_khoa = filters.ma_khoa;
+
+    // Lấy thông tin khóa học để lấy trường code (Lotus Plan IID)
+    let courseInfo = null;
+    if (ma_khoa) {
+      try {
+        courseInfo = await this.getCourseInfo(ma_khoa);
+      } catch (e) {
+        console.error("[HocBuService] [CourseInfo] error:", e.message);
+      }
+    }
+
+    const maDks = studentList.map(s => String(s.ma_dk).trim());
 
     // 1. Lấy dữ liệu Lý thuyết (Local SQL) cho toàn bộ list để tối ưu
     let theoryMap = {};
@@ -707,7 +734,7 @@ class HocBuService {
 
     // 6. Xử lý từng học viên
     // Chỉ sync API ngoài nếu isSync=true, còn lại dùng cache để đảm bảo tốc độ
-    return await mapConcurrent(studentList, 5, async (s) => {
+    const students = await mapConcurrent(studentList, 5, async (s) => {
       try {
         const maDk = String(s.ma_dk || "").trim();
         const currentMaKhoa = String(s.ma_khoa || ma_khoa || "").trim();
@@ -744,8 +771,16 @@ class HocBuService {
           }
         }
 
-        const summary = evaluateUtils.computeSummary(datSessions, hocVienHang, regInfo);
-        const evaluation = evaluateUtils.evaluate(summary, datSessions, regInfo);
+        const normalizedForEval = datSessions.map(sess => ({
+          ...sess,
+          TongThoiGian: normalizeDurationToSeconds(sess),
+          TongQuangDuong: Number(sess.TongQuangDuong || sess.Distance || sess.tong_km || 0),
+          ThoiGianBanDem: Number(sess.ThoiGianBanDem || 0),
+          QuangDuongBanDem: Number(sess.QuangDuongBanDem || 0)
+        }));
+
+        const summary = evaluateUtils.computeSummary(normalizedForEval, hocVienHang, regInfo);
+        const evaluation = evaluateUtils.evaluate(summary, normalizedForEval, regInfo);
 
         const absTotalKm = datSessions.reduce((sum, sess) => sum + (Number(sess.TongQuangDuong || sess.Distance || sess.tong_km) || 0), 0);
         const absTotalSeconds = datSessions.reduce((sum, sess) => sum + normalizeDurationToSeconds(sess), 0);
@@ -791,6 +826,8 @@ class HocBuService {
         return { ...s, detail: { error: innerErr.message } };
       }
     });
+
+    return { students, course: courseInfo };
   }
 
   /**
