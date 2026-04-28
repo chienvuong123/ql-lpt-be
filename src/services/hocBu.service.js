@@ -101,7 +101,7 @@ async function fetchRawHanhTrinhRecords(maDk, maKhoaHoc) {
  * Handles both decimal hours (2.63) and seconds (476)
  */
 function normalizeDurationToSeconds(s) {
-  const raw = Number(s.TongThoiGian || s.Duration || 0);
+  const raw = Number(s.TongThoiGian || s.Duration || s.thoi_gian || 0);
   if (raw === 0) return 0;
 
   // Nếu là số nhỏ (ví dụ < 100) hoặc có phần thập phân, khả năng cao là GIỜ (decimal hours)
@@ -771,17 +771,6 @@ class HocBuService {
           }
         }
 
-        const normalizedForEval = datSessions.map(sess => ({
-          ...sess,
-          TongThoiGian: normalizeDurationToSeconds(sess),
-          TongQuangDuong: Number(sess.TongQuangDuong || sess.Distance || sess.tong_km || 0),
-          ThoiGianBanDem: Number(sess.ThoiGianBanDem || 0),
-          QuangDuongBanDem: Number(sess.QuangDuongBanDem || 0)
-        }));
-
-        const summary = evaluateUtils.computeSummary(normalizedForEval, hocVienHang, regInfo);
-        const evaluation = evaluateUtils.evaluate(summary, normalizedForEval, regInfo);
-
         const absTotalKm = datSessions.reduce((sum, sess) => sum + (Number(sess.TongQuangDuong || sess.Distance || sess.tong_km) || 0), 0);
         const absTotalSeconds = datSessions.reduce((sum, sess) => sum + normalizeDurationToSeconds(sess), 0);
 
@@ -791,18 +780,8 @@ class HocBuService {
           datDetails: {
             sessions: datSessions.slice(0, 50).map(sess => { // Giới hạn số phiên gửi về để tránh payload quá lớn
               const { SrcdxAvatar, srcAvatar, SrcdnAvatar, ...sessionData } = sess;
-              return {
-                ...sessionData,
-                isError: !!evaluation.errors?.some(err => err.sessionId === (sess.SessionId || sess.guid_session_id))
-              };
-            }),
-            summary: {
-              tongKm: Number((summary.tongQuangDuong || 0).toFixed(2)),
-              tongPhut: Math.round((summary.tongThoiGianGio || 0) * 60),
-              soPhien: datSessions.length,
-              evaluationStatus: evaluation.status,
-              errors: evaluation.errors
-            }
+              return sessionData;
+            })
           }
         };
 
