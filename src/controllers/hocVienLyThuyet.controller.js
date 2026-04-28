@@ -12,6 +12,7 @@ const {
 } = require("../services/cabinApi.service");
 const { LOCAL_BASE } = require("../constants/base");
 const googleSheetModel = require("../models/googleSheet.model");
+const connectSQL = require("../configs/sql");
 
 // GET /api/ly-thuyet/lop-hoc
 async function getDanhSachLop(req, res) {
@@ -107,6 +108,48 @@ async function getDanhSachHocVien(req, res) {
     });
   } catch (err) {
     console.error("[getDanhSachHocVien]", err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+// GET /api/ly-thuyet/hoc-vien/:enrolmentPlanIid/chi-tiet/:studentId
+async function getChiTietHocVienLyThuyet(req, res) {
+  try {
+    const { enrolmentPlanIid, studentId } = req.params;
+
+    // Truy vấn bảng khoa_hoc để lấy mã code (enrolmentPlanIid thật trên LotusLMS) từ ma_khoa
+    const pool = await connectSQL();
+    const khoaRes = await pool.request()
+      .input('ma_khoa', enrolmentPlanIid)
+      .query('SELECT TOP 1 code FROM khoa_hoc WHERE ma_khoa = @ma_khoa');
+    
+    const actualEnrolmentPlanIid = khoaRes.recordset[0]?.code || enrolmentPlanIid;
+
+    // Tìm kiếm với text = studentId để thu hẹp kết quả trả về từ LotusLMS
+    const data = await callWithRetry((auth) =>
+      getHocVienTheoKhoa(actualEnrolmentPlanIid, { text: studentId }, auth),
+    );
+
+    const list = data?.result || [];
+    // Khớp chính xác studentId với iid, admission_code, hoặc mã đăng ký
+    const student = list.find(
+      (s) =>
+        String(s?.user?.iid) === String(studentId) ||
+        String(s?.user?.admission_code) === String(studentId) ||
+        String(s?.user?.code) === String(studentId) ||
+        String(s?.id) === String(studentId)
+    );
+
+    if (!student) {
+      return res.status(404).json({ success: false, message: "Không tìm thấy học viên" });
+    }
+
+    return res.json({
+      success: true,
+      data: student,
+    });
+  } catch (err) {
+    console.error("[getChiTietHocVienLyThuyet]", err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 }
@@ -530,4 +573,5 @@ module.exports = {
   getDanhSachHocVienTheoKhoa,
   searchDanhSachLop,
   getDashboardLyThuyet,
+  getChiTietHocVienLyThuyet,
 };
