@@ -15,7 +15,8 @@ class TienDoDaoTaoController {
       res.status(200).json({
         success: true,
         message: "Lấy danh sách học bù thành công",
-        data: data,
+        data: data.students,
+        course: data.course
       });
     } catch (error) {
       console.error("[getHocBuList] Error:", error);

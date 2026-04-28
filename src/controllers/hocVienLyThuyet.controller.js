@@ -298,9 +298,9 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
 
     // 3. Lọc theo lý thuyết online (LotusLMS passed status)
     if (loc_ly_thuyet_online === "dat") {
-      filtered = filtered.filter((s) => s.learning?.passed === true);
+      filtered = filtered.filter((s) => isTrue(s.learning?.passed));
     } else if (loc_ly_thuyet_online === "chua_dat") {
-      filtered = filtered.filter((s) => s.learning?.passed === false);
+      filtered = filtered.filter((s) => !isTrue(s.learning?.passed));
     }
 
     // 4. Lọc theo chưa đăng nhập
