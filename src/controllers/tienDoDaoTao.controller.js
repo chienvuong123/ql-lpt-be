@@ -54,6 +54,35 @@ class TienDoDaoTaoController {
   }
 
   /**
+   * POST /api/tien-do-dao-tao/hoc-bu
+   * Thêm 1 học viên vào danh sách học bù
+   */
+  async addStudentToHocBu(req, res) {
+    const { ma_dk, ma_khoa, loai, ghi_chu } = req.body;
+    if (!ma_dk || !ma_khoa || !loai) {
+      return res.status(400).json({ success: false, message: "Thiếu thông tin bắt buộc (ma_dk, ma_khoa, loai)" });
+    }
+
+    try {
+      const students = [{ ma_dk, ma_khoa, loai, ghi_chu: ghi_chu || "Đăng ký học bù thủ công" }];
+      const result = await hocBuModel.moveToHocBu(students);
+      
+      res.status(200).json({
+        success: true,
+        message: "Đã thêm học viên vào danh sách học bù",
+        count: result
+      });
+    } catch (error) {
+      console.error("[addStudentToHocBu] Error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Lỗi hệ thống khi thêm học viên vào danh sách học bù",
+        error: error.message
+      });
+    }
+  }
+
+  /**
    * GET /api/tien-do-dao-tao
    * Lấy danh sách tiến độ đào tạo
    */

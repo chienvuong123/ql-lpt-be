@@ -66,14 +66,9 @@ class HocBuModel {
         hv.cccd, 
         hv.ngay_sinh, 
         hv.anh,
-        hv.hang,
-        k.ten_khoa,
-        dk.khoa,
-        dk.giao_vien AS thay_giao
+        hv.hang
       FROM hoc_bu h
       LEFT JOIN hoc_vien hv ON h.ma_dk = hv.ma_dk
-      LEFT JOIN khoa_hoc k ON hv.ma_khoa = k.ma_khoa
-      LEFT JOIN dang_ky_xe_gv dk ON h.ma_dk = dk.ma_dk
       WHERE 1=1
     `;
 
