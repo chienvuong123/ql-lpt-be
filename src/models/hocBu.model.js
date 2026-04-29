@@ -4,7 +4,7 @@ const connectSQL = require("../configs/sql");
 class HocBuModel {
   /**
    * Chuyển học viên vào danh sách học bù
-   * @param {Array} students Danh sách các đối tượng { ma_dk, ma_khoa, loai, ghi_chu }
+   * @param {Array} students Danh sách các đối tượng { ma_dk, ma_khoa, loai, ghi_chu, trang_thai, nguoi_tao, trang_thai_hoc_bu }
    */
   async moveToHocBu(students) {
     if (!Array.isArray(students) || students.length === 0) return 0;
@@ -22,18 +22,23 @@ class HocBuModel {
         request.input("ma_khoa", mssql.VarChar, student.ma_khoa);
         request.input("loai", mssql.Int, student.loai);
         request.input("ghi_chu", mssql.NVarChar, student.ghi_chu);
+        request.input("trang_thai", mssql.Int, student.trang_thai || 1); // 1: Tạo, 2: Chờ duyệt, 3: Đã duyệt
+        request.input("nguoi_tao", mssql.NVarChar, student.nguoi_tao || null);
+        request.input("trang_thai_hoc_bu", mssql.Int, student.trang_thai_hoc_bu || 1); // 1: Chưa học bù, 2: Đang học bù, 3: Đã học bù
 
         // Sử dụng NOT EXISTS để tránh lỗi Duplicate Key nếu đã chạy trước đó
         const result = await request.query(`
           IF NOT EXISTS (SELECT 1 FROM hoc_bu WHERE ma_dk = @ma_dk AND ma_khoa = @ma_khoa AND loai = @loai)
           BEGIN
-            INSERT INTO hoc_bu (ma_dk, ma_khoa, loai, ghi_chu, created_at)
-            VALUES (@ma_dk, @ma_khoa, @loai, @ghi_chu, GETDATE())
+            INSERT INTO hoc_bu (ma_dk, ma_khoa, loai, ghi_chu, trang_thai, nguoi_tao, trang_thai_hoc_bu, created_at)
+            VALUES (@ma_dk, @ma_khoa, @loai, @ghi_chu, @trang_thai, @nguoi_tao, @trang_thai_hoc_bu, GETDATE())
           END
           ELSE
           BEGIN
             UPDATE hoc_bu
             SET ghi_chu = @ghi_chu,
+                trang_thai = @trang_thai,
+                trang_thai_hoc_bu = @trang_thai_hoc_bu,
                 created_at = GETDATE()
             WHERE ma_dk = @ma_dk AND ma_khoa = @ma_khoa AND loai = @loai
           END
@@ -47,6 +52,35 @@ class HocBuModel {
       await transaction.rollback();
       throw err;
     }
+  }
+
+  /**
+   * Cập nhật trạng thái học bù
+   * @param {number} id ID của bản ghi học bù
+   * @param {Object} data { trang_thai, nguoi_update, trang_thai_hoc_bu }
+   */
+  async updateHocBu(id, data) {
+    const pool = await connectSQL();
+    const request = new mssql.Request(pool);
+    request.input("id", mssql.Int, id);
+    request.input("trang_thai", mssql.Int, data.trang_thai);
+    request.input("nguoi_update", mssql.NVarChar, data.nguoi_update || null);
+    request.input("trang_thai_hoc_bu", mssql.Int, data.trang_thai_hoc_bu || null);
+
+    let updateFields = [];
+    if (data.trang_thai !== undefined) updateFields.push("trang_thai = @trang_thai");
+    if (data.nguoi_update !== undefined) updateFields.push("nguoi_update = @nguoi_update");
+    if (data.trang_thai_hoc_bu !== undefined) updateFields.push("trang_thai_hoc_bu = @trang_thai_hoc_bu");
+    updateFields.push("updated_at = GETDATE()");
+
+    const query = `
+      UPDATE hoc_bu 
+      SET ${updateFields.join(", ")}
+      WHERE id = @id
+    `;
+
+    const result = await request.query(query);
+    return result.rowsAffected[0];
   }
 
   /**

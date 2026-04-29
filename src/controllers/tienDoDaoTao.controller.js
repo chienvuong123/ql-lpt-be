@@ -58,13 +58,21 @@ class TienDoDaoTaoController {
    * Thêm 1 học viên vào danh sách học bù
    */
   async addStudentToHocBu(req, res) {
-    const { ma_dk, ma_khoa, loai, ghi_chu } = req.body;
+    const { ma_dk, ma_khoa, loai, ghi_chu, trang_thai, nguoi_tao, trang_thai_hoc_bu } = req.body;
     if (!ma_dk || !ma_khoa || !loai) {
       return res.status(400).json({ success: false, message: "Thiếu thông tin bắt buộc (ma_dk, ma_khoa, loai)" });
     }
 
     try {
-      const students = [{ ma_dk, ma_khoa, loai, ghi_chu: ghi_chu || "Đăng ký học bù thủ công" }];
+      const students = [{ 
+        ma_dk, 
+        ma_khoa, 
+        loai, 
+        ghi_chu: ghi_chu || "Đăng ký học bù thủ công",
+        trang_thai,
+        nguoi_tao,
+        trang_thai_hoc_bu
+      }];
       const result = await hocBuModel.moveToHocBu(students);
       
       res.status(200).json({
@@ -77,6 +85,40 @@ class TienDoDaoTaoController {
       res.status(500).json({
         success: false,
         message: "Lỗi hệ thống khi thêm học viên vào danh sách học bù",
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * POST /api/tien-do-dao-tao/hoc-bu/update-status
+   * Cập nhật trạng thái của bản ghi học bù
+   */
+  async updateHocBuStatus(req, res) {
+    const { id, trang_thai, nguoi_update, trang_thai_hoc_bu } = req.body;
+    if (!id) {
+      return res.status(400).json({ success: false, message: "Thiếu ID bản ghi học bù" });
+    }
+
+    try {
+      const result = await hocBuModel.updateHocBu(id, { trang_thai, nguoi_update, trang_thai_hoc_bu });
+      
+      if (result > 0) {
+        res.status(200).json({
+          success: true,
+          message: "Cập nhật trạng thái học bù thành công"
+        });
+      } else {
+        res.status(404).json({
+          success: false,
+          message: "Không tìm thấy bản ghi học bù để cập nhật"
+        });
+      }
+    } catch (error) {
+      console.error("[updateHocBuStatus] Error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Lỗi hệ thống khi cập nhật trạng thái học bù",
         error: error.message
       });
     }

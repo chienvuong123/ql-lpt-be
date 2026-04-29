@@ -171,6 +171,7 @@ async function upsertTienDoDaoTao(data) {
   request.input("so_luong_dat", mssql.Int, data.so_luong_dat || 0);
   request.input("so_luong_truot", mssql.Int, data.so_luong_truot || 0);
   request.input("ghi_chu", mssql.NVarChar, data.ghi_chu || null);
+  request.input("hang", mssql.NVarChar, data.hang || data.hang_xe || null);
 
   await request.query(`
     IF EXISTS (SELECT 1 FROM [dbo].[tien_do_dao_tao] WHERE ma_khoa = @ma_khoa)
@@ -191,6 +192,7 @@ async function upsertTienDoDaoTao(data) {
           so_luong_dat = @so_luong_dat,
           so_luong_truot = @so_luong_truot,
           ghi_chu = @ghi_chu,
+          hang = @hang,
           updated_at = GETDATE()
       WHERE ma_khoa = @ma_khoa
     END
@@ -200,13 +202,13 @@ async function upsertTienDoDaoTao(data) {
         ma_khoa, ngay_khai_giang, bat_dau_ly_thuyet, ket_thuc_ly_thuyet, 
         kiem_tra_het_mon, bat_dau_cabin, ket_thuc_cabin, bat_dau_dat, 
         ket_thuc_dat, tot_nghiep, ghep_tot_nghiep, be_giang, 
-        luu_luong, so_luong_dat, so_luong_truot, ghi_chu
+        luu_luong, so_luong_dat, so_luong_truot, ghi_chu, hang
       )
       VALUES (
         @ma_khoa, @ngay_khai_giang, @bat_dau_ly_thuyet, @ket_thuc_ly_thuyet, 
         @kiem_tra_het_mon, @bat_dau_cabin, @ket_thuc_cabin, @bat_dau_dat, 
         @ket_thuc_dat, @tot_nghiep, @ghep_tot_nghiep, @be_giang, 
-        @luu_luong, @so_luong_dat, @so_luong_truot, @ghi_chu
+        @luu_luong, @so_luong_dat, @so_luong_truot, @ghi_chu, @hang
       )
     END
   `);
