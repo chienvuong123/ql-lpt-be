@@ -665,6 +665,32 @@ class HocBuService {
     }
 
     const maDks = studentList.map(s => String(s.ma_dk).trim());
+    const uniqueMaKhoas = [...new Set(studentList.map(s => String(s.ma_khoa).trim()).filter(Boolean))];
+
+    let tienDoMap = {};
+    let khoaHocMap = {};
+    try {
+      if (uniqueMaKhoas.length > 0) {
+        const pool = await connectSQL();
+        const escapedMaKhoas = uniqueMaKhoas.map(m => `'${m.replace(/'/g, "''")}'`).join(",");
+        
+        const tienDoResult = await pool.request().query(`
+          SELECT ma_khoa, tot_nghiep FROM tien_do_dao_tao WHERE ma_khoa IN (${escapedMaKhoas})
+        `);
+        tienDoResult.recordset.forEach(row => {
+          tienDoMap[String(row.ma_khoa).trim()] = row.tot_nghiep;
+        });
+
+        const khoaHocResult = await pool.request().query(`
+          SELECT ma_khoa, ten_khoa FROM khoa_hoc WHERE ma_khoa IN (${escapedMaKhoas})
+        `);
+        khoaHocResult.recordset.forEach(row => {
+          khoaHocMap[String(row.ma_khoa).trim()] = row.ten_khoa;
+        });
+      }
+    } catch (e) {
+      console.error("[HocBuService] [TienDoDaoTao/KhoaHoc] Query error:", e.message);
+    }
 
     // 1. Lấy dữ liệu Lý thuyết (Local SQL) cho toàn bộ list để tối ưu
     let theoryMap = {};
@@ -789,6 +815,10 @@ class HocBuService {
 
         return {
           ...s,
+          ngay_tot_nghiep: tienDoMap[currentMaKhoa] || null,
+          ten_khoa: khoaHocMap[currentMaKhoa] || null,
+          thay_giao: r?.giao_vien || null,
+          khoa: r?.khoa || null,
           xe_b1: r?.xe_b1 || null,
           xe_b2: r?.xe_b2 || null,
           ky_dat: kd.trang_thai || null,

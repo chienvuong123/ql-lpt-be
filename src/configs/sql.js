@@ -13,22 +13,31 @@ const config = {
   },
   pool: {
     max: 10,
-    min: 0,
+    min: 2,
     idleTimeoutMillis: 30000,
+    acquireTimeoutMillis: 15000,
   },
 };
 
+let pool = null;
+
 async function connectSQL() {
+  if (pool) return pool;
+
   try {
-    const pool = await sql.connect(config);
-    console.log(
-      `[SQL] Connected: ${config.server}:${config.port} | DB=${config.database} | User=${config.user}`,
-    );
+    pool = await sql.connect(config);
+    console.log(`[SQL] Connected: ${config.server}:${config.port} | DB=${config.database}`);
+
+    // Xử lý khi pool bị lỗi thì reset để lần sau reconnect
+    pool.on("error", (err) => {
+      console.error("[SQL] Pool error:", err.message);
+      pool = null;
+    });
+
     return pool;
   } catch (err) {
-    console.error(
-      `[SQL] Connection failed: ${config.server}:${config.port} | DB=${config.database} | User=${config.user} | Error=${err.message}`,
-    );
+    pool = null;
+    console.error(`[SQL] Connection failed: ${err.message}`);
     throw err;
   }
 }
