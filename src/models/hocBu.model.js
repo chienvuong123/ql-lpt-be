@@ -116,6 +116,18 @@ class HocBuModel {
       query += " AND h.loai = @loai";
     }
 
+    if (filters.trang_thai) {
+      if (Array.isArray(filters.trang_thai)) {
+        const statuses = filters.trang_thai.map(Number).filter(n => !isNaN(n));
+        if (statuses.length > 0) {
+          query += ` AND h.trang_thai IN (${statuses.join(",")})`;
+        }
+      } else {
+        request.input("trang_thai", mssql.Int, filters.trang_thai);
+        query += " AND h.trang_thai = @trang_thai";
+      }
+    }
+
     if (filters.search) {
       request.input("search", mssql.NVarChar, `%${filters.search}%`);
       query += " AND (h.ma_dk LIKE @search OR hv.ho_ten LIKE @search OR hv.cccd LIKE @search)";

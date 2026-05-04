@@ -249,5 +249,46 @@ class TienDoDaoTaoController {
       res.status(500).json({ success: false, message: "Lỗi server", error: err.message });
     }
   }
+
+  /**
+   * GET /api/tien-do-dao-tao/hoc-bu/approved
+   * Lấy danh sách học viên học bù đang ở trang_thai 2, 3
+   */
+  async getApprovedHocBuList(req, res) {
+    let { ma_khoa, loai, search, sync } = req.query;
+
+    // Chuyển đổi chuỗi loai sang mã số tương ứng
+    if (loai === "ly_thuyet" || loai === "ly-thuyet") {
+      loai = 1;
+    } else if (loai === "cabin") {
+      loai = 2;
+    } else if (loai === "dat") {
+      loai = 3;
+    }
+
+    try {
+      const data = await hocBuService.getHocBuListDetailed({
+        ma_khoa,
+        loai,
+        search,
+        sync,
+        trang_thai: [2, 3]
+      });
+
+      res.status(200).json({
+        success: true,
+        message: "Lấy danh sách học viên đã duyệt hoặc chờ duyệt thành công",
+        data: data.students,
+        course: data.course
+      });
+    } catch (error) {
+      console.error("[getApprovedHocBuList] Error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Lỗi hệ thống khi lấy danh sách học viên đã duyệt/chờ duyệt",
+        error: error.message,
+      });
+    }
+  }
 }
 module.exports = new TienDoDaoTaoController();
