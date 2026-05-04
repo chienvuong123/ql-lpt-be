@@ -57,20 +57,42 @@ class HocBuModel {
   /**
    * Cập nhật trạng thái học bù
    * @param {number} id ID của bản ghi học bù
-   * @param {Object} data { trang_thai, nguoi_update, trang_thai_hoc_bu }
+   * @param {Object} data { trang_thai, nguoi_update, trang_thai_hoc_bu, khoa_bu, thoi_gian_xep }
    */
   async updateHocBu(id, data) {
     const pool = await connectSQL();
+
+    // Migration to ensure khoa_bu and thoi_gian_xep exist
+    try {
+      await pool.request().query(`
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[hoc_bu]') AND name = N'khoa_bu')
+        BEGIN
+          ALTER TABLE [dbo].[hoc_bu] ADD [khoa_bu] NVARCHAR(255) NULL;
+        END
+
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[hoc_bu]') AND name = N'thoi_gian_xep')
+        BEGIN
+          ALTER TABLE [dbo].[hoc_bu] ADD [thoi_gian_xep] DATETIME NULL;
+        END
+      `);
+    } catch (err) {
+      console.error("Lỗi khi kiểm tra/thêm cột vào bảng hoc_bu:", err.message);
+    }
+
     const request = new mssql.Request(pool);
     request.input("id", mssql.Int, id);
     request.input("trang_thai", mssql.Int, data.trang_thai);
     request.input("nguoi_update", mssql.NVarChar, data.nguoi_update || null);
     request.input("trang_thai_hoc_bu", mssql.Int, data.trang_thai_hoc_bu || null);
+    request.input("khoa_bu", mssql.NVarChar, data.khoa_bu || null);
+    request.input("thoi_gian_xep", mssql.DateTime, data.thoi_gian_xep ? new Date(data.thoi_gian_xep) : null);
 
     let updateFields = [];
-    if (data.trang_thai !== undefined) updateFields.push("trang_thai = @trang_thai");
+    if (data.trang_thai !== undefined && data.trang_thai !== null) updateFields.push("trang_thai = @trang_thai");
     if (data.nguoi_update !== undefined) updateFields.push("nguoi_update = @nguoi_update");
-    if (data.trang_thai_hoc_bu !== undefined) updateFields.push("trang_thai_hoc_bu = @trang_thai_hoc_bu");
+    if (data.trang_thai_hoc_bu !== undefined && data.trang_thai_hoc_bu !== null) updateFields.push("trang_thai_hoc_bu = @trang_thai_hoc_bu");
+    if (data.khoa_bu !== undefined) updateFields.push("khoa_bu = @khoa_bu");
+    if (data.thoi_gian_xep !== undefined) updateFields.push("thoi_gian_xep = @thoi_gian_xep");
     updateFields.push("updated_at = GETDATE()");
 
     const query = `
@@ -147,6 +169,18 @@ class HocBuModel {
       }
     }
 
+    if (filters.is_dang_hoc_bu === true || filters.is_dang_hoc_bu === "true") {
+      query += " AND h.khoa_bu IS NOT NULL AND h.khoa_bu <> '' AND h.thoi_gian_xep IS NOT NULL";
+    }
+
+    if (filters.exclude_loai_1 === true || filters.exclude_loai_1 === "true") {
+      query += " AND (h.loai IS NULL OR h.loai <> 1)";
+    }
+
+    if (filters.chua_xep === true || filters.chua_xep === "true") {
+      query += " AND h.khoa_bu IS NULL";
+    }
+
     if (filters.search) {
       request.input("search", mssql.NVarChar, `%${filters.search}%`);
       query += " AND (h.ma_dk LIKE @search OR hv.ho_ten LIKE @search OR hv.cccd LIKE @search)";
@@ -171,7 +205,7 @@ class HocBuModel {
     request.input("ma_khoa", mssql.VarChar, ma_khoa);
 
     let query = "SELECT ma_dk FROM hoc_bu WHERE ma_khoa = @ma_khoa";
-    
+
     if (loaiList.length > 0) {
       query += ` AND loai IN (${loaiList.join(",")})`;
     }

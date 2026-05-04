@@ -665,7 +665,10 @@ class HocBuService {
     }
 
     const maDks = studentList.map(s => String(s.ma_dk).trim());
-    const uniqueMaKhoas = [...new Set(studentList.map(s => String(s.ma_khoa).trim()).filter(Boolean))];
+    const uniqueMaKhoas = [...new Set([
+      ...studentList.map(s => String(s.ma_khoa).trim()).filter(Boolean),
+      ...studentList.map(s => String(s.khoa_bu).trim()).filter(Boolean)
+    ])];
 
     let tienDoMap = {};
     let khoaHocMap = {};
@@ -675,10 +678,15 @@ class HocBuService {
         const escapedMaKhoas = uniqueMaKhoas.map(m => `'${m.replace(/'/g, "''")}'`).join(",");
 
         const tienDoResult = await pool.request().query(`
-          SELECT ma_khoa, tot_nghiep FROM tien_do_dao_tao WHERE ma_khoa IN (${escapedMaKhoas})
+          SELECT 
+            ma_khoa, ngay_khai_giang, bat_dau_ly_thuyet, ket_thuc_ly_thuyet,
+            kiem_tra_het_mon, bat_dau_cabin, ket_thuc_cabin, bat_dau_dat, 
+            ket_thuc_dat, tot_nghiep, ghep_tot_nghiep, be_giang
+          FROM tien_do_dao_tao 
+          WHERE ma_khoa IN (${escapedMaKhoas})
         `);
         tienDoResult.recordset.forEach(row => {
-          tienDoMap[String(row.ma_khoa).trim()] = row.tot_nghiep;
+          tienDoMap[String(row.ma_khoa).trim()] = row;
         });
 
         const khoaHocResult = await pool.request().query(`
@@ -813,9 +821,21 @@ class HocBuService {
 
         const kd = kyDatMap[maDk] || {};
 
+        const td = tienDoMap[currentMaKhoa] || {};
+        const tdBu = tienDoMap[String(s.khoa_bu || "").trim()] || {};
+
         return {
           ...s,
-          ngay_tot_nghiep: tienDoMap[currentMaKhoa] || null,
+          ngay_khai_giang: tdBu.ngay_khai_giang || td.ngay_khai_giang || null,
+          bat_dau_ly_thuyet: tdBu.bat_dau_ly_thuyet || td.bat_dau_ly_thuyet || null,
+          ket_thuc_ly_thuyet: tdBu.ket_thuc_ly_thuyet || td.ket_thuc_ly_thuyet || null,
+          kiem_tra_het_mon: tdBu.kiem_tra_het_mon || td.kiem_tra_het_mon || null,
+          bat_dau_cabin: tdBu.bat_dau_cabin || td.bat_dau_cabin || null,
+          ket_thuc_cabin: tdBu.ket_thuc_cabin || td.ket_thuc_cabin || null,
+          bat_dau_dat: tdBu.bat_dau_dat || td.bat_dau_dat || null,
+          ket_thuc_dat: tdBu.ket_thuc_dat || td.ket_thuc_dat || null,
+          ngay_tot_nghiep: tdBu.tot_nghiep || td.tot_nghiep || null,
+          be_giang: tdBu.be_giang || td.be_giang || null,
           ten_khoa: khoaHocMap[currentMaKhoa] || null,
           thay_giao: r?.giao_vien || null,
           khoa: r?.khoa || null,

@@ -153,6 +153,23 @@ async function upsertHocVien(students, planInfo) {
  */
 async function upsertTienDoDaoTao(data) {
   const pool = await connectSQL();
+
+  // Đảm bảo cột loai tồn tại trong bảng tien_do_dao_tao
+  try {
+    await pool.request().query(`
+      IF NOT EXISTS (
+        SELECT * FROM sys.columns 
+        WHERE object_id = OBJECT_ID(N'[dbo].[tien_do_dao_tao]') 
+        AND name = N'loai'
+      )
+      BEGIN
+        ALTER TABLE [dbo].[tien_do_dao_tao] ADD [loai] INT NULL;
+      END
+    `);
+  } catch (err) {
+    console.error("Lỗi khi kiểm tra/thêm cột loai vào bảng tien_do_dao_tao:", err.message);
+  }
+
   const request = new mssql.Request(pool);
 
   request.input("ma_khoa", mssql.NVarChar, data.ma_khoa);
@@ -173,8 +190,11 @@ async function upsertTienDoDaoTao(data) {
   request.input("ghi_chu", mssql.NVarChar, data.ghi_chu || null);
   request.input("hang", mssql.NVarChar, data.hang || data.hang_xe || null);
 
+  const loaiValue = (data.loai === null || data.loai === undefined || data.loai === 0 || data.loai === "0") ? 0 : Number(data.loai);
+  request.input("loai", mssql.Int, loaiValue);
+
   await request.query(`
-    IF EXISTS (SELECT 1 FROM [dbo].[tien_do_dao_tao] WHERE ma_khoa = @ma_khoa)
+    IF EXISTS (SELECT 1 FROM [dbo].[tien_do_dao_tao] WHERE ma_khoa = @ma_khoa AND (loai = @loai OR (loai IS NULL AND @loai = 0)))
     BEGIN
       UPDATE [dbo].[tien_do_dao_tao]
       SET ngay_khai_giang = @ngay_khai_giang,
@@ -193,8 +213,9 @@ async function upsertTienDoDaoTao(data) {
           so_luong_truot = @so_luong_truot,
           ghi_chu = @ghi_chu,
           hang = @hang,
+          loai = @loai,
           updated_at = GETDATE()
-      WHERE ma_khoa = @ma_khoa
+      WHERE ma_khoa = @ma_khoa AND (loai = @loai OR (loai IS NULL AND @loai = 0))
     END
     ELSE
     BEGIN
@@ -202,13 +223,13 @@ async function upsertTienDoDaoTao(data) {
         ma_khoa, ngay_khai_giang, bat_dau_ly_thuyet, ket_thuc_ly_thuyet, 
         kiem_tra_het_mon, bat_dau_cabin, ket_thuc_cabin, bat_dau_dat, 
         ket_thuc_dat, tot_nghiep, ghep_tot_nghiep, be_giang, 
-        luu_luong, so_luong_dat, so_luong_truot, ghi_chu, hang
+        luu_luong, so_luong_dat, so_luong_truot, ghi_chu, hang, loai
       )
       VALUES (
         @ma_khoa, @ngay_khai_giang, @bat_dau_ly_thuyet, @ket_thuc_ly_thuyet, 
         @kiem_tra_het_mon, @bat_dau_cabin, @ket_thuc_cabin, @bat_dau_dat, 
         @ket_thuc_dat, @tot_nghiep, @ghep_tot_nghiep, @be_giang, 
-        @luu_luong, @so_luong_dat, @so_luong_truot, @ghi_chu, @hang
+        @luu_luong, @so_luong_dat, @so_luong_truot, @ghi_chu, @hang, @loai
       )
     END
   `);
@@ -238,6 +259,32 @@ async function getTienDoDaoTaoList(filters = {}) {
   if (filters.tot_nghiep) {
     request.input("tot_nghiep", mssql.Date, filters.tot_nghiep);
     query += ` AND t.tot_nghiep = @tot_nghiep`;
+  }
+
+  if (filters.loai !== undefined && filters.loai !== null && filters.loai !== "") {
+    if (Array.isArray(filters.loai)) {
+      const types = filters.loai.map(Number).filter(n => !isNaN(n));
+      if (types.length > 0) {
+        if (types.includes(0)) {
+          query += ` AND (t.loai IN (${types.join(",")}) OR t.loai IS NULL)`;
+        } else {
+          query += ` AND t.loai IN (${types.join(",")})`;
+        }
+      }
+    } else if (typeof filters.loai === 'string' && filters.loai.includes(',')) {
+      const types = filters.loai.split(',').map(Number).filter(n => !isNaN(n));
+      if (types.length > 0) {
+        if (types.includes(0)) {
+          query += ` AND (t.loai IN (${types.join(",")}) OR t.loai IS NULL)`;
+        } else {
+          query += ` AND t.loai IN (${types.join(",")})`;
+        }
+      }
+    } else {
+      const l = (filters.loai === "null" || filters.loai === "0" || filters.loai === 0) ? 0 : Number(filters.loai);
+      request.input("loai", mssql.Int, l);
+      query += ` AND (t.loai = @loai OR (t.loai IS NULL AND @loai = 0))`;
+    }
   }
 
   query += ` ORDER BY t.updated_at DESC, t.ma_khoa ASC`;
