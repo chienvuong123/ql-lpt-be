@@ -251,41 +251,72 @@ class TienDoDaoTaoController {
   }
 
   /**
-   * GET /api/tien-do-dao-tao/hoc-bu/approved
-   * Lấy danh sách học viên học bù đang ở trang_thai 2, 3
+   * GET /api/tien-do-dao-tao/hoc-bu/cho-duyet
+   * Lấy danh sách học viên học bù đang ở trang_thai 2, 3 với các bộ lọc mới
    */
-  async getApprovedHocBuList(req, res) {
-    let { ma_khoa, loai, search, sync } = req.query;
+  async getChoDuyetHocBuList(req, res) {
+    let { ma_khoa, loai, search, sync, trang_thai, trang_thai_hoc_bu } = req.query;
 
-    // Chuyển đổi chuỗi loai sang mã số tương ứng
-    if (loai === "ly_thuyet" || loai === "ly-thuyet") {
-      loai = 1;
-    } else if (loai === "cabin") {
-      loai = 2;
-    } else if (loai === "dat") {
-      loai = 3;
+    // Phân tích loai
+    let loaiFilter = undefined;
+    if (loai) {
+      const l = String(loai).toLowerCase().trim();
+      if (l === "ly_thuyet" || l === "ly-thuyet") {
+        loaiFilter = [1];
+      } else if (l === "thuc_hanh" || l === "thuc-hanh") {
+        loaiFilter = [2, 3];
+      } else if (l === "cabin") {
+        loaiFilter = [2];
+      } else if (l === "dat") {
+        loaiFilter = [3];
+      } else if (l.includes(',')) {
+        loaiFilter = l.split(',').map(Number);
+      } else {
+        loaiFilter = [Number(l)];
+      }
+    }
+
+    // Phân tích trang_thai
+    let trangThaiFilter = [2, 3];
+    if (trang_thai) {
+      if (typeof trang_thai === 'string' && trang_thai.includes(',')) {
+        trangThaiFilter = trang_thai.split(',').map(Number);
+      } else {
+        trangThaiFilter = [Number(trang_thai)];
+      }
+    }
+
+    // Phân tích trang_thai_hoc_bu
+    let trangThaiHocBuFilter = undefined;
+    if (trang_thai_hoc_bu) {
+      if (typeof trang_thai_hoc_bu === 'string' && trang_thai_hoc_bu.includes(',')) {
+        trangThaiHocBuFilter = trang_thai_hoc_bu.split(',').map(Number);
+      } else {
+        trangThaiHocBuFilter = [Number(trang_thai_hoc_bu)];
+      }
     }
 
     try {
       const data = await hocBuService.getHocBuListDetailed({
         ma_khoa,
-        loai,
+        loai: loaiFilter,
         search,
         sync,
-        trang_thai: [2, 3]
+        trang_thai: trangThaiFilter,
+        trang_thai_hoc_bu: trangThaiHocBuFilter
       });
 
       res.status(200).json({
         success: true,
-        message: "Lấy danh sách học viên đã duyệt hoặc chờ duyệt thành công",
+        message: "Lấy danh sách học viên thành công",
         data: data.students,
         course: data.course
       });
     } catch (error) {
-      console.error("[getApprovedHocBuList] Error:", error);
+      console.error("[getChoDuyetHocBuList] Error:", error);
       res.status(500).json({
         success: false,
-        message: "Lỗi hệ thống khi lấy danh sách học viên đã duyệt/chờ duyệt",
+        message: "Lỗi hệ thống khi lấy danh sách học viên",
         error: error.message,
       });
     }

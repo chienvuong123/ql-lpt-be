@@ -120,7 +120,7 @@ function normalizeDurationToSeconds(s) {
 function formatSecondsToHms(totalSeconds) {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
-  return `${h}h ${m} phút`;
+  return `${h}h ${m}'`;
 }
 
 /**
@@ -673,7 +673,7 @@ class HocBuService {
       if (uniqueMaKhoas.length > 0) {
         const pool = await connectSQL();
         const escapedMaKhoas = uniqueMaKhoas.map(m => `'${m.replace(/'/g, "''")}'`).join(",");
-        
+
         const tienDoResult = await pool.request().query(`
           SELECT ma_khoa, tot_nghiep FROM tien_do_dao_tao WHERE ma_khoa IN (${escapedMaKhoas})
         `);

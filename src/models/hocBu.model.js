@@ -112,8 +112,15 @@ class HocBuModel {
     }
 
     if (filters.loai) {
-      request.input("loai", mssql.Int, filters.loai);
-      query += " AND h.loai = @loai";
+      if (Array.isArray(filters.loai)) {
+        const types = filters.loai.map(Number).filter(n => !isNaN(n));
+        if (types.length > 0) {
+          query += ` AND h.loai IN (${types.join(",")})`;
+        }
+      } else {
+        request.input("loai", mssql.Int, filters.loai);
+        query += " AND h.loai = @loai";
+      }
     }
 
     if (filters.trang_thai) {
@@ -125,6 +132,18 @@ class HocBuModel {
       } else {
         request.input("trang_thai", mssql.Int, filters.trang_thai);
         query += " AND h.trang_thai = @trang_thai";
+      }
+    }
+
+    if (filters.trang_thai_hoc_bu) {
+      if (Array.isArray(filters.trang_thai_hoc_bu)) {
+        const hbtypes = filters.trang_thai_hoc_bu.map(Number).filter(n => !isNaN(n));
+        if (hbtypes.length > 0) {
+          query += ` AND h.trang_thai_hoc_bu IN (${hbtypes.join(",")})`;
+        }
+      } else {
+        request.input("trang_thai_hoc_bu", mssql.Int, filters.trang_thai_hoc_bu);
+        query += " AND h.trang_thai_hoc_bu = @trang_thai_hoc_bu";
       }
     }
 
