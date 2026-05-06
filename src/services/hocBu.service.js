@@ -824,8 +824,18 @@ class HocBuService {
         const td = tienDoMap[currentMaKhoa] || {};
         const tdBu = tienDoMap[String(s.khoa_bu || "").trim()] || {};
 
+        let parsedTrangThaiDuyet = null;
+        if (s.trang_thai_duyet) {
+          try {
+            parsedTrangThaiDuyet = typeof s.trang_thai_duyet === "string" ? JSON.parse(s.trang_thai_duyet) : s.trang_thai_duyet;
+          } catch (e) {
+            console.error("Error parsing trang_thai_duyet:", e.message);
+          }
+        }
+
         return {
           ...s,
+          trang_thai_duyet: parsedTrangThaiDuyet,
           ngay_khai_giang: tdBu.ngay_khai_giang || td.ngay_khai_giang || null,
           bat_dau_ly_thuyet: tdBu.bat_dau_ly_thuyet || td.bat_dau_ly_thuyet || null,
           ket_thuc_ly_thuyet: tdBu.ket_thuc_ly_thuyet || td.ket_thuc_ly_thuyet || null,

@@ -95,7 +95,7 @@ class TienDoDaoTaoController {
    * Cập nhật trạng thái của bản ghi học bù
    */
   async updateHocBuStatus(req, res) {
-    const { id, trang_thai, nguoi_update, trang_thai_hoc_bu, khoa_bu, thoi_gian_xep } = req.body;
+    const { id, trang_thai, nguoi_update, trang_thai_hoc_bu, khoa_bu, thoi_gian_xep, trang_thai_duyet } = req.body;
     if (!id) {
       return res.status(400).json({ success: false, message: "Thiếu ID bản ghi học bù" });
     }
@@ -106,7 +106,8 @@ class TienDoDaoTaoController {
         nguoi_update,
         trang_thai_hoc_bu,
         khoa_bu,
-        thoi_gian_xep
+        thoi_gian_xep,
+        trang_thai_duyet
       });
 
       if (result > 0) {
@@ -310,7 +311,7 @@ class TienDoDaoTaoController {
         sync,
         trang_thai: trangThaiFilter,
         trang_thai_hoc_bu: trangThaiHocBuFilter,
-        exclude_loai_1: true,
+        exclude_loai_1: loaiFilter ? false : true,
         chua_xep: true
       });
 

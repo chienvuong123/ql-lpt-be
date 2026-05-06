@@ -62,7 +62,7 @@ class HocBuModel {
   async updateHocBu(id, data) {
     const pool = await connectSQL();
 
-    // Migration to ensure khoa_bu and thoi_gian_xep exist
+    // Migration to ensure khoa_bu, thoi_gian_xep, and trang_thai_duyet exist
     try {
       await pool.request().query(`
         IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[hoc_bu]') AND name = N'khoa_bu')
@@ -73,6 +73,11 @@ class HocBuModel {
         IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[hoc_bu]') AND name = N'thoi_gian_xep')
         BEGIN
           ALTER TABLE [dbo].[hoc_bu] ADD [thoi_gian_xep] DATETIME NULL;
+        END
+
+        IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[hoc_bu]') AND name = N'trang_thai_duyet')
+        BEGIN
+          ALTER TABLE [dbo].[hoc_bu] ADD [trang_thai_duyet] NVARCHAR(255) NULL;
         END
       `);
     } catch (err) {
@@ -87,12 +92,19 @@ class HocBuModel {
     request.input("khoa_bu", mssql.NVarChar, data.khoa_bu || null);
     request.input("thoi_gian_xep", mssql.DateTime, data.thoi_gian_xep ? new Date(data.thoi_gian_xep) : null);
 
+    let trangThaiDuyetVal = null;
+    if (data.trang_thai_duyet !== undefined && data.trang_thai_duyet !== null) {
+      trangThaiDuyetVal = typeof data.trang_thai_duyet === "string" ? data.trang_thai_duyet : JSON.stringify(data.trang_thai_duyet);
+    }
+    request.input("trang_thai_duyet", mssql.NVarChar, trangThaiDuyetVal);
+
     let updateFields = [];
     if (data.trang_thai !== undefined && data.trang_thai !== null) updateFields.push("trang_thai = @trang_thai");
     if (data.nguoi_update !== undefined) updateFields.push("nguoi_update = @nguoi_update");
     if (data.trang_thai_hoc_bu !== undefined && data.trang_thai_hoc_bu !== null) updateFields.push("trang_thai_hoc_bu = @trang_thai_hoc_bu");
     if (data.khoa_bu !== undefined) updateFields.push("khoa_bu = @khoa_bu");
     if (data.thoi_gian_xep !== undefined) updateFields.push("thoi_gian_xep = @thoi_gian_xep");
+    if (data.trang_thai_duyet !== undefined) updateFields.push("trang_thai_duyet = @trang_thai_duyet");
     updateFields.push("updated_at = GETDATE()");
 
     const query = `
