@@ -866,7 +866,20 @@ class HocBuService {
       }
     });
 
-    return { students, course: courseInfo };
+    // 6. Tổng hợp thông tin tiến độ của các khoa_bu (lớp học bù) và ma_khoa
+    let tienDoKhoaBu = {};
+    uniqueMaKhoas.forEach(mk => {
+      const trimmed = String(mk).trim();
+      if (tienDoMap[trimmed] || khoaHocMap[trimmed]) {
+        tienDoKhoaBu[trimmed] = {
+          ma_khoa: trimmed,
+          ten_khoa: khoaHocMap[trimmed] || trimmed,
+          ...(tienDoMap[trimmed] || {})
+        };
+      }
+    });
+
+    return { students, course: courseInfo, tienDoKhoaBu };
   }
 
   /**

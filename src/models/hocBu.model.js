@@ -101,7 +101,7 @@ class HocBuModel {
     let updateFields = [];
     if (data.trang_thai !== undefined && data.trang_thai !== null) updateFields.push("trang_thai = @trang_thai");
     if (data.nguoi_update !== undefined) updateFields.push("nguoi_update = @nguoi_update");
-    if (data.trang_thai_hoc_bu !== undefined && data.trang_thai_hoc_bu !== null) updateFields.push("trang_thai_hoc_bu = @trang_thai_hoc_bu");
+    if (data.trang_thai_hoc_bu !== undefined) updateFields.push("trang_thai_hoc_bu = @trang_thai_hoc_bu");
     if (data.khoa_bu !== undefined) updateFields.push("khoa_bu = @khoa_bu");
     if (data.thoi_gian_xep !== undefined) updateFields.push("thoi_gian_xep = @thoi_gian_xep");
     if (data.trang_thai_duyet !== undefined) updateFields.push("trang_thai_duyet = @trang_thai_duyet");

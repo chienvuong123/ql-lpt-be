@@ -8,6 +8,8 @@ router.get("/", tienDoDaoTaoController.getTienDoDaoTao);
 // Route lấy danh sách học bù
 router.get("/hoc-bu", tienDoDaoTaoController.getHocBuList);
 router.get("/hoc-bu/cho-duyet", tienDoDaoTaoController.getChoDuyetHocBuList);
+router.get("/hoc-bu/cho-duyet-ly-thuyet", tienDoDaoTaoController.getChoDuyetLyThuyetList);
+router.get("/hoc-bu/cho-duyet-thuc-hanh", tienDoDaoTaoController.getChoDuyetThucHanhList);
 router.get("/hoc-bu/dang-hoc-bu", tienDoDaoTaoController.getDangHocBuList);
 
 // Route lấy chi tiết học bù của 1 học viên
