@@ -192,10 +192,10 @@ class SyncController {
    * Get list of training progress with filters
    */
   async getTienDoDaoTaoList(req, res) {
-    const { ma_khoa, tot_nghiep } = req.query;
+    const { ma_khoa, tot_nghiep, loai } = req.query;
 
     try {
-      const list = await syncService.getTienDoDaoTaoList({ ma_khoa, tot_nghiep });
+      const list = await syncService.getTienDoDaoTaoList({ ma_khoa, tot_nghiep, loai });
       res.status(200).json({
         success: true,
         data: list,
