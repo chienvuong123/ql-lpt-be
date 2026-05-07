@@ -262,32 +262,43 @@ class TienDoDaoTaoController {
    * Lấy danh sách học viên học bù đang ở trang_thai 2, 3 với các bộ lọc mới
    */
   async getChoDuyetHocBuList(req, res) {
-    let { ma_khoa, loai, search, sync, trang_thai, trang_thai_hoc_bu } = req.query;
+    let { ma_khoa, loai, search, sync, trang_thai, trang_thai_hoc_bu, theory_status } = req.query;
+
+    // Hỗ trợ các thư viện frontend sử dụng định dạng mảng (loai[], trang_thai[])
+    if (!loai && req.query["loai[]"]) loai = req.query["loai[]"];
+    if (!trang_thai && req.query["trang_thai[]"]) trang_thai = req.query["trang_thai[]"];
+    if (!trang_thai_hoc_bu && req.query["trang_thai_hoc_bu[]"]) trang_thai_hoc_bu = req.query["trang_thai_hoc_bu[]"];
 
     // Phân tích loai
     let loaiFilter = undefined;
     if (loai) {
-      const l = String(loai).toLowerCase().trim();
-      if (l === "ly_thuyet" || l === "ly-thuyet") {
-        loaiFilter = [1];
-      } else if (l === "thuc_hanh" || l === "thuc-hanh") {
-        loaiFilter = [2, 3];
-      } else if (l === "cabin") {
-        loaiFilter = [2];
-      } else if (l === "dat") {
-        loaiFilter = [3];
-      } else if (l.includes(',')) {
-        loaiFilter = l.split(',').map(Number);
+      if (Array.isArray(loai)) {
+        loaiFilter = loai.map(Number);
       } else {
-        loaiFilter = [Number(l)];
+        const l = String(loai).toLowerCase().trim();
+        if (l === "ly_thuyet" || l === "ly-thuyet") {
+          loaiFilter = [1];
+        } else if (l === "thuc_hanh" || l === "thuc-hanh") {
+          loaiFilter = [2, 3];
+        } else if (l === "cabin") {
+          loaiFilter = [2];
+        } else if (l === "dat") {
+          loaiFilter = [3];
+        } else if (l.includes(",")) {
+          loaiFilter = l.split(",").map(Number);
+        } else {
+          loaiFilter = [Number(l)];
+        }
       }
     }
 
     // Phân tích trang_thai
     let trangThaiFilter = [2, 3];
     if (trang_thai) {
-      if (typeof trang_thai === 'string' && trang_thai.includes(',')) {
-        trangThaiFilter = trang_thai.split(',').map(Number);
+      if (Array.isArray(trang_thai)) {
+        trangThaiFilter = trang_thai.map(Number);
+      } else if (typeof trang_thai === "string" && trang_thai.includes(",")) {
+        trangThaiFilter = trang_thai.split(",").map(Number);
       } else {
         trangThaiFilter = [Number(trang_thai)];
       }
@@ -296,29 +307,77 @@ class TienDoDaoTaoController {
     // Phân tích trang_thai_hoc_bu
     let trangThaiHocBuFilter = undefined;
     if (trang_thai_hoc_bu) {
-      if (typeof trang_thai_hoc_bu === 'string' && trang_thai_hoc_bu.includes(',')) {
-        trangThaiHocBuFilter = trang_thai_hoc_bu.split(',').map(Number);
+      if (Array.isArray(trang_thai_hoc_bu)) {
+        trangThaiHocBuFilter = trang_thai_hoc_bu.map(Number);
+      } else if (typeof trang_thai_hoc_bu === "string" && trang_thai_hoc_bu.includes(",")) {
+        trangThaiHocBuFilter = trang_thai_hoc_bu.split(",").map(Number);
       } else {
         trangThaiHocBuFilter = [Number(trang_thai_hoc_bu)];
       }
     }
 
     try {
+      const isThucHanhScreen = loaiFilter && (loaiFilter.includes(2) || loaiFilter.includes(3) || (trangThaiHocBuFilter && trangThaiHocBuFilter.includes(1) && trangThaiHocBuFilter.includes(2)));
+      const queryLoai = isThucHanhScreen ? [1, 2, 3] : loaiFilter;
+
       const data = await hocBuService.getHocBuListDetailed({
         ma_khoa,
-        loai: loaiFilter,
+        loai: queryLoai,
         search,
         sync,
         trang_thai: trangThaiFilter,
         trang_thai_hoc_bu: trangThaiHocBuFilter,
-        exclude_loai_1: loaiFilter ? false : true,
-        chua_xep: true
+        exclude_loai_1: queryLoai ? false : true,
+        chua_xep: false
+      });
+
+      let finalStudents = data.students || [];
+
+      // Lọc theo trạng thái đạt lý thuyết nếu có yêu cầu từ FE
+      if (theory_status === "passed") {
+        finalStudents = finalStudents.filter(student => {
+          const theoryInfo = student.detail?.theoryInfo;
+          const passedTheoryOnline = theoryInfo && theoryInfo.loai_ly_thuyet && theoryInfo.loai_het_mon;
+          return passedTheoryOnline;
+        });
+      } else if (theory_status === "not_passed") {
+        finalStudents = finalStudents.filter(student => {
+          const theoryInfo = student.detail?.theoryInfo;
+          const passedTheoryOnline = theoryInfo && theoryInfo.loai_ly_thuyet && theoryInfo.loai_het_mon;
+          return !passedTheoryOnline;
+        });
+      }
+
+      // Vẫn giữ lọc động theo đúng các loại được chọn ở checkbox FE
+      if (loaiFilter && loaiFilter.length > 0) {
+        finalStudents = finalStudents.filter(student => {
+          const sLoai = student.loai ?? student.student?.loai;
+          return loaiFilter.includes(sLoai);
+        });
+      }
+
+      // Lọc bỏ học viên đã có khoa_bu và thoi_gian_xep trừ khi cabin & dat đều bằng false
+      finalStudents = finalStudents.filter(student => {
+        const hasSchedule = student.khoa_bu && student.thoi_gian_xep;
+
+        if (hasSchedule) {
+          const isCabinApproved = student.trang_thai_duyet && student.trang_thai_duyet[1] === true;
+          const isDatApproved = student.trang_thai_duyet && student.trang_thai_duyet[2] === true;
+
+          // Nếu cả cabin và dat đều false (chưa được duyệt) thì vẫn hiển thị
+          if (!isCabinApproved && !isDatApproved) {
+            return true;
+          }
+          return false;
+        }
+
+        return true;
       });
 
       res.status(200).json({
         success: true,
         message: "Lấy danh sách học viên thành công",
-        data: data.students,
+        data: finalStudents,
         course: data.course
       });
     } catch (error) {

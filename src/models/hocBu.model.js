@@ -24,7 +24,7 @@ class HocBuModel {
         request.input("ghi_chu", mssql.NVarChar, student.ghi_chu);
         request.input("trang_thai", mssql.Int, student.trang_thai || 1); // 1: Tạo, 2: Chờ duyệt, 3: Đã duyệt
         request.input("nguoi_tao", mssql.NVarChar, student.nguoi_tao || null);
-        request.input("trang_thai_hoc_bu", mssql.Int, student.trang_thai_hoc_bu || 1); // 1: Chưa học bù, 2: Đang học bù, 3: Đã học bù
+        request.input("trang_thai_hoc_bu", mssql.Int, student.trang_thai_hoc_bu !== undefined ? student.trang_thai_hoc_bu : null); // null: Chưa học bù, 1: Đang đăng ký, 2: Lần 1, 3: Lần 2...
 
         // Sử dụng NOT EXISTS để tránh lỗi Duplicate Key nếu đã chạy trước đó
         const result = await request.query(`
