@@ -1,15 +1,16 @@
 const connectSQL = require("../src/configs/sql");
-const mssql = require("mssql");
 
-async function check() {
+async function run() {
   try {
     const pool = await connectSQL();
-    const result = await pool.request()
-      .input("cccd", mssql.VarChar, "030304004859")
-      .query("SELECT * FROM google_sheet_data WHERE cccd = @cccd");
-    
-    console.log("Record for 030304004859:");
-    console.log(JSON.stringify(result.recordset[0], null, 2));
+    const result = await pool.request().query("SELECT TOP 10 * FROM [dbo].[hoc_bu_new]");
+    console.log("RECORDS:");
+    console.log(JSON.stringify(result.recordset, null, 2));
+
+    const counts = await pool.request().query("SELECT loai, COUNT(*) as count FROM [dbo].[hoc_bu_new] GROUP BY loai");
+    console.log("COUNTS:");
+    console.log(JSON.stringify(counts.recordset, null, 2));
+
     process.exit(0);
   } catch (err) {
     console.error(err);
@@ -17,4 +18,4 @@ async function check() {
   }
 }
 
-check();
+run();
