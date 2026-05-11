@@ -169,11 +169,11 @@ class HocBuNewModel {
     const request = new mssql.Request(pool);
 
     let query = `
-      SELECT h.*, hv.ho_ten, hv.cccd, hv.ngay_sinh, hv.anh, hv.hang,
+      SELECT TOP 1000 h.*, hv.ho_ten, hv.cccd, hv.ngay_sinh, hv.anh, hv.hang,
              dk.khoa, dk.giao_vien, dk.xe_b1, dk.xe_b2
-      FROM [dbo].[hoc_bu_new] h
-      LEFT JOIN [dbo].[hoc_vien] hv ON h.ma_dk = hv.ma_dk
-      LEFT JOIN [dbo].[dang_ky_xe_gv] dk ON h.ma_dk = dk.ma_dk
+      FROM [dbo].[hoc_bu_new] h WITH (NOLOCK)
+      LEFT JOIN [dbo].[hoc_vien] hv WITH (NOLOCK) ON h.ma_dk = hv.ma_dk
+      LEFT JOIN [dbo].[dang_ky_xe_gv] dk WITH (NOLOCK) ON h.ma_dk = dk.ma_dk
       WHERE 1=1
     `;
 
@@ -237,16 +237,15 @@ class HocBuNewModel {
       } else {
         const statusVal = Number(filters.trang_thai);
         if (!isNaN(statusVal)) {
-          if (statusVal === 2) {
-            query += " AND h.trang_thai = 2 AND h.loai = 'ly_thuyet'";
-          } else if (statusVal === 5) {
-            query += " AND (h.trang_thai = 5 OR (h.trang_thai = 4 AND h.loai = 'ly_thuyet'))";
-          } else {
-            request.input("trang_thai", mssql.Int, statusVal);
-            query += " AND h.trang_thai = @trang_thai";
-          }
+          request.input("trang_thai", mssql.Int, statusVal);
+          query += " AND h.trang_thai = @trang_thai";
         }
       }
+    }
+
+    if (filters.loai_thuc_hanh && filters.loai_thuc_hanh !== 'undefined' && filters.loai_thuc_hanh !== 'null' && String(filters.loai_thuc_hanh).trim() !== '') {
+      request.input("loai_thuc_hanh", mssql.NVarChar, String(filters.loai_thuc_hanh).trim().toLowerCase());
+      query += " AND h.loai_thuc_hanh = @loai_thuc_hanh";
     }
 
     if (filters.search) {

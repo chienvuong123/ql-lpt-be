@@ -16,5 +16,6 @@ router.get("/hoc-bu/dang-hoc-bu", tienDoDaoTaoNewController.getDangHocBuList);
 router.get("/hoc-bu/detail", tienDoDaoTaoNewController.getHocBuDetail);
 router.post("/hoc-bu", tienDoDaoTaoNewController.addStudentToHocBu);
 router.post("/hoc-bu/update-status", tienDoDaoTaoNewController.updateHocBuStatus);
+router.get("/hoc-bu/check-hoan-thanh-ly-thuyet", tienDoDaoTaoNewController.checkHoanThanhLyThuyet);
 
 module.exports = router;
