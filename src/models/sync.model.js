@@ -194,6 +194,13 @@ async function upsertTienDoDaoTao(data) {
   request.input("loai", mssql.Int, loaiValue);
 
   await request.query(`
+    -- Đảm bảo ma_khoa tồn tại trong bảng khoa_hoc để tránh lỗi Foreign Key (VD: đối với khóa học bù)
+    IF NOT EXISTS (SELECT 1 FROM [dbo].[khoa_hoc] WHERE ma_khoa = @ma_khoa)
+    BEGIN
+      INSERT INTO [dbo].[khoa_hoc] (ma_khoa, ten_khoa)
+      VALUES (@ma_khoa, @ma_khoa)
+    END
+
     IF EXISTS (SELECT 1 FROM [dbo].[tien_do_dao_tao] WHERE ma_khoa = @ma_khoa AND (loai = @loai OR (loai IS NULL AND @loai = 0)))
     BEGIN
       UPDATE [dbo].[tien_do_dao_tao]
