@@ -168,9 +168,16 @@ class HocBuNewModel {
     const pool = await connectSQL();
     const request = new mssql.Request(pool);
 
+    let selectClause = `SELECT TOP 1000 h.*, hv.ho_ten, hv.cccd, hv.ngay_sinh, hv.anh, hv.hang,
+             dk.khoa, dk.giao_vien, dk.xe_b1, dk.xe_b2`;
+             
+    if (filters.page && filters.limit) {
+      selectClause = `SELECT h.*, hv.ho_ten, hv.cccd, hv.ngay_sinh, hv.anh, hv.hang,
+             dk.khoa, dk.giao_vien, dk.xe_b1, dk.xe_b2, COUNT(*) OVER() AS total_count`;
+    }
+
     let query = `
-      SELECT TOP 1000 h.*, hv.ho_ten, hv.cccd, hv.ngay_sinh, hv.anh, hv.hang,
-             dk.khoa, dk.giao_vien, dk.xe_b1, dk.xe_b2
+      ${selectClause}
       FROM [dbo].[hoc_bu_new] h WITH (NOLOCK)
       LEFT JOIN [dbo].[hoc_vien] hv WITH (NOLOCK) ON h.ma_dk = hv.ma_dk
       LEFT JOIN [dbo].[dang_ky_xe_gv] dk WITH (NOLOCK) ON h.ma_dk = dk.ma_dk
@@ -255,8 +262,28 @@ class HocBuNewModel {
 
     query += " ORDER BY h.created_at DESC";
 
+    if (filters.page && filters.limit) {
+      const page = parseInt(filters.page) || 1;
+      const limit = parseInt(filters.limit) || 20;
+      const offset = (page - 1) * limit;
+      
+      request.input("offset", mssql.Int, offset);
+      request.input("limit", mssql.Int, limit);
+      
+      query += " OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY";
+    }
+
     const result = await request.query(query);
-    return result.recordset;
+    const data = result.recordset;
+    
+    if (filters.page && filters.limit) {
+      const total = data.length > 0 ? data[0].total_count : 0;
+      data.total = total; // Đính kèm total vào array để trả về
+      // (Tùy chọn) Xóa cột total_count khỏi mỗi row nếu không cần thiết:
+      // data.forEach(row => delete row.total_count);
+    }
+    
+    return data;
   }
 
   /**

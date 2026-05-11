@@ -11,7 +11,7 @@ class TienDoDaoTaoNewController {
    * Lấy danh sách học viên học bù với bộ lọc từ bảng hoc_bu_new
    */
   async getHocBuList(req, res) {
-    let { ma_khoa, loai, search, text, trang_thai } = req.query;
+    let { ma_khoa, loai, search, text, trang_thai, page, limit } = req.query;
 
     // Hỗ trợ loai[] từ FE gửi lên dưới dạng mảng
     if (!loai && req.query["loai[]"]) {
@@ -61,14 +61,28 @@ class TienDoDaoTaoNewController {
         ma_khoa,
         loai: mappedLoai,
         trang_thai: parsedTrangThai,
-        search: searchQuery
+        search: searchQuery,
+        page,
+        limit
       };
       const data = await hocBuNewModel.list(filters);
-      res.status(200).json({
+      
+      const responsePayload = {
         success: true,
         message: "Lấy danh sách học bù thành công",
         data: data
-      });
+      };
+
+      if (page && limit) {
+        responsePayload.total = data.total || 0;
+        responsePayload.pagination = {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total: data.total || 0
+        };
+      }
+
+      res.status(200).json(responsePayload);
     } catch (error) {
       console.error("[getHocBuList] Error:", error);
       res.status(500).json({
@@ -356,7 +370,7 @@ class TienDoDaoTaoNewController {
    * GET /api/tien-do-dao-tao-new/hoc-bu/cho-duyet
    */
   async getChoDuyetHocBuList(req, res) {
-    let { ma_khoa, loai, search, text } = req.query;
+    let { ma_khoa, loai, search, text, page, limit } = req.query;
     const searchQuery = search || text || undefined;
 
     // Chuẩn hóa loai từ FE (hỗ trợ cả số 1, 2, 3 và chữ)
@@ -376,10 +390,19 @@ class TienDoDaoTaoNewController {
         ma_khoa,
         loai,
         trang_thai: [1, 2, 4, 5], // Bao gồm cả Chờ duyệt (1, 4) và Đã duyệt/Chờ xếp lớp (2, 5) để thực hiện hủy duyệt
-        search: searchQuery
+        search: searchQuery,
+        page,
+        limit
       };
       const data = await hocBuNewModel.list(filters);
-      res.status(200).json({ success: true, data });
+      
+      const responsePayload = { success: true, data };
+      if (page && limit) {
+        responsePayload.total = data.total || 0;
+        responsePayload.pagination = { page: parseInt(page), limit: parseInt(limit), total: data.total || 0 };
+      }
+      
+      res.status(200).json(responsePayload);
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -408,7 +431,7 @@ class TienDoDaoTaoNewController {
    * GET /api/tien-do-dao-tao-new/hoc-bu/cho-duyet-thuc-hanh
    */
   async getChoDuyetThucHanhList(req, res) {
-    let { ma_khoa, loai, loai_thuc_hanh, search, text } = req.query;
+    let { ma_khoa, loai, loai_thuc_hanh, search, text, page, limit } = req.query;
     const searchQuery = search || text || undefined;
 
     // Chuẩn hóa loai từ FE (hỗ trợ cả số 1, 2, 3 và chữ)
@@ -429,10 +452,19 @@ class TienDoDaoTaoNewController {
         loai,
         loai_thuc_hanh,
         trang_thai: [4, 5], // Chờ duyệt TH (4) và Đã duyệt TH (5)
-        search: searchQuery
+        search: searchQuery,
+        page,
+        limit
       };
       const data = await hocBuNewModel.list(filters);
-      res.status(200).json({ success: true, data });
+      
+      const responsePayload = { success: true, data };
+      if (page && limit) {
+        responsePayload.total = data.total || 0;
+        responsePayload.pagination = { page: parseInt(page), limit: parseInt(limit), total: data.total || 0 };
+      }
+
+      res.status(200).json(responsePayload);
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -442,7 +474,7 @@ class TienDoDaoTaoNewController {
    * GET /api/tien-do-dao-tao-new/hoc-bu/dang-hoc-bu
    */
   async getDangHocBuList(req, res) {
-    let { ma_khoa, loai, search, text, trang_thai } = req.query;
+    let { ma_khoa, loai, search, text, trang_thai, page, limit } = req.query;
     
     if (!trang_thai && req.query["trang_thai[]"]) {
       trang_thai = req.query["trang_thai[]"];
@@ -475,7 +507,8 @@ class TienDoDaoTaoNewController {
     const finalTrangThai = parsedTrangThai !== undefined ? parsedTrangThai : [3, 6];
 
     try {
-      const data = await hocBuNewModel.list({ ma_khoa, loai, trang_thai: finalTrangThai, search: searchQuery });
+      const filters = { ma_khoa, loai, trang_thai: finalTrangThai, search: searchQuery, page, limit };
+      const data = await hocBuNewModel.list(filters);
 
       if (data?.length > 0) {
         // Thu thập tất cả mã khóa cần query
@@ -568,8 +601,15 @@ class TienDoDaoTaoNewController {
         });
       }
 
-      res.status(200).json({ success: true, data });
+      const responsePayload = { success: true, data };
+      if (page && limit) {
+        responsePayload.total = data.total || 0;
+        responsePayload.pagination = { page: parseInt(page), limit: parseInt(limit), total: data.total || 0 };
+      }
+
+      res.status(200).json(responsePayload);
     } catch (error) {
+      console.error("[getDangHocBuList] Error:", error);
       res.status(500).json({ success: false, message: error.message });
     }
   }
