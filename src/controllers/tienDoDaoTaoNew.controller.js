@@ -354,6 +354,90 @@ class TienDoDaoTaoNewController {
   }
 
   /**
+   * POST /api/tien-do-dao-tao-new/hoc-bu/update-status-bulk
+   * Cập nhật trạng thái học bù cho nhiều bản ghi cùng lúc
+   */
+  async updateHocBuStatusBulk(req, res) {
+    const { ids, action, khoa_bu, nguoi_update, loai_thuc_hanh, thoi_gian_xep } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: "Danh sách ID không hợp lệ." });
+    }
+
+    try {
+      const userUpdate = nguoi_update || "admin";
+      const batchSize = 100;
+      let totalUpdated = 0;
+
+      for (let i = 0; i < ids.length; i += batchSize) {
+        const batchIds = ids.slice(i, i + batchSize);
+        
+        const batchPromises = batchIds.map(async (id) => {
+          const record = await hocBuNewModel.getById(id);
+          if (!record) return null;
+
+          let updateData = {};
+
+          if (action === "duyet") {
+            if (record.trang_thai === 1) {
+              updateData = { trang_thai: 2, trang_thai_ly_thuyet: 2, nguoi_duyet_ly_thuyet: userUpdate, thoi_gian_duyet_ly_thuyet: new Date() };
+            } else if (record.trang_thai === 4) {
+              updateData = { trang_thai: 5, trang_thai_thuc_hanh: 2, loai_thuc_hanh: loai_thuc_hanh || record.loai_thuc_hanh || "cabin", nguoi_duyet_thuc_hanh: userUpdate, thoi_gian_duyet_thuc_hanh: new Date() };
+            }
+          } else if (khoa_bu || action === "xep_lop") {
+            if (record.trang_thai === 2) {
+              updateData = { trang_thai: 3, trang_thai_ly_thuyet: 3, khoa_bu_ly_thuyet: khoa_bu, thoi_gian_xep_ly_thuyet: thoi_gian_xep ? new Date(thoi_gian_xep) : new Date() };
+            } else if (record.trang_thai === 5) {
+              updateData = { trang_thai: 6, trang_thai_thuc_hanh: 3, khoa_bu_thuc_hanh: khoa_bu, thoi_gian_xep_thuc_hanh: thoi_gian_xep ? new Date(thoi_gian_xep) : new Date() };
+            }
+          } else if (action === "hoan_thanh") {
+            if (record.loai === "ly_thuyet" && record.trang_thai === 3) {
+              updateData = { trang_thai: 4, trang_thai_ly_thuyet: 4 };
+            } else if (record.loai === "ly_thuyet" && record.trang_thai === 6) {
+              updateData = { trang_thai: 7, trang_thai_thuc_hanh: 4 };
+            } else if ((record.loai === "cabin" || record.loai === "dat") && record.trang_thai === 6) {
+              updateData = { trang_thai: 7, trang_thai_thuc_hanh: 4 };
+            }
+          }
+
+          const directFields = [
+            "trang_thai", "trang_thai_ly_thuyet", "trang_thai_thuc_hanh", "loai_thuc_hanh", 
+            "khoa_bu_ly_thuyet", "khoa_bu_thuc_hanh", "thoi_gian_xep_ly_thuyet", "thoi_gian_xep_thuc_hanh", "ghi_chu"
+          ];
+
+          let hasDirectUpdate = false;
+          directFields.forEach(field => {
+            if (req.body[field] !== undefined && req.body[field] !== null) {
+              updateData[field] = req.body[field];
+              hasDirectUpdate = true;
+            }
+          });
+
+          if (!hasDirectUpdate && Object.keys(updateData).length === 0) {
+            return null;
+          }
+
+          updateData.nguoi_update = userUpdate;
+          await hocBuNewModel.update(id, updateData);
+          return id;
+        });
+
+        const results = await Promise.all(batchPromises);
+        totalUpdated += results.filter(r => r !== null).length;
+      }
+
+      res.status(200).json({
+        success: true,
+        message: `Cập nhật trạng thái thành công cho ${totalUpdated}/${ids.length} bản ghi học bù.`
+      });
+
+    } catch (error) {
+      console.error("[updateHocBuStatusBulk] Error:", error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
    * GET /api/tien-do-dao-tao-new
    */
   async getTienDoDaoTao(req, res) {
@@ -385,11 +469,19 @@ class TienDoDaoTaoNewController {
       loai = convertSingleLoai(loai);
     }
 
+    // Xác định mảng trạng thái dựa trên loại
+    let filterTrangThai = [1, 2, 4, 5];
+    if (loai === "ly_thuyet") {
+      filterTrangThai = [1, 2];
+    } else if (loai === "cabin" || loai === "dat" || loai === "thuc_hanh" || loai === "thuc-hanh") {
+      filterTrangThai = [4, 5];
+    }
+
     try {
       const filters = {
         ma_khoa,
         loai,
-        trang_thai: [1, 2, 4, 5], // Bao gồm cả Chờ duyệt (1, 4) và Đã duyệt/Chờ xếp lớp (2, 5) để thực hiện hủy duyệt
+        trang_thai: filterTrangThai,
         search: searchQuery,
         page,
         limit

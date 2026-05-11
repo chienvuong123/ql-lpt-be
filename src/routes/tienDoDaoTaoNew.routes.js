@@ -18,6 +18,7 @@ router.get("/hoc-bu/detail", tienDoDaoTaoNewController.getHocBuDetail);
 router.post("/hoc-bu", tienDoDaoTaoNewController.addStudentToHocBu);
 router.post("/hoc-bu/import", uploadSingle, tienDoDaoTaoNewController.importHocBuExcel);
 router.post("/hoc-bu/update-status", tienDoDaoTaoNewController.updateHocBuStatus);
+router.post("/hoc-bu/update-status-bulk", tienDoDaoTaoNewController.updateHocBuStatusBulk);
 router.get("/hoc-bu/check-hoan-thanh-ly-thuyet", tienDoDaoTaoNewController.checkHoanThanhLyThuyet);
 
 module.exports = router;
