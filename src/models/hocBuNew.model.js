@@ -260,6 +260,61 @@ class HocBuNewModel {
   }
 
   /**
+   * Upsert danh sách nhiều bản ghi học bù
+   * @param {Array} records Danh sách các Object chứa các trường dữ liệu (ma_dk là bắt buộc)
+   */
+  async upsertMany(records) {
+    if (!Array.isArray(records) || records.length === 0) return { success: 0, total: 0 };
+    await this.initTable();
+    const pool = await connectSQL();
+    
+    let successCount = 0;
+    for (const record of records) {
+      try {
+        const request = new mssql.Request(pool);
+        const ma_dk = record.ma_dk;
+        if (!ma_dk) continue;
+
+        const cleanRecord = {};
+        for (const [k, v] of Object.entries(record)) {
+          if (v !== undefined) cleanRecord[k] = v;
+        }
+
+        const updateFields = [];
+        const insertColumns = ["created_at"];
+        const insertValues = ["GETDATE()"];
+
+        for (const [key, value] of Object.entries(cleanRecord)) {
+          request.input(key, this.getMssqlType(value), value);
+          if (key !== "ma_dk") {
+            updateFields.push(`[${key}] = @${key}`);
+          }
+          insertColumns.push(`[${key}]`);
+          insertValues.push(`@${key}`);
+        }
+        updateFields.push("[updated_at] = GETDATE()");
+
+        const query = `
+          IF EXISTS (SELECT 1 FROM [dbo].[hoc_bu_new] WHERE ma_dk = @ma_dk)
+          BEGIN
+            UPDATE [dbo].[hoc_bu_new] SET ${updateFields.join(", ")} WHERE ma_dk = @ma_dk;
+          END
+          ELSE
+          BEGIN
+            INSERT INTO [dbo].[hoc_bu_new] (${insertColumns.join(", ")}) VALUES (${insertValues.join(", ")});
+          END
+        `;
+        
+        await request.query(query);
+        successCount++;
+      } catch (err) {
+        console.error(`[HocBuNewModel] Upsert failed for ${record.ma_dk}:`, err.message);
+      }
+    }
+    return { success: successCount, total: records.length };
+  }
+
+  /**
    * Helper xác định kiểu dữ liệu cho mssql request input
    */
   getMssqlType(value) {

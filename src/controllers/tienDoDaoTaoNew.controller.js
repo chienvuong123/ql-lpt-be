@@ -1,7 +1,9 @@
 const mssql = require("mssql");
+const XLSX = require("xlsx");
 const connectSQL = require("../configs/sql");
 const tienDoDaoTaoModel = require("../models/tienDoDaoTao.model");
 const hocBuNewModel = require("../models/hocBuNew.model");
+const hocBuService = require("../services/hocBu.service");
 
 class TienDoDaoTaoNewController {
   /**
@@ -82,7 +84,8 @@ class TienDoDaoTaoNewController {
    * Lấy dữ liệu chi tiết tiến độ của 1 học viên từ bảng hoc_bu_new
    */
   async getHocBuDetail(req, res) {
-    const { id, ma_dk } = req.query;
+    const { id, ma_dk, sync } = req.query;
+    const isSync = sync === 'true' || sync === true;
 
     try {
       let data;
@@ -95,6 +98,47 @@ class TienDoDaoTaoNewController {
 
       if (!data) {
         return res.status(404).json({ success: false, message: "Không tìm thấy chi tiết đơn học bù" });
+      }
+
+      const currentMaDk = String(data.ma_dk || "").trim();
+      
+      // Xác định mã khóa tối ưu để lọc nhanh API (Dùng khóa học bù nếu có, ngược lại fallback về mã khóa gốc)
+      const effectiveMaKhoaLT = data.khoa_bu_ly_thuyet || data.ma_khoa;
+      const effectiveMaKhoaTH = data.khoa_bu_thuc_hanh || data.ma_khoa;
+
+      // Gọi song song các API lấy tiến độ đã cung cấp, truyền kèm ma_khoa để tối ưu tốc độ Fetch
+      const [theoryData, lotusData, cabinData, datData] = await Promise.all([
+        hocBuService.getTheoryProgress(currentMaDk, effectiveMaKhoaLT).catch(() => null),
+        hocBuService.getTheoryLotusDetail(currentMaDk).catch(() => null),
+        hocBuService.getCabinProgress(currentMaDk, effectiveMaKhoaTH).catch(() => null),
+        hocBuService.getDatProgress(currentMaDk, effectiveMaKhoaTH, isSync).catch(() => null)
+      ]);
+
+      // Gán thông tin Lý thuyết
+      data.theoryInfo = theoryData?.theoryInfo || { loai_ly_thuyet: 0, loai_het_mon: 0, ghi_chu: "" };
+      data.scoreByRubrik = lotusData?.scoreByRubrik || [];
+
+      // Gán thông tin Cabin
+      data.cabinDetails = cabinData?.cabinDetails || [];
+      data.cabinSummary = {
+        tong_thoi_gian: cabinData?.tong_thoi_gian || 0,
+        tong_bai: cabinData?.tong_bai || 0
+      };
+
+      // Gán thông tin DAT
+      data.datDetails = datData?.datDetails || { sessions: [], summary: {} };
+      data.datSummary = {
+        tong_quang_duong: datData?.tong_quang_duong || 0,
+        tong_thoi_gian: datData?.tong_thoi_gian || "0h 0'"
+      };
+
+      // Bổ sung thêm các trường thông tin hỗ trợ từ phần DatProgress (bảng ky_dat, xe đăng ký)
+      if (datData?.student) {
+        data.ky_dat = datData.student.ky_dat;
+        data.ghi_chu_dat_1 = datData.student.ghi_chu_1;
+        data.ghi_chu_dat_2 = datData.student.ghi_chu_2;
+        data.xe_b1 = datData.student.xe_b1;
+        data.xe_b2 = datData.student.xe_b2;
       }
 
       res.status(200).json({
@@ -568,6 +612,151 @@ class TienDoDaoTaoNewController {
         success: false,
         message: "Lỗi hệ thống khi kiểm tra hoàn thành lý thuyết học bù",
         error: error.message
+      });
+    }
+  }
+
+  /**
+   * POST /api/tien-do-dao-tao-new/hoc-bu/import
+   * Nhập dữ liệu học viên học bù số lượng lớn từ Excel
+   */
+  async importHocBuExcel(req, res) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: "Vui lòng cung cấp file Excel đính kèm." });
+      }
+
+      let { loai, khoa_bu, ghi_chu, nguoi_tao } = req.body;
+      const actor = nguoi_tao || "admin";
+      const finalNote = ghi_chu || "Import từ dữ liệu Excel";
+
+      // 1. Xử lý chuẩn hóa 'loai' học bù
+      let nLoai = String(loai || "ly_thuyet").trim().toLowerCase();
+      if (["1", "ly_thuyet", "ly-thuyet"].includes(nLoai)) nLoai = "ly_thuyet";
+      else if (["2", "cabin"].includes(nLoai)) nLoai = "cabin";
+      else if (["3", "dat"].includes(nLoai)) nLoai = "dat";
+
+      // 2. Parse Buffer Excel thành JSON thô để quét động
+      const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
+      const rawRows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, defval: "" });
+
+      if (rawRows.length === 0) throw new Error("File excel rỗng, vui lòng kiểm tra lại nội dung.");
+
+      // 3. Dò tìm tiêu đề (Header Row) có chứa Mã ĐK để xác định cấu trúc bảng dữ liệu
+      let headIndex = -1;
+      let cols = { ma_dk: -1, ho_ten: -1, ma_khoa: -1 };
+
+      for (let r = 0; r < Math.min(rawRows.length, 15); r++) {
+        const isHeader = rawRows[r].some(cell => {
+          const txt = String(cell).toLowerCase();
+          return txt.includes("mã đk") || txt.includes("ma dk");
+        });
+
+        if (isHeader) {
+          headIndex = r;
+          rawRows[r].forEach((cell, cIdx) => {
+            const headerTxt = String(cell).trim().toLowerCase();
+            if (headerTxt.includes("mã đk") || headerTxt.includes("ma dk")) cols.ma_dk = cIdx;
+            else if (headerTxt.includes("họ tên") || headerTxt.includes("ho ten")) cols.ho_ten = cIdx;
+            else if (headerTxt.includes("khóa") || headerTxt.includes("khoa")) cols.ma_khoa = cIdx;
+          });
+          break;
+        }
+      }
+
+      if (headIndex === -1 || cols.ma_dk === -1) {
+        throw new Error("Không tìm thấy dòng tiêu đề chứa cột 'Mã ĐK' trong Excel.");
+      }
+
+      // 4. Thu thập toàn bộ mã học viên
+      const sheetEntries = [];
+      for (let i = headIndex + 1; i < rawRows.length; i++) {
+        const row = rawRows[i];
+        const code = String(row[cols.ma_dk] || "").trim();
+        if (!code) continue;
+
+        sheetEntries.push({
+          ma_dk: code,
+          xlName: cols.ho_ten !== -1 ? String(row[cols.ho_ten] || "").trim() : "",
+          xlKhoa: cols.ma_khoa !== -1 ? String(row[cols.ma_khoa] || "").trim() : ""
+        });
+      }
+
+      if (sheetEntries.length === 0) {
+        throw new Error("Không trích xuất được dữ liệu học viên hợp lệ nào bên dưới dòng tiêu đề.");
+      }
+
+      // 5. Batch truy vấn database để lấy thông tin Mã Khóa đầy đủ & xác thực học viên
+      const codes = [...new Set(sheetEntries.map(e => e.ma_dk))];
+      const pool = await connectSQL();
+      const batchReq = new mssql.Request(pool);
+      
+      const codeParams = codes.map((_, i) => `@c${i}`).join(",");
+      codes.forEach((c, i) => batchReq.input(`c${i}`, mssql.VarChar, c));
+
+      const hvSet = await batchReq.query(`SELECT ma_dk, ma_khoa FROM [dbo].[hoc_vien] WHERE ma_dk IN (${codeParams})`);
+      const dbRegistry = {};
+      hvSet.recordset.forEach(x => { dbRegistry[String(x.ma_dk).trim()] = String(x.ma_khoa).trim(); });
+
+      // 6. Phân bổ danh sách dữ liệu để đẩy vào DB Upsert
+      const dataToUpsert = [];
+      const notFoundArr = [];
+
+      sheetEntries.forEach(entry => {
+        const fullKhoa = dbRegistry[entry.ma_dk];
+        if (!fullKhoa) {
+          notFoundArr.push(entry.ma_dk);
+        }
+
+        let finalMaKhoa = fullKhoa || entry.xlKhoa || "IMPORTED";
+
+        // Chuẩn hóa: Nếu mã khóa không bắt đầu bằng '30004', tự động thêm vào trước
+        if (finalMaKhoa && finalMaKhoa !== "IMPORTED" && !String(finalMaKhoa).startsWith("30004")) {
+          finalMaKhoa = "30004" + finalMaKhoa;
+        }
+
+        const payload = {
+          ma_dk: entry.ma_dk,
+          ma_khoa: finalMaKhoa,
+          loai: nLoai,
+          ghi_chu: finalNote,
+          nguoi_tao: actor,
+          nguoi_update: actor
+        };
+
+        // Gán trạng thái dựa trên pha đào tạo, mặc định NULL theo yêu cầu
+        if (nLoai === "ly_thuyet") {
+          payload.trang_thai = null; 
+          payload.trang_thai_ly_thuyet = null;
+          if (khoa_bu) payload.khoa_bu_ly_thuyet = khoa_bu;
+        } else {
+          payload.trang_thai = null;
+          payload.trang_thai_thuc_hanh = null;
+          payload.loai_thuc_hanh = nLoai;
+          if (khoa_bu) payload.khoa_bu_thuc_hanh = khoa_bu;
+        }
+
+        dataToUpsert.push(payload);
+      });
+
+      // 7. Tiến hành nạp hàng loạt
+      const importRes = await hocBuNewModel.upsertMany(dataToUpsert);
+
+      return res.status(200).json({
+        success: true,
+        message: `Xử lý file Excel thành công.`,
+        stats: {
+          totalUploaded: sheetEntries.length,
+          savedSuccess: importRes.success,
+          notFoundInSystem: notFoundArr.length
+        }
+      });
+
+    } catch (err) {
+      console.error("[importHocBuExcel] Unexpected error:", err);
+      return res.status(500).json({
+        success: false,
+        message: err.message || "Xảy ra lỗi máy chủ trong quá trình Import."
       });
     }
   }

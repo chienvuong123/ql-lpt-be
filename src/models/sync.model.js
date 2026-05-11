@@ -261,7 +261,7 @@ async function getTienDoDaoTaoList(filters = {}) {
     query += ` AND t.tot_nghiep = @tot_nghiep`;
   }
 
-  if (filters.loai !== undefined && filters.loai !== null && filters.loai !== "") {
+  if (filters.loai !== undefined && filters.loai !== null && filters.loai !== "" && filters.loai !== "all") {
     if (Array.isArray(filters.loai)) {
       const types = filters.loai.map(Number).filter(n => !isNaN(n));
       if (types.length > 0) {
@@ -283,8 +283,15 @@ async function getTienDoDaoTaoList(filters = {}) {
     } else {
       const l = (filters.loai === "null" || filters.loai === "0" || filters.loai === 0) ? 0 : Number(filters.loai);
       request.input("loai", mssql.Int, l);
-      query += ` AND (t.loai = @loai OR (t.loai IS NULL AND @loai = 0))`;
+      if (l === 0) {
+        query += ` AND (t.loai IS NULL OR t.loai = 0)`;
+      } else {
+        query += ` AND t.loai = @loai`;
+      }
     }
+  } else {
+    // Mặc định khi không gửi bộ lọc Loai lên (hoặc gửi null/undefined): Lấy những khóa KHÔNG PHẢI loại 1
+    query += ` AND (t.loai IS NULL OR t.loai <> 1)`;
   }
 
   query += ` ORDER BY t.updated_at DESC, t.ma_khoa ASC`;
