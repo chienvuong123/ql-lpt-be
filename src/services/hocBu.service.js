@@ -404,6 +404,7 @@ class HocBuService {
     let studentList = [];
     if (ma_dk) {
       const base = await this.getStudentBaseInfo(ma_dk);
+      if (ma_khoa) base.ma_khoa = ma_khoa;
       studentList.push(base);
     } else {
       // Lấy danh sách học viên học bù loại 1 (Lý thuyết)
@@ -480,6 +481,7 @@ class HocBuService {
     try {
       if (ma_dk) {
         const base = await this.getStudentBaseInfo(ma_dk);
+        if (ma_khoa) base.ma_khoa = ma_khoa;
         studentList.push(base);
       } else {
         studentList = await hocBuModel.getHocBuList({ loai: 2, ma_khoa });
@@ -537,6 +539,7 @@ class HocBuService {
     try {
       if (ma_dk) {
         const base = await this.getStudentBaseInfo(ma_dk);
+        if (ma_khoa) base.ma_khoa = ma_khoa;
         studentList.push(base);
       } else {
         studentList = await hocBuModel.getHocBuList({ loai: 3, ma_khoa });
@@ -1033,6 +1036,7 @@ module.exports = {
   getHocBuListDetailed: service.getHocBuListDetailed.bind(service),
   getStudentProgressDetail: service.getStudentProgressDetail.bind(service),
   getTheoryProgress: service.getTheoryProgress.bind(service),
+  getTheoryLotusDetail: service.getTheoryLotusDetail.bind(service),
   getCabinProgress: service.getCabinProgress.bind(service),
   getDatProgress: service.getDatProgress.bind(service),
   getCourseInfo: service.getCourseInfo.bind(service),
