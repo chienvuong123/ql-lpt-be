@@ -10,4 +10,7 @@ yarn-error.log*
 credentials.json
 oauth_credentials.json
 token.json
-credentials.json
+
+# AI Documentation & Instructions (Local Only)
+docs/ARCHITECTURE_GUIDE.md
+.ai_rules

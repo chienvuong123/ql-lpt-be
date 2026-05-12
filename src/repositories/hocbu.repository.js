@@ -264,4 +264,45 @@ const autoCompleteTheory = async (pool) => {
     return rowsAffected[0] ?? 0;
 };
 
-module.exports = { findById, upsert, updateById, remove, list, upsertMany, autoCompleteTheory };
+/** Lấy danh sách tên khóa học theo mã */
+const getCourseNamesByCodes = async (codes) => {
+    if (!codes?.length) return [];
+    const pool = await getPool();
+    const req = new mssql.Request(pool);
+    codes.forEach((c, i) => req.input(`c_${i}`, mssql.NVarChar, c));
+    return req.query(`SELECT ma_khoa, ten_khoa FROM [dbo].[khoa_hoc] WHERE ma_khoa IN (${codes.map((_, i) => `@c_${i}`).join(",")})`)
+        .then((r) => r.recordset);
+};
+
+/** Lấy tiến độ đào tạo của một loạt khóa */
+const getCourseProgressByCodes = async (codes) => {
+    if (!codes?.length) return [];
+    const pool = await getPool();
+    const req = new mssql.Request(pool);
+    codes.forEach((c, i) => req.input(`c_${i}`, mssql.NVarChar, c));
+    return req.query(`SELECT * FROM [dbo].[tien_do_dao_tao] WHERE ma_khoa IN (${codes.map((_, i) => `@c_${i}`).join(",")})`)
+        .then((r) => r.recordset);
+};
+
+/** Lấy thông tin ma_khoa của một loạt học viên (hỗ trợ Import) */
+const getMaKhoaByMaDkList = async (maDkList) => {
+    if (!maDkList?.length) return [];
+    const pool = await getPool();
+    const req = new mssql.Request(pool);
+    maDkList.forEach((c, i) => req.input(`c_${i}`, mssql.VarChar, c));
+    return req.query(`SELECT ma_dk, ma_khoa FROM [dbo].[hoc_vien] WHERE ma_dk IN (${maDkList.map((_, i) => `@c_${i}`).join(",")})`)
+        .then((r) => r.recordset);
+};
+
+/** Lấy thông tin kỳ DAT nhanh của 1 học viên */
+const getKyDatByMaDk = async (maDk) => {
+    const pool = await getPool();
+    return pool.request().input("ma_dk", mssql.VarChar, String(maDk).trim())
+        .query("SELECT TOP 1 trang_thai AS ky_dat, ghi_chu_1, ghi_chu_2 FROM ky_dat WITH(NOLOCK) WHERE ma_dk=@ma_dk")
+        .then((r) => r.recordset[0] ?? {});
+};
+
+module.exports = {
+    findById, upsert, updateById, remove, list, upsertMany, autoCompleteTheory,
+    getCourseNamesByCodes, getCourseProgressByCodes, getMaKhoaByMaDkList, getKyDatByMaDk,
+};

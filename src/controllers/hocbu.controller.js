@@ -1,5 +1,4 @@
 const svc = require("../services/hocbu.service");
-const tienDoDaoTaoModel = require("../models/tienDoDaoTao.model");
 const { normalizeLoai, parseTrangThai, pickArrayQuery } = require("../helpers/hocbu.helpers");
 const { TRANG_THAI_GROUPS } = require("../constants/hocbu.constants");
 
@@ -157,7 +156,7 @@ const checkHoanThanhLyThuyet = async (req, res) => {
 
 const getTienDoDaoTao = async (req, res) => {
     try {
-        ok(res, await tienDoDaoTaoModel.getAll({ ma_khoa: req.query.ma_khoa }));
+        ok(res, await svc.getTienDoDaoTao({ ma_khoa: req.query.ma_khoa }));
     } catch (e) { err(res, e); }
 };
 
