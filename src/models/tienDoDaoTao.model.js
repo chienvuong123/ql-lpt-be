@@ -2,10 +2,6 @@ const mssql = require("mssql");
 const connectSQL = require("../configs/sql");
 
 class TienDoDaoTaoModel {
-  /**
-   * Lấy danh sách tiến độ đào tạo, có thể lọc theo mã khóa
-   * @param {Object} filters { ma_khoa }
-   */
   async getAll(filters = {}) {
     const pool = await connectSQL();
     const request = new mssql.Request(pool);
@@ -28,10 +24,6 @@ class TienDoDaoTaoModel {
     return result.recordset;
   }
 
-  /**
-   * Lấy danh sách các khóa đã hết hạn LÝ THUYẾT vào ngày hôm qua
-   * @returns {Array} Danh sách mã khóa
-   */
   async getTheoryExpiredYesterday() {
     const pool = await connectSQL();
     const result = await pool.request().query(`
@@ -42,10 +34,6 @@ class TienDoDaoTaoModel {
     return result.recordset.map((row) => row.ma_khoa);
   }
 
-  /**
-   * Lấy danh sách các khóa đã hết hạn CABIN vào ngày hôm qua
-   * @returns {Array} Danh sách mã khóa
-   */
   async getCabinExpiredYesterday() {
     const pool = await connectSQL();
     const result = await pool.request().query(`
@@ -56,10 +44,6 @@ class TienDoDaoTaoModel {
     return result.recordset.map((row) => row.ma_khoa);
   }
 
-  /**
-   * Lấy danh sách các khóa đã hết hạn DAT vào ngày hôm qua
-   * @returns {Array} Danh sách mã khóa
-   */
   async getDatExpiredYesterday() {
     const pool = await connectSQL();
     const result = await pool.request().query(`
