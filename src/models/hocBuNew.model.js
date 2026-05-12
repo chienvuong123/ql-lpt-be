@@ -255,6 +255,16 @@ class HocBuNewModel {
       query += " AND h.loai_thuc_hanh = @loai_thuc_hanh";
     }
 
+    if (filters.khoa_bu_ly_thuyet && filters.khoa_bu_ly_thuyet !== 'undefined' && filters.khoa_bu_ly_thuyet !== 'null' && String(filters.khoa_bu_ly_thuyet).trim() !== '') {
+      request.input("khoa_bu_ly_thuyet", mssql.NVarChar, String(filters.khoa_bu_ly_thuyet));
+      query += " AND h.khoa_bu_ly_thuyet = @khoa_bu_ly_thuyet";
+    }
+
+    if (filters.khoa_bu_thuc_hanh && filters.khoa_bu_thuc_hanh !== 'undefined' && filters.khoa_bu_thuc_hanh !== 'null' && String(filters.khoa_bu_thuc_hanh).trim() !== '') {
+      request.input("khoa_bu_thuc_hanh", mssql.NVarChar, String(filters.khoa_bu_thuc_hanh));
+      query += " AND h.khoa_bu_thuc_hanh = @khoa_bu_thuc_hanh";
+    }
+
     if (filters.search) {
       request.input("search", mssql.NVarChar, `%${filters.search}%`);
       query += " AND (h.ma_dk LIKE @search OR hv.ho_ten LIKE @search OR hv.cccd LIKE @search)";

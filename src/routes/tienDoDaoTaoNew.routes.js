@@ -21,4 +21,8 @@ router.post("/hoc-bu/update-status", tienDoDaoTaoNewController.updateHocBuStatus
 router.post("/hoc-bu/update-status-bulk", tienDoDaoTaoNewController.updateHocBuStatusBulk);
 router.get("/hoc-bu/check-hoan-thanh-ly-thuyet", tienDoDaoTaoNewController.checkHoanThanhLyThuyet);
 
+// Route lấy chi tiết số học viên của lớp học bù
+router.get("/hoc-bu/chi-tiet-lop-ly-thuyet/:ma_khoa_bu", tienDoDaoTaoNewController.getChiTietLopBuLyThuyet);
+router.get("/hoc-bu/chi-tiet-lop-thuc-hanh/:ma_khoa_bu", tienDoDaoTaoNewController.getChiTietLopBuThucHanh);
+
 module.exports = router;
