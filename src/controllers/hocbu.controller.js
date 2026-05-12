@@ -22,6 +22,7 @@ const parseListFilters = (query) => ({
     ma_khoa: query.ma_khoa,
     loai: normalizeLoai(pickArrayQuery(query, "loai")),
     trang_thai: parseTrangThai(pickArrayQuery(query, "trang_thai")),
+    loai_thuc_hanh: query.loai_thuc_hanh,
     search: query.search || query.text,
     page: query.page,
     limit: query.limit,
@@ -70,9 +71,9 @@ const getChoDuyetThucHanhList = async (req, res) => {
 
 const getDangHocBuList = async (req, res) => {
     try {
-        const { ma_khoa, loai, search, text, page, limit } = req.query;
+        const { ma_khoa, loai, loai_thuc_hanh, search, text, page, limit } = req.query;
         const trang_thai = parseTrangThai(pickArrayQuery(req.query, "trang_thai"));
-        const data = await svc.getDangHocBuList({ ma_khoa, loai: normalizeLoai(loai), trang_thai, search: search || text, page, limit });
+        const data = await svc.getDangHocBuList({ ma_khoa, loai: normalizeLoai(loai), loai_thuc_hanh, trang_thai, search: search || text, page, limit });
         withPaging(res, data, page, limit);
     } catch (e) { err(res, e); }
 };

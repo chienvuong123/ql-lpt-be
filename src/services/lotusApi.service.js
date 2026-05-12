@@ -57,12 +57,21 @@ async function getLopHocLyThuyet(searchParams = {}, authInfo) {
   return response.data;
 }
 
-// Lấy danh sách học viên theo lớp
+const _courseCache = new Map();
+
+// Lấy danh sách học viên theo lớp (Có tích hợp Smart Cache 2 phút)
 async function getHocVienTheoKhoa(
   enrolmentPlanIid,
   extraParams = {},
   authInfo,
 ) {
+  const cacheKey = `${enrolmentPlanIid}_${extraParams.page || 1}_${extraParams.text || ""}`;
+  const cachedEntry = _courseCache.get(cacheKey);
+  
+  if (cachedEntry && (Date.now() - cachedEntry.ts < 120000)) {
+      return cachedEntry.data; // Trả về từ RAM ngay lập tức (0ms)
+  }
+
   const data = new URLSearchParams();
 
   data.append("_sand_get_total", 0);
@@ -80,7 +89,7 @@ async function getHocVienTheoKhoa(
   data.append("get_note", 1);
   data.append("submit", 1);
   data.append("page", extraParams.page || 1);
-  data.append("items_per_page", 150);
+  data.append("items_per_page", extraParams.items_per_page || 300);
 
   if (extraParams.text) data.append("text", extraParams.text);
 
@@ -111,6 +120,11 @@ async function getHocVienTheoKhoa(
     `${LOTUS_BASE}/api/v2/enrolment-plan/search-members`,
     data,
   );
+
+  if (response.data?.result) {
+      _courseCache.set(cacheKey, { ts: Date.now(), data: response.data });
+  }
+  
   return response.data;
 }
 

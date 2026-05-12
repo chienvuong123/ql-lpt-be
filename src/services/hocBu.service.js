@@ -58,7 +58,7 @@ const getDetail = async (k, { forceSync = false } = {}) => {
     if (!r) return null;
     const maDk = String(r.ma_dk || "").trim();
     r.theoryInfo = { loai_ly_thuyet: (r.trang_thai_ly_thuyet || 0) >= 2 ? 1 : 0, loai_het_mon: (r.trang_thai_ly_thuyet || 0) >= 4 ? 1 : 0, ghi_chu: "" };
-    
+
     const pgSvc = require("./progress.service"), regMod = require("../models/vehicleRegistration.model");
     const [pg, kd, reg] = await Promise.all([
         pgSvc.getStudentProgress(maDk, r.khoa_bu_thuc_hanh || r.ma_khoa || "", { forceSync, hang: r.hang }),
@@ -73,27 +73,44 @@ const getDetail = async (k, { forceSync = false } = {}) => {
 };
 
 const getChiTietLopLyThuyet = async (mkb) => {
-    const ltMod = require("../models/lopLyThuyet.model"), pgSvc = require("./progress.service");
+    const ltMod = require("../models/lopLyThuyet.model"), lotusApi = require("./lotusApi.service");
     const ss = await repo.list({ khoa_bu_ly_thuyet: mkb, limit: 1000, page: 1 });
-    const raw = await ltMod.getAll({ ma_dk_list: ss.map((s) => s.ma_dk) }).catch(() => []);
-    const map = Object.fromEntries(raw.map((t) => [String(t.ma_dk).trim(), t]));
-    const prog = await pgSvc.getBatchProgress(ss.map((s) => ({ ma_dk: s.ma_dk, ma_khoa: s.ma_khoa, hang: s.hang })), 6);
+    if (!ss.length) return [];
 
-    return ss.map((s, i) => {
-        const t = map[String(s.ma_dk).trim()] ?? {};
-        const theoryInfo = {
-            loai_ly_thuyet: t.loai_ly_thuyet != null ? Number(t.loai_ly_thuyet) : (s.trang_thai_ly_thuyet >= 2 ? 1 : 0),
-            loai_het_mon: t.loai_het_mon != null ? Number(t.loai_het_mon) : (s.trang_thai_ly_thuyet >= 4 ? 1 : 0),
-            ghi_chu: t.ghi_chu ?? ""
+    const distinctCodes = await repo.getLotusCodesByKhoaList([...new Set(ss.map(s => s.ma_khoa).filter(Boolean))]);
+    const apiCall = (c) => lotusApi.callWithRetry((a) => lotusApi.getHocVienTheoKhoa(c, { items_per_page: 300 }, a)).catch(() => ({}));
+
+    const [rawTheory, lotusResList] = await Promise.all([
+        ltMod.getAll({ ma_dk_list: ss.map((s) => s.ma_dk) }).catch(() => []),
+        Promise.all(distinctCodes.map(o => apiCall(o.code)))
+    ]);
+
+    const thMap = Object.fromEntries(rawTheory.map((t) => [String(t.ma_dk).trim(), t]));
+    const lk = {}; lotusResList.flatMap(r => r?.result ?? []).forEach(m => {
+        const k = String(m?.user?.code ?? "").trim(), c = String(m?.user?.identification_card ?? "").trim();
+        const sc = m?.learning_progress?.score_by_rubrik ?? [];
+        if (k) lk[k] = sc; if (c) lk[c] = sc;
+    });
+
+    return ss.map((s) => {
+        const t = thMap[String(s.ma_dk).trim()] ?? {};
+        const sc = lk[String(s.ma_dk).trim()] ?? lk[String(s.cccd).trim()] ?? [];
+        return {
+            ...s, scoreByRubrik: sc,
+            theoryInfo: {
+                loai_ly_thuyet: t.loai_ly_thuyet != null ? +t.loai_ly_thuyet : (s.trang_thai_ly_thuyet >= 2 ? 1 : 0),
+                loai_het_mon: t.loai_het_mon != null ? +t.loai_het_mon : (s.trang_thai_ly_thuyet >= 4 ? 1 : 0),
+                ghi_chu: t.ghi_chu ?? ""
+            }
         };
-        return { ...s, theoryInfo, scoreByRubrik: prog[i]?.scoreByRubrik ?? [] };
     });
 };
 
 const getChiTietLopThucHanh = async (mkb) => {
     const ss = await repo.list({ khoa_bu_thuc_hanh: mkb, limit: 1000, page: 1 });
     if (!ss.length) return [];
-    const list = await require("./progress.service").getBatchProgress(ss.map(s => ({ ma_dk: s.ma_dk, ma_khoa: s.ma_khoa, hang: s.hang })), 10);
+    const pgSvc = require("./progress.service");
+    const list = await pgSvc.getBatchProgress(ss.map(s => ({ ma_dk: s.ma_dk, ma_khoa: s.ma_khoa, hang: s.hang })), 10, { includeLotus: false });
     return ss.map((s, i) => ({ ...s, ...list[i] }));
 };
 
@@ -172,7 +189,7 @@ const importFromExcel = async (buffer, { loai, khoa_bu, ghi_chu, nguoi_tao }) =>
 
     const dbR = await repo.getMaKhoaByMaDkList([...new Set(es.map(e => e.md))]);
     const map = Object.fromEntries(dbR.map((x) => [String(x.ma_dk).trim(), String(x.ma_khoa).trim()]));
-    
+
     const { toUpsert, notFound } = buildImportData(es, map, toLoai(loai || "ly_thuyet"), { note: ghi_chu || "Import từ Excel", actor: nguoi_tao || "admin", kb: khoa_bu });
     const result = await repo.upsertMany(toUpsert);
     return { totalUploaded: es.length, savedSuccess: result.success, notFoundInSystem: notFound.length };

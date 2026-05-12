@@ -302,7 +302,17 @@ const getKyDatByMaDk = async (maDk) => {
         .then((r) => r.recordset[0] ?? {});
 };
 
+/** Lấy danh sách mã CODE (Lotus) cho một loạt các mã khóa */
+const getLotusCodesByKhoaList = async (codes) => {
+    if (!codes?.length) return [];
+    const pool = await getPool();
+    const req = new mssql.Request(pool);
+    codes.forEach((c, i) => req.input(`c_${i}`, mssql.NVarChar, c));
+    const { recordset } = await req.query(`SELECT ma_khoa, LTRIM(RTRIM(code)) as code FROM [dbo].[khoa_hoc] WITH(NOLOCK) WHERE ma_khoa IN (${codes.map((_, i) => `@c_${i}`).join(",")})`);
+    return recordset;
+};
+
 module.exports = {
     findById, upsert, updateById, remove, list, upsertMany, autoCompleteTheory,
-    getCourseNamesByCodes, getCourseProgressByCodes, getMaKhoaByMaDkList, getKyDatByMaDk,
+    getCourseNamesByCodes, getCourseProgressByCodes, getMaKhoaByMaDkList, getKyDatByMaDk, getLotusCodesByKhoaList,
 };

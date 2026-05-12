@@ -94,26 +94,28 @@ const getLotusDetail = async (maDk) => {
     }
 };
 
-const getStudentProgress = async (maDk, maKhoa, { forceSync = false, hang } = {}) => {
-    const [rawCabin, datSessions, lotusData] = await Promise.all([
-        fetchCabinRaw(maDk),
-        getDATSessions(maDk, maKhoa, { forceSync, hang }),
-        getLotusDetail(maDk),
-    ]);
+const getStudentProgress = async (maDk, maKhoa, { forceSync = false, hang, includeCabin = true, includeDAT = true, includeLotus = true } = {}) => {
+    const tasks = [
+        includeCabin ? fetchCabinRaw(maDk) : Promise.resolve([]),
+        includeDAT ? getDATSessions(maDk, maKhoa, { forceSync, hang }) : Promise.resolve([]),
+        includeLotus ? getLotusDetail(maDk) : Promise.resolve({ scoreByRubrik: [] }),
+    ];
+
+    const [rawCabin, datSessions, lotusData] = await Promise.all(tasks);
 
     return {
-        ...buildCabinData(rawCabin, maDk),
-        ...buildDATData(datSessions, hang),
-        scoreByRubrik: lotusData?.scoreByRubrik ?? [],
+        ...(includeCabin ? buildCabinData(rawCabin, maDk) : {}),
+        ...(includeDAT ? buildDATData(datSessions, hang) : {}),
+        scoreByRubrik: includeLotus ? (lotusData?.scoreByRubrik ?? []) : [],
     };
 };
 
-const getBatchProgress = async (students, batchSize = 6) => {
+const getBatchProgress = async (students, batchSize = 6, opts = {}) => {
     const results = [];
     for (let i = 0; i < students.length; i += batchSize) {
         const chunk = students.slice(i, i + batchSize);
         const chunkResults = await Promise.all(
-            chunk.map((s) => getStudentProgress(s.ma_dk, s.ma_khoa, { hang: s.hang }))
+            chunk.map((s) => getStudentProgress(s.ma_dk, s.ma_khoa, { hang: s.hang, ...opts }))
         );
         results.push(...chunkResults);
     }
