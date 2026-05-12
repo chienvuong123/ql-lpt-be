@@ -145,7 +145,8 @@ class TienDoDaoTaoNewController {
                   BienSo: s.bien_so_xe,
                   TongQuangDuong: s.tong_km,
                   TongThoiGian: s.thoi_gian,
-                  HoTenGV: s.ho_ten_gv
+                  HoTenGV: s.ho_ten_gv,
+                  HangDaoTao: data.hang
                 }));
               }
             } catch (e) {
@@ -234,7 +235,8 @@ class TienDoDaoTaoNewController {
             BienSo: s.BienSo || s.BienSoXe,
             TongQuangDuong: km,
             TongThoiGian: giay,
-            HoTenGV: s.HoTenGV || s.ho_ten_gv
+            HoTenGV: s.HoTenGV || s.ho_ten_gv,
+            HangDaoTao: data.hang
           };
         })
       };
@@ -1006,22 +1008,39 @@ class TienDoDaoTaoNewController {
 
       const list = await hocBuNewModel.list({ khoa_bu_ly_thuyet: ma_khoa_bu, limit: 1000, page: 1 });
 
-      const students = await Promise.all(list.map(async (student) => {
-        const currentMaDk = String(student.ma_dk || "").trim();
-        let theoryInfo = {
-          loai_ly_thuyet: student.trang_thai_ly_thuyet >= 2 ? 1 : 0,
-          loai_het_mon: student.trang_thai_ly_thuyet >= 4 ? 1 : 0,
-          ghi_chu: ""
-        };
+      // 1. Lấy thông tin tiến độ lý thuyết thực tế từ DB nội bộ (để đảm bảo chính xác 100%)
+      const lopLyThuyetModel = require("../models/lopLyThuyet.model");
+      const theoryRaw = await lopLyThuyetModel.getAll({ ma_dk_list: list.map(s => s.ma_dk) }).catch(() => []);
+      const theoryMap = {};
+      theoryRaw.forEach(t => { theoryMap[String(t.ma_dk).trim()] = t; });
 
-        const lotusData = await hocBuService.getTheoryLotusDetail(currentMaDk).catch(() => null);
+      // 2. Lặp tuần tự theo từng cụm (Chunked/Batch concurrent) để không làm sập API Lotus
+      const students = [];
+      const batchSize = 6; 
+      for (let i = 0; i < list.length; i += batchSize) {
+        const chunk = list.slice(i, i + batchSize);
+        const chunkResults = await Promise.all(chunk.map(async (student) => {
+          const currentMaDk = String(student.ma_dk || "").trim();
+          const tt = theoryMap[currentMaDk] || {};
 
-        return {
-          ...student,
-          theoryInfo,
-          scoreByRubrik: lotusData?.scoreByRubrik || []
-        };
-      }));
+          // Ưu tiên dữ liệu thật từ bảng trạng thái, nếu trống fallback về cờ tạm của bảng học bù
+          let theoryInfo = {
+            loai_ly_thuyet: tt.loai_ly_thuyet !== undefined ? Number(tt.loai_ly_thuyet) : (student.trang_thai_ly_thuyet >= 2 ? 1 : 0),
+            loai_het_mon: tt.loai_het_mon !== undefined ? Number(tt.loai_het_mon) : (student.trang_thai_ly_thuyet >= 4 ? 1 : 0),
+            ghi_chu: tt.ghi_chu || ""
+          };
+
+          // Gọi API ngoài an toàn hơn trong từng batch
+          const lotusData = await hocBuService.getTheoryLotusDetail(currentMaDk).catch(() => null);
+
+          return {
+            ...student,
+            theoryInfo,
+            scoreByRubrik: lotusData?.scoreByRubrik || []
+          };
+        }));
+        students.push(...chunkResults);
+      }
 
       res.status(200).json({ success: true, data: students });
     } catch (e) {
@@ -1070,7 +1089,8 @@ class TienDoDaoTaoNewController {
                   BienSo: s.bien_so_xe,
                   TongQuangDuong: s.tong_km,
                   TongThoiGian: s.thoi_gian,
-                  HoTenGV: s.ho_ten_gv
+                  HoTenGV: s.ho_ten_gv,
+                  HangDaoTao: student.hang
                 }));
               }
             } catch (e) { console.error(`[DAT Local Error ${currentMaDk}]`, e.message); }
@@ -1128,7 +1148,8 @@ class TienDoDaoTaoNewController {
             BienSo: s.BienSo || s.BienSoXe || s.bien_so_xe,
             TongQuangDuong: km,
             TongThoiGian: giay,
-            HoTenGV: s.HoTenGV || s.ho_ten_gv
+            HoTenGV: s.HoTenGV || s.ho_ten_gv,
+            HangDaoTao: student.hang
           };
         });
 
