@@ -327,8 +327,8 @@ async function getHocVienSearch(filters = {}) {
 
   let query = `
     SELECT TOP 200 hv.*, kh.ten_khoa 
-    FROM [dbo].[hoc_vien] hv
-    LEFT JOIN [dbo].[khoa_hoc] kh ON hv.ma_khoa = kh.ma_khoa
+    FROM [dbo].[hoc_vien] hv WITH (NOLOCK)
+    LEFT JOIN [dbo].[khoa_hoc] kh WITH (NOLOCK) ON hv.ma_khoa = kh.ma_khoa
     WHERE 1=1
   `;
 
