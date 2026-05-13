@@ -7,6 +7,8 @@ const config = {
   server: process.env.DB_SERVER,
   database: process.env.DB_DATABASE,
   port: Number(process.env.DB_PORT || 1433),
+  requestTimeout: 60000, // Thời gian tối đa cho 1 request (60 giây)
+  connectionTimeout: 30000, // Thời gian kết nối tối đa (30 giây)
   options: {
     encrypt: false,
     trustServerCertificate: true,
@@ -15,7 +17,7 @@ const config = {
     max: 10,
     min: 2,
     idleTimeoutMillis: 30000,
-    acquireTimeoutMillis: 15000,
+    acquireTimeoutMillis: 30000, // Tăng thời gian chờ pool connection
   },
 };
 

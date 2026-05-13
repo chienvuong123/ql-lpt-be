@@ -323,6 +323,7 @@ async function getKhoaHocList() {
 async function getHocVienSearch(filters = {}) {
   const pool = await connectSQL();
   const request = new mssql.Request(pool);
+  request.timeout = 60000; // Thiết lập timeout thủ công 60 giây cho request này
 
   let query = `
     SELECT TOP 200 hv.*, kh.ten_khoa 
