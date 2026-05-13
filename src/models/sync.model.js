@@ -325,30 +325,37 @@ async function getHocVienSearch(filters = {}) {
   const request = new mssql.Request(pool);
   request.timeout = 60000; // Thiết lập timeout thủ công 60 giây cho request này
 
-  let query = `
-    SELECT TOP 200 hv.*, kh.ten_khoa 
-    FROM [dbo].[hoc_vien] hv WITH (NOLOCK)
-    LEFT JOIN [dbo].[khoa_hoc] kh WITH (NOLOCK) ON hv.ma_khoa = kh.ma_khoa
-    WHERE 1=1
-  `;
-
+  let whereClause = "WHERE 1=1";
+ 
   if (filters.search) {
     request.input("search", mssql.NVarChar, `%${filters.search}%`);
-    query += ` AND (hv.ho_ten LIKE @search OR hv.ma_dk LIKE @search OR hv.cccd LIKE @search)`;
+    whereClause += ` AND (ho_ten LIKE @search OR ma_dk LIKE @search OR cccd LIKE @search)`;
   }
-
+ 
   if (filters.ma_dk) {
     request.input("ma_dk", mssql.VarChar, filters.ma_dk);
-    query += ` AND hv.ma_dk = @ma_dk`;
+    whereClause += ` AND ma_dk = @ma_dk`;
   }
-
+ 
   if (filters.ma_khoa) {
     request.input("ma_khoa", mssql.VarChar, filters.ma_khoa);
-    query += ` AND hv.ma_khoa = @ma_khoa`;
+    whereClause += ` AND ma_khoa = @ma_khoa`;
   }
-
-  query += ` ORDER BY hv.ho_ten ASC`;
-
+ 
+  const query = `
+    WITH TopStudents AS (
+      SELECT TOP 200 * 
+      FROM [dbo].[hoc_vien] WITH (NOLOCK)
+      ${whereClause}
+      ORDER BY ho_ten ASC
+    )
+    SELECT ts.*, kh.ten_khoa 
+    FROM TopStudents ts
+    LEFT JOIN [dbo].[khoa_hoc] kh WITH (NOLOCK) ON ts.ma_khoa = kh.ma_khoa
+    ORDER BY ts.ho_ten ASC
+    OPTION (RECOMPILE)
+  `;
+ 
   const result = await request.query(query);
   return result.recordset;
 }
