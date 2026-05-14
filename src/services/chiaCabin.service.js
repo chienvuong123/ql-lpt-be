@@ -81,8 +81,13 @@ const mapStudent = (s, cabinMap, missedMap) => {
 };
 
 const getDanhSachCabinSQL = async ({ khoa, hoTen }) => {
-  const students = await cabinModel.getCabinStudentListSQL({ maKhoa: khoa, hoTen });
-  if (!students || students.length === 0) return [];
+  const [regularStudents, makeupStudents] = await Promise.all([
+    cabinModel.getCabinStudentListSQL({ maKhoa: khoa, hoTen }),
+    cabinModel.getCabinMakeupStudentListSQL({ maKhoa: khoa, hoTen }),
+  ]);
+
+  const students = [...(regularStudents || []), ...(makeupStudents || [])];
+  if (students.length === 0) return [];
 
   const uniqueKhoas = [...new Set(students.map((s) => s.ma_khoa))];
   const allSessionResults = await fetchSessionResults(uniqueKhoas);

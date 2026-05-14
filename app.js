@@ -55,6 +55,7 @@ app.use("/api/google-sheet", googleSheetRoute);
 // app.use("/api/tien-do-dao-tao", require("./src/routes/tienDoDaoTao.routes"));
 app.use("/api/tien-do-dao-tao", require("./src/routes/hocbu.routes"));
 app.use("/api/student-detail", require("./src/routes/studentDetail.routes"));
+app.use("/api/check-configs", require("./src/routes/checkConfig.routes"));
 
 // Tự động quét và hiển thị danh sách API sạch đẹp
 app.get("/", (req, res) => {

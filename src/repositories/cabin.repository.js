@@ -226,6 +226,38 @@ const getCabinStudentListSQL = async (filters = {}) => {
   return result.recordset;
 };
 
+const getCabinMakeupStudentListSQL = async (filters = {}) => {
+  const pool = await connectSQL();
+  const req = pool.request();
+
+  let where = "WHERE hb.loai_thuc_hanh = 'cabin' AND hb.khoa_bu_thuc_hanh IS NOT NULL AND hb.khoa_bu_thuc_hanh <> ''";
+  if (filters.maKhoa) { where += " AND hb.khoa_bu_thuc_hanh = @maKhoa"; req.input("maKhoa", filters.maKhoa); }
+  if (filters.hoTen) { where += " AND (hv.ho_ten LIKE @hoTen OR dk.ho_ten LIKE @hoTen)"; req.input("hoTen", `%${filters.hoTen}%`); }
+
+  const result = await req.query(`
+    SELECT 
+      hb.ma_dk, hb.ma_khoa, kh.code, hb.updated_at AS status_updated_at,
+      td.ket_thuc_cabin, hv.ho_ten, hv.cccd, hv.ngay_sinh, hv.gioi_tinh, hv.hang AS hang_gplx,
+      dk.giao_vien, ISNULL(kh.ten_khoa, dk.khoa) AS ten_khoa,
+      lich.so_lan_chia,
+      1 AS is_makeup
+    FROM [dbo].[hoc_bu_new] hb WITH (NOLOCK)
+    LEFT JOIN [dbo].[khoa_hoc] kh ON hb.ma_khoa = kh.ma_khoa
+    LEFT JOIN [dbo].[tien_do_dao_tao] td ON td.ma_khoa = hb.khoa_bu_thuc_hanh
+    LEFT JOIN [dbo].[hoc_vien] hv ON hb.ma_dk = hv.ma_dk
+    LEFT JOIN [dbo].[dang_ky_xe_gv] dk ON hb.ma_dk = dk.ma_dk
+    LEFT JOIN (
+      SELECT ma_dk, MAX(so_lan_chia) AS so_lan_chia
+      FROM [dbo].[cabin_lich_phan_bo]
+      WHERE ma_dk IS NOT NULL
+      GROUP BY ma_dk
+    ) lich ON hb.ma_dk = lich.ma_dk
+    ${where}
+    ORDER BY hb.updated_at DESC
+  `);
+  return result.recordset;
+};
+
 const getTeacherByMaDkList = async (maDkList) => {
   if (!Array.isArray(maDkList) || maDkList.length === 0) return [];
   const pool = await connectSQL();
@@ -251,5 +283,6 @@ module.exports = {
   getPastAssignments,
   updateSoLanChiaBatch,
   getCabinStudentListSQL,
+  getCabinMakeupStudentListSQL,
   getTeacherByMaDkList,
 };
