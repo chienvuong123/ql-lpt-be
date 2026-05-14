@@ -26,9 +26,11 @@ const getPhienHocDATByMaDK = async (ma_dk, ma_khoa = null) => {
         ly_do_tong,
         ly_do_td,
         ly_do_dem,  
+        ly_do_so_san,
         duyet_tong,
         duyet_tu_dong,
         duyet_dem, 
+        duyet_so_san,
         id_gv,
         ho_ten_gv,
         ho_ten_hv,
@@ -199,9 +201,11 @@ const updateDuyetByMaDK = async ({
   duyet_tong,
   duyet_tu_dong,
   duyet_dem,
+  duyet_so_san,
   ly_do_tong,
   ly_do_td,
   ly_do_dem,
+  ly_do_so_san,
   nguoi_thay_doi,
 }) => {
   const pool = await connectSQL();
@@ -212,17 +216,21 @@ const updateDuyetByMaDK = async ({
     .input("duyet_tong", sql.Bit, duyet_tong ?? null)
     .input("duyet_tu_dong", sql.Bit, duyet_tu_dong ?? null)
     .input("duyet_dem", sql.Bit, duyet_dem ?? null)
+    .input("duyet_so_san", sql.Bit, duyet_so_san ?? null)
     .input("ly_do_tong", sql.NVarChar, ly_do_tong ?? null)
     .input("ly_do_td", sql.NVarChar, ly_do_td ?? null)
     .input("ly_do_dem", sql.NVarChar, ly_do_dem ?? null)
+    .input("ly_do_so_san", sql.NVarChar, ly_do_so_san ?? null)
     .input("nguoi_thay_doi", sql.NVarChar, nguoi_thay_doi || "SYSTEM").query(`
       UPDATE phien_hoc_dat
       SET duyet_tong         = COALESCE(@duyet_tong, duyet_tong),
           duyet_tu_dong      = COALESCE(@duyet_tu_dong, duyet_tu_dong),
           duyet_dem          = COALESCE(@duyet_dem, duyet_dem),
+          duyet_so_san       = COALESCE(@duyet_so_san, duyet_so_san),
           ly_do_tong         = COALESCE(@ly_do_tong, ly_do_tong),
           ly_do_td           = COALESCE(@ly_do_td, ly_do_td),
           ly_do_dem          = COALESCE(@ly_do_dem, ly_do_dem),
+          ly_do_so_san       = COALESCE(@ly_do_so_san, ly_do_so_san),
           nguoi_thay_doi     = @nguoi_thay_doi,
           thoi_gian_thay_doi = SYSDATETIME(),
           updated_at         = SYSDATETIME()
@@ -343,9 +351,11 @@ const getPhienHocDATByMaDKList = async (ma_dk_list, ma_khoa = null) => {
         ly_do_tong,
         ly_do_td,
         ly_do_dem,  
+        ly_do_so_san,
         duyet_tong,
         duyet_tu_dong,
         duyet_dem, 
+        duyet_so_san,
         id_gv,
         ho_ten_gv,
         ho_ten_hv,

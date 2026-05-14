@@ -1,4 +1,4 @@
-﻿const PhienHocModel = require("../models/phienHocDAT.model");
+const PhienHocModel = require("../models/phienHocDAT.model");
 
 const getPhienHocDAT = async (req, res) => {
   try {
@@ -105,9 +105,11 @@ const updateDuyetTheoMaDK = async (req, res) => {
       duyet_tong,
       duyet_tu_dong,
       duyet_dem,
+      duyet_so_san,
       ly_do_tong,
       ly_do_td,
       ly_do_dem,
+      ly_do_so_san,
       nguoi_thay_doi,
     } = req.body;
 
@@ -122,14 +124,16 @@ const updateDuyetTheoMaDK = async (req, res) => {
       duyet_tong == null &&
       duyet_tu_dong == null &&
       duyet_dem == null &&
+      duyet_so_san == null &&
       ly_do_tong == null &&
       ly_do_td == null &&
-      ly_do_dem == null
+      ly_do_dem == null &&
+      ly_do_so_san == null
     ) {
       return res.status(400).json({
         success: false,
         message:
-          "Can it nhat 1 truong: duyet_tong, duyet_tu_dong, duyet_dem, ly_do_tong, ly_do_td, ly_do_dem",
+          "Can it nhat 1 truong: duyet_tong, duyet_tu_dong, duyet_dem, duyet_so_san, ly_do_tong, ly_do_td, ly_do_dem, ly_do_so_san",
       });
     }
 
@@ -138,9 +142,11 @@ const updateDuyetTheoMaDK = async (req, res) => {
       duyet_tong: duyet_tong != null ? Boolean(duyet_tong) : null,
       duyet_tu_dong: duyet_tu_dong != null ? Boolean(duyet_tu_dong) : null,
       duyet_dem: duyet_dem != null ? Boolean(duyet_dem) : null,
+      duyet_so_san: duyet_so_san != null ? Boolean(duyet_so_san) : null,
       ly_do_tong: ly_do_tong ?? null,
       ly_do_td: ly_do_td ?? null,
       ly_do_dem: ly_do_dem ?? null,
+      ly_do_so_san: ly_do_so_san ?? null,
       nguoi_thay_doi: nguoi_thay_doi || "SYSTEM",
     });
     console.log(rowsAffected);
@@ -160,9 +166,11 @@ const updateDuyetTheoMaDK = async (req, res) => {
         duyet_tong: duyet_tong ?? null,
         duyet_tu_dong: duyet_tu_dong ?? null,
         duyet_dem: duyet_dem ?? null,
+        duyet_so_san: duyet_so_san ?? null,
         ly_do_tong: ly_do_tong ?? null,
         ly_do_td: ly_do_td ?? null,
         ly_do_dem: ly_do_dem ?? null,
+        ly_do_so_san: ly_do_so_san ?? null,
         rowsAffected,
         action,
       },

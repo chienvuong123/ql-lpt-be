@@ -23,20 +23,13 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || "0.0.0.0";
 
-connectDB();
-connectSQL();
-
-// Khởi tạo các tác vụ tự động (Cron Jobs)
-const cronService = require("./src/services/cron.service");
-cronService.init();
-
+// ─── Middleware ───────────────────────────────────────────────
 app.use(cors());
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
-// Đăng ký Routes
+// ─── Routes ──────────────────────────────────────────────────
 app.use("/api/hoc-vien", hocvienCheckRoute);
 app.use("/api/check-data-student", checkDataRoute);
 app.use("/api/hoc-vien-lop-ly-thuyet", lopLyThuyetRoute);
@@ -52,12 +45,11 @@ app.use("/api/sync", syncRoute);
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/google-sheet", googleSheetRoute);
-// app.use("/api/tien-do-dao-tao", require("./src/routes/tienDoDaoTao.routes"));
 app.use("/api/tien-do-dao-tao", require("./src/routes/hocbu.routes"));
 app.use("/api/student-detail", require("./src/routes/studentDetail.routes"));
 app.use("/api/check-configs", require("./src/routes/checkConfig.routes"));
 
-// Tự động quét và hiển thị danh sách API sạch đẹp
+// ─── Danh sách API ───────────────────────────────────────────
 app.get("/", (req, res) => {
   const endpoints = [];
 
@@ -70,34 +62,48 @@ app.get("/", (req, res) => {
 
       middleware.handle.stack.forEach((handler) => {
         if (handler.route) {
-          const path = handler.route.path;
-          const methods = Object.keys(handler.route.methods)
-            .join(", ")
-            .toUpperCase();
-
-          // 2. Gộp lại và xử lý dấu // nếu có
-          const fullPath = (basePath + path).replace(/\/+/g, "/");
+          const methods = Object.keys(handler.route.methods).join(", ").toUpperCase();
+          const fullPath = (basePath + handler.route.path).replace(/\/+/g, "/");
           endpoints.push(`${methods} ${fullPath}`);
         }
       });
     }
   });
 
-  res.json({
-    status: "OK",
-    total: endpoints.length,
-    endpoints: endpoints,
-  });
+  res.json({ status: "OK", total: endpoints.length, endpoints });
 });
-// Xử lý lỗi chung
-app.use((req, res) =>
-  res.status(404).json({ success: false, message: "Route not found" }),
-);
+
+// ─── 404 ─────────────────────────────────────────────────────
+app.use((req, res, next) => {
+  res.status(404).json({ success: false, message: "Route not found" });
+});
+
+// ─── Error handler ───────────────────────────────────────────
 app.use((err, req, res, next) => {
+  console.error("[Error]", err.message);
   res.status(err.status || 500).json({
     success: false,
     message: err.message || "Internal server error",
   });
 });
 
-app.listen(PORT, HOST, () => console.log(`🚀 Server: http://${HOST}:${PORT}`));
+// ─── Start Server ─────────────────────────────────────────────
+async function startServer() {
+  try {
+    await connectDB();
+    await connectSQL();
+    console.log("✅ Database ready");
+
+    const cronService = require("./src/services/cron.service");
+    cronService.init();
+
+    app.listen(PORT, HOST, () => {
+      console.log(`🚀 Server: http://${HOST}:${PORT}`);
+    });
+  } catch (err) {
+    console.error("❌ Server failed to start:", err.message);
+    process.exit(1);
+  }
+}
+
+startServer();

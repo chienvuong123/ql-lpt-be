@@ -353,7 +353,7 @@ async function getHocVienSearch(filters = {}) {
     FROM TopStudents ts
     LEFT JOIN [dbo].[khoa_hoc] kh WITH (NOLOCK) ON ts.ma_khoa = kh.ma_khoa
     ORDER BY ts.ho_ten ASC
-    OPTION (RECOMPILE)
+    OPTION (FORCE ORDER, RECOMPILE)
   `;
  
   const result = await request.query(query);
