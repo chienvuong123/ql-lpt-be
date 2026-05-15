@@ -24,6 +24,19 @@ function getOAuthClient() {
 
   const token = JSON.parse(fs.readFileSync(tokenPath));
   oAuth2Client.setCredentials(token);
+
+  // Tự động lưu lại token mới khi googleapis tự động gia hạn
+  oAuth2Client.on("tokens", (tokens) => {
+    try {
+      const currentToken = JSON.parse(fs.readFileSync(tokenPath));
+      const updatedToken = { ...currentToken, ...tokens };
+      fs.writeFileSync(tokenPath, JSON.stringify(updatedToken, null, 2));
+      console.log("[GoogleSheetService] Đã tự động gia hạn và lưu token mới vào token.json");
+    } catch (err) {
+      console.error("[GoogleSheetService] Lỗi khi ghi đè token mới:", err.message);
+    }
+  });
+
   return oAuth2Client;
 }
 
