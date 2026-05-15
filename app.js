@@ -48,6 +48,7 @@ app.use("/api/google-sheet", googleSheetRoute);
 app.use("/api/tien-do-dao-tao", require("./src/routes/hocbu.routes"));
 app.use("/api/student-detail", require("./src/routes/studentDetail.routes"));
 app.use("/api/check-configs", require("./src/routes/checkConfig.routes"));
+app.use("/api/forbidden-zones", require("./src/routes/forbiddenZone.routes"));
 
 // ─── Danh sách API ───────────────────────────────────────────
 app.get("/", (req, res) => {
