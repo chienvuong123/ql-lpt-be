@@ -9,6 +9,10 @@ router.get(
   "/hoc-vien/khoa/:enrolmentPlanIid/",
   ctrl.getDanhSachHocVienTheoKhoa,
 );
+router.get(
+  "/hoc-vien/khoa/:enrolmentPlanIid/export-excel",
+  ctrl.exportDanhSachHocVienTheoKhoaExcel,
+);
 router.get("/lop-hoc/search", ctrl.searchDanhSachLop);
 router.post("/dashboard", ctrl.getDashboardLyThuyet);
 

@@ -1,3 +1,4 @@
+const ExcelJS = require("exceljs");
 const {
   getLopHocLyThuyet,
   getHocVienTheoKhoa,
@@ -570,6 +571,339 @@ async function getDashboardLyThuyet(req, res) {
   }
 }
 
+async function exportDanhSachHocVienTheoKhoaExcel(req, res) {
+  try {
+    const { enrolmentPlanIid } = req.params;
+    const { text } = req.query;
+
+    const pool = await connectSQL();
+
+    // 1. Get Course Info
+    const khoaRes = await pool.request()
+      .input('enrolmentPlanIid', enrolmentPlanIid)
+      .query('SELECT TOP 1 ten_khoa, ma_khoa, code FROM khoa_hoc WHERE ma_khoa = @enrolmentPlanIid OR code = @enrolmentPlanIid');
+    const courseInfo = khoaRes.recordset[0];
+    const tenKhoa = courseInfo?.ten_khoa || enrolmentPlanIid;
+
+    // 2. Fetch Lotus data and SQL data (Only theory, no Cabin info required)
+    const [lotusData, dbData] = await Promise.all([
+      callWithRetry((auth) =>
+        getHocVienTheoKhoa(
+          enrolmentPlanIid,
+          { page: 1, items_per_page: 500, text },
+          auth,
+        ),
+      ),
+      model.getAll({ maKhoa: enrolmentPlanIid }),
+    ]);
+
+    const allStudents = Array.isArray(lotusData?.result)
+      ? lotusData.result
+      : [];
+
+    // Build Maps
+    const dbMap = {};
+    (Array.isArray(dbData) ? dbData : []).forEach((item) => {
+      if (item?.ma_dk) dbMap[String(item.ma_dk)] = item;
+    });
+
+    const allMapped = allStudents.map((student) => {
+      const maDk = String(
+        student?.user?.admission_code ||
+        student?.user?.code ||
+        student?.id ||
+        "",
+      );
+
+      const dbRecord = dbMap[maDk] || null;
+
+      return {
+        user: {
+          iid: student?.user?.iid,
+          name: student?.user?.name,
+          first_name: student?.user?.first_name,
+          last_name: student?.user?.last_name,
+          birthday: student?.user?.birthday,
+          birth_year: student?.user?.birth_year,
+          sex: student?.user?.sex,
+          identification_card: student?.user?.identification_card,
+          code: maDk,
+          last_login: student?.last_login_info || student?.__expand?.last_login_info || null,
+        },
+        learning: student?.learning_progress
+          ? {
+            item_iid: student.learning_progress.item_iid,
+            total_hour_learned: student.learning_progress.total_hour_learned,
+            progress: student.learning_progress.progress,
+            passed: student.learning_progress.passed,
+            learned: student.learning_progress.learned,
+            score_by_rubrik: student.learning_progress.score_by_rubrik || [],
+          }
+          : null,
+        ma_dk: maDk,
+        trang_thai: dbRecord
+          ? {
+            loai_ly_thuyet: dbRecord.loai_ly_thuyet,
+            loai_het_mon: dbRecord.loai_het_mon,
+            dat_cabin: dbRecord.dat_cabin,
+            dat: dbRecord.dat,
+            ghi_chu: dbRecord.ghi_chu || null,
+          }
+          : null,
+      };
+    });
+
+    const isTrue = (val) => val === true || val === 1 || val === "1" || val === "true";
+
+    // No filtering required (Lấy toàn bộ danh sách lớp lý thuyết trực tuyến)
+    const finalFiltered = allMapped;
+
+    // Helpers to format data fields
+    function formatSex(sex) {
+      if (sex === undefined || sex === null) return "";
+      const s = String(sex).trim().toLowerCase();
+      if (s === "1" || s === "nam" || s === "male" || s === "true") return "Nam";
+      if (s === "0" || s === "nữ" || s === "nu" || s === "female" || s === "false") return "Nữ";
+      return sex;
+    }
+
+    function formatBirthday(birthday) {
+      if (!birthday) return "";
+      let d;
+      if (typeof birthday === 'number' || !isNaN(Number(birthday))) {
+        d = new Date(Number(birthday) * 1000);
+      } else {
+        d = new Date(birthday);
+      }
+      if (isNaN(d.getTime())) return birthday;
+      return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+    }
+
+    const topicsConfig = [
+      { key: "Kỹ thuật lái xe", display: "Kỹ thuật lái xe" },
+      { key: "Cấu tạo sửa chữa", display: "Cấu tạo sửa chữa" },
+      { key: "Đạo đức", display: "Đạo đức, VHGT, PCCC" },
+      { key: "PL1", display: "PL1 - Luật trật tự, ATGT" },
+      { key: "PL2", display: "PL2 - Biển báo" },
+      { key: "PL3", display: "PL3 - Xử lý THGT" },
+      { key: "Tổng ôn tập", display: "Tổng ôn tập" },
+      { key: "Mô phỏng", display: "Mô phỏng" }
+    ];
+
+    const today = new Date();
+    const formattedToday = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
+
+    const aoa = [];
+    // Row 1: Title
+    aoa.push([`BÁO CÁO KẾT QUẢ HỌC LÝ THUYẾT TRỰC TUYẾN CỦA KHÓA HỌC ${tenKhoa.toUpperCase()}`]);
+    // Row 2: Subtitle
+    aoa.push([`(Ngày báo cáo : ${formattedToday})`]);
+    // Row 3: Blank
+    aoa.push([]);
+    // Row 4
+    aoa.push([
+      "STT", "Tên", "Giới tính", "Ngày sinh", "Kết quả toàn khóa học",
+      "Tiến độ chương trình đào tạo", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+      "Ghi chú"
+    ]);
+    // Row 5
+    aoa.push([
+      "", "", "", "", "",
+      "Kỹ thuật lái xe", "", "Cấu tạo sửa chữa", "", "Đạo đức, VHGT, PCCC", "",
+      "Pháp luật GTĐB", "", "", "", "", "", "", "",
+      "Mô phỏng", "",
+      ""
+    ]);
+    // Row 6
+    aoa.push([
+      "", "", "", "", "",
+      "", "", "", "", "", "",
+      "PL1 - Luật trật tự, ATGT", "", "PL2 - Biển báo", "", "PL3 - Xử lý THGT", "", "Tổng ôn tập", "",
+      "", "",
+      ""
+    ]);
+    // Row 7
+    aoa.push([
+      "", "", "", "", "",
+      "% thời gian môn học", "Trạng thái đạt",
+      "% thời gian môn học", "Trạng thái đạt",
+      "% thời gian môn học", "Trạng thái đạt",
+      "% thời gian môn học", "Trạng thái đạt",
+      "% thời gian môn học", "Trạng thái đạt",
+      "% thời gian môn học", "Trạng thái đạt",
+      "% thời gian môn học", "Trạng thái đạt",
+      "% thời gian môn học", "Trạng thái đạt",
+      ""
+    ]);
+
+    // Data rows
+    finalFiltered.forEach((student, index) => {
+      const row = [
+        index + 1,
+        student.user?.name || "",
+        formatSex(student.user?.sex),
+        formatBirthday(student.user?.birthday),
+        isTrue(student.learning?.passed) ? "Đạt" : "Chưa đạt"
+      ];
+
+      const rubriks = student.learning?.score_by_rubrik || [];
+      const rubrikMap = {};
+      rubriks.forEach((item) => {
+        const name = item.name || "";
+        const matchedConfig = topicsConfig.find((cfg) => name.toLowerCase().includes(cfg.key.toLowerCase()));
+        if (matchedConfig) {
+          rubrikMap[matchedConfig.key] = item;
+        }
+      });
+
+      topicsConfig.forEach((cfg) => {
+        const item = rubrikMap[cfg.key];
+        if (item) {
+          const score = item.score !== undefined && item.score !== null ? Math.round(Number(item.score) * 100) / 100 : 0;
+          row.push(score);
+          const passed = Number(item.passed) === 1 || item.passed === true;
+          row.push(passed ? "Đạt" : "Chưa đạt");
+        } else {
+          row.push(0);
+          row.push("Chưa đạt");
+        }
+      });
+
+      // Ghi chú
+      row.push(student.trang_thai?.ghi_chu || "");
+
+      aoa.push(row);
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("KetQuaHocLyThuyet");
+
+    worksheet.addRows(aoa);
+
+    // Merge Header Cells
+    worksheet.mergeCells("A1:V1");
+    worksheet.mergeCells("A2:V2");
+
+    // Base columns merge from Row 4 to Row 7
+    for (let c of [1, 2, 3, 4, 5, 22]) {
+      worksheet.mergeCells(4, c, 7, c);
+    }
+
+    worksheet.mergeCells(4, 6, 4, 21); // Tiến độ chương trình đào tạo
+    worksheet.mergeCells(5, 6, 6, 7);  // Kỹ thuật lái xe
+    worksheet.mergeCells(5, 8, 6, 9);  // Cấu tạo sửa chữa
+    worksheet.mergeCells(5, 10, 6, 11); // Đạo đức, VHGT, PCCC
+    worksheet.mergeCells(5, 12, 5, 19); // Pháp luật GTĐB
+    worksheet.mergeCells(5, 20, 6, 21); // Mô phỏng
+
+    worksheet.mergeCells(6, 12, 6, 13); // PL1
+    worksheet.mergeCells(6, 14, 6, 15); // PL2
+    worksheet.mergeCells(6, 16, 6, 17); // PL3
+    worksheet.mergeCells(6, 18, 6, 19); // Tổng ôn tập
+
+    // Row heights
+    worksheet.getRow(1).height = 30;
+    worksheet.getRow(2).height = 20;
+    worksheet.getRow(3).height = 15;
+    worksheet.getRow(4).height = 25;
+    worksheet.getRow(5).height = 25;
+    worksheet.getRow(6).height = 25;
+    worksheet.getRow(7).height = 35;
+
+    const totalRows = aoa.length;
+    for (let r = 8; r <= totalRows; r++) {
+      worksheet.getRow(r).height = 20;
+    }
+
+    // Column widths
+    const columnWidths = [
+      6,   // A: STT
+      25,  // B: Tên
+      10,  // C: Giới tính
+      12,  // D: Ngày sinh
+      15,  // E: Kết quả toàn khóa học
+      12,  // F: Kỹ thuật lái xe %
+      12,  // G: Kỹ thuật lái xe status
+      12,  // H: Cấu tạo sửa chữa %
+      12,  // I: Cấu tạo sửa chữa status
+      12,  // J: Đạo đức %
+      12,  // K: Đạo đức status
+      12,  // L: PL1 %
+      12,  // M: PL1 status
+      12,  // N: PL2 %
+      12,  // O: PL2 status
+      12,  // P: PL3 %
+      12,  // Q: PL3 status
+      12,  // R: Tổng ôn tập %
+      12,  // S: Tổng ôn tập status
+      12,  // T: Mô phỏng %
+      12,  // U: Mô phỏng status
+      20   // V: Ghi chú
+    ];
+    columnWidths.forEach((width, index) => {
+      worksheet.getColumn(index + 1).width = width;
+    });
+
+    // Formatting cell styles
+    worksheet.eachRow((row, rowNumber) => {
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        if (rowNumber >= 4) {
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+
+          if (rowNumber <= 7) {
+            const colIndex = Number(cell.col);
+            let shouldBold = true;
+
+            // Remove bold from all cells in Row 7 (% thời gian môn học, Trạng thái đạt)
+            if (rowNumber === 7) {
+              shouldBold = false;
+            }
+            // Remove bold from PL1 (col 12, 13), PL2 (col 14, 15), PL3 (col 16, 17) in Row 6
+            else if (rowNumber === 6 && colIndex >= 12 && colIndex <= 17) {
+              shouldBold = false;
+            }
+
+            cell.font = { name: 'Times New Roman', bold: shouldBold, size: 11 };
+            cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+          } else {
+            cell.font = { name: 'Times New Roman', size: 11 };
+            const colIndex = Number(cell.col);
+            if (colIndex === 1 || colIndex === 3 || colIndex === 4 || colIndex === 5 || (colIndex >= 6 && colIndex <= 21)) {
+              cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            } else {
+              cell.alignment = { vertical: 'middle', horizontal: 'left' };
+            }
+          }
+        }
+      });
+    });
+
+    // Format Title & Subtitle
+    const titleCell = worksheet.getCell("A1");
+    titleCell.font = { name: 'Times New Roman', bold: true, size: 16 };
+    titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+
+    const subtitleCell = worksheet.getCell("A2");
+    subtitleCell.font = { name: 'Times New Roman', italic: true, size: 11 };
+    subtitleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    res.setHeader('Content-Disposition', `attachment; filename="BaoCaoLyThuyet_${enrolmentPlanIid}.xlsx"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buffer);
+
+  } catch (err) {
+    console.error("[exportDanhSachHocVienTheoKhoaExcel]", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+}
+
 module.exports = {
   getDanhSachLop,
   getDanhSachHocVien,
@@ -577,4 +911,5 @@ module.exports = {
   searchDanhSachLop,
   getDashboardLyThuyet,
   getChiTietHocVienLyThuyet,
+  exportDanhSachHocVienTheoKhoaExcel,
 };
