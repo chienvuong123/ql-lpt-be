@@ -35,7 +35,12 @@ const fetchCabinStudentComponents = async (enrolmentPlanIid, filters) => {
       lotusApi.getHocVienTheoKhoa(enrolmentPlanIid, { page: 1, items_per_page: 500, text }, auth)
     ),
     enrolmentPlanIid ? modelLyThuyet.getAll({ maKhoa: enrolmentPlanIid }) : Promise.resolve([]),
-    khoa ? cabinApiService.getDanhSachKetQuaCabin({ khoa, hoTen: text || "" }).then((r) => r?.data || []) : Promise.resolve([]),
+    khoa ? cabinApiService.getDanhSachKetQuaCabin({ khoa, hoTen: text || "" })
+      .then((r) => r?.data || [])
+      .catch((err) => {
+        console.error("[fetchCabinStudentComponents] Cabin API error:", err.message);
+        return [];
+      }) : Promise.resolve([]),
     enrolmentPlanIid ? model.getAll({ ma_khoa: enrolmentPlanIid, limit: 9999 }).then((r) => r?.data || []) : Promise.resolve([]),
   ]);
 };

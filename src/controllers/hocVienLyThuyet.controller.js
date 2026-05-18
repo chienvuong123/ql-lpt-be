@@ -179,9 +179,12 @@ async function getDanhSachHocVienTheoKhoa(req, res) {
       ),
       model.getAll({ maKhoa: enrolmentPlanIid }),
       maKhoa
-        ? getDanhSachKetQuaCabin({ khoa: maKhoa, hoTen: text || "" }).then(
-          (r) => r?.data || [],
-        )
+        ? getDanhSachKetQuaCabin({ khoa: maKhoa, hoTen: text || "" })
+          .then((r) => r?.data || [])
+          .catch((err) => {
+            console.error("[getDanhSachHocVienTheoKhoa] Cabin API error:", err.message);
+            return [];
+          })
         : Promise.resolve([]),
       enrolmentPlanIid
         ? model
