@@ -339,7 +339,23 @@ async function getHocVienSearch(filters = {}) {
  
   if (filters.ma_khoa) {
     request.input("ma_khoa", mssql.VarChar, filters.ma_khoa);
-    whereClause += ` AND ma_khoa = @ma_khoa`;
+    whereClause += ` AND (ma_khoa = @ma_khoa OR ma_khoa LIKE '%' + @ma_khoa)`;
+  }
+
+  if (filters.giao_vien) {
+    request.input("gv_name", mssql.NVarChar, `%${filters.giao_vien}%`);
+    whereClause += ` AND EXISTS (
+      SELECT 1 FROM [dbo].[dang_ky_xe_gv] dk WITH (NOLOCK) 
+      WHERE dk.ma_dk = [dbo].[hoc_vien].ma_dk AND dk.giao_vien LIKE @gv_name
+    )`;
+  }
+
+  if (filters.nam_sinh_gv) {
+    request.input("gv_birth", mssql.NVarChar, `%${filters.nam_sinh_gv}%`);
+    whereClause += ` AND EXISTS (
+      SELECT 1 FROM [dbo].[dang_ky_xe_gv] dk WITH (NOLOCK) 
+      WHERE dk.ma_dk = [dbo].[hoc_vien].ma_dk AND dk.giao_vien LIKE @gv_birth
+    )`;
   }
  
   const query = `
@@ -349,9 +365,10 @@ async function getHocVienSearch(filters = {}) {
       ${whereClause}
       ORDER BY ho_ten ASC
     )
-    SELECT ts.*, kh.ten_khoa 
+    SELECT ts.*, kh.ten_khoa, dk.giao_vien, dk.xe_b1, dk.xe_b2
     FROM TopStudents ts
     LEFT JOIN [dbo].[khoa_hoc] kh WITH (NOLOCK) ON ts.ma_khoa = kh.ma_khoa
+    LEFT JOIN [dbo].[dang_ky_xe_gv] dk WITH (NOLOCK) ON ts.ma_dk = dk.ma_dk
     ORDER BY ts.ho_ten ASC
     OPTION (FORCE ORDER, RECOMPILE)
   `;

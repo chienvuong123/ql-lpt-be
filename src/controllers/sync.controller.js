@@ -307,10 +307,10 @@ class SyncController {
    * Get list of students with search and course filters
    */
   async getHocVienList(req, res) {
-    const { search, ma_khoa } = req.query;
+    const { search, ma_khoa, giao_vien, nam_sinh_gv } = { ...req.query, ...req.body };
 
     try {
-      const list = await syncService.getHocVienSearch({ search, ma_khoa });
+      const list = await syncService.getHocVienSearch({ search, ma_khoa, giao_vien, nam_sinh_gv });
       res.status(200).json({
         success: true,
         data: list,
@@ -321,6 +321,31 @@ class SyncController {
         success: false,
         message: "Lỗi lấy danh sách học viên",
         error: err.message,
+      });
+    }
+  }
+
+  async kiemTraDongBo(req, res) {
+    const list = req.body.students || req.body.list || req.body;
+    if (!Array.isArray(list)) {
+      return res.status(400).json({
+        success: false,
+        message: "Danh sách học viên gửi lên phải là một mảng dữ liệu"
+      });
+    }
+
+    try {
+      const results = await syncService.kiemTraDongBo(list);
+      res.status(200).json({
+        success: true,
+        data: results
+      });
+    } catch (err) {
+      console.error("[SyncController] kiemTraDongBo error:", err);
+      res.status(500).json({
+        success: false,
+        message: "Lỗi kiểm tra đồng bộ cabin",
+        error: err.message
       });
     }
   }

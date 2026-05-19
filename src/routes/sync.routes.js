@@ -14,5 +14,6 @@ router.get("/students", syncController.getHocVienList);
 router.post("/import-sql", uploadSingle, syncController.importToSql);
 router.post("/tien-do", syncController.upsertTienDoDaoTao);
 router.get("/tien-do", syncController.getTienDoDaoTaoList);
+router.post("/kiem-tra-dong-bo", syncController.kiemTraDongBo);
 
 module.exports = router;

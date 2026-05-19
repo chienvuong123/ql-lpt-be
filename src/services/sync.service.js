@@ -1,5 +1,14 @@
 const lotusApi = require("./lotusApi.service");
 const SyncModel = require("../models/sync.model");
+const cabinApiService = require("./cabinApi.service");
+
+// Normalize registration codes to digits only for accurate matching
+const normalizeMaDk = (val) => String(val || "").replace(/[^\d]/g, "");
+
+const isMaDkMatch = (val1, val2) => {
+  if (!val1 || !val2) return false;
+  return normalizeMaDk(val1) === normalizeMaDk(val2);
+};
 
 async function syncCourses() {
   const response = await lotusApi.callWithRetry((auth) =>
@@ -88,11 +97,84 @@ async function getHocVienSearch(filters) {
   return await SyncModel.getHocVienSearch(filters);
 }
 
+async function kiemTraDongBo(students) {
+  if (!Array.isArray(students) || students.length === 0) {
+    return [];
+  }
+
+  // 1. Group unique clean course codes
+  const uniqueKhoas = [...new Set(students.map(s => String(s.khoa || "").trim()).filter(Boolean))];
+  
+  // 2. Fetch session data for all unique courses in parallel
+  const cabinMapsByKhoa = {};
+  await Promise.all(
+    uniqueKhoas.map(async (rawKhoa) => {
+      let clean = rawKhoa;
+      if (!clean.startsWith("30004")) {
+        clean = "30004" + clean;
+      }
+
+      try {
+        let response = await cabinApiService.getDanhSachKetQuaCabin({ khoa: clean });
+        let list = response?.data || [];
+
+        // Fallback: if 30004 prefix yields 0 sessions, try raw course code
+        if (list.length === 0 && clean !== rawKhoa) {
+          response = await cabinApiService.getDanhSachKetQuaCabin({ khoa: rawKhoa });
+          list = response?.data || [];
+        }
+
+        const map = cabinApiService.buildCabinMap(list);
+        cabinMapsByKhoa[rawKhoa] = map;
+      } catch (err) {
+        console.error(`[SyncService] Lỗi lấy kết quả Cabin cho khoa ${rawKhoa}:`, err.message);
+        cabinMapsByKhoa[rawKhoa] = {};
+      }
+    })
+  );
+
+  // 3. Match each student in the list
+  return students.map((std) => {
+    const rawKhoa = String(std.khoa || "").trim();
+    const map = cabinMapsByKhoa[rawKhoa] || {};
+    
+    // Find matching ma_dk in this course map
+    const matchedKey = Object.keys(map).find(k => isMaDkMatch(k, std.ma_dk));
+    const session = matchedKey ? map[matchedKey] : null;
+
+    let tong_phut = 0;
+    let so_bai_hoc = 0;
+    let trang_thai = "truot";
+    let ho_ten = std.ho_ten || null;
+    let cccd = std.cccd || null;
+
+    if (session) {
+      tong_phut = Math.round(session.tong_thoi_gian / 60);
+      so_bai_hoc = session.so_bai_hoc;
+      const status = cabinApiService.getCabinStatus(session.tong_thoi_gian, session.so_bai_hoc);
+      trang_thai = status === "dat" ? "dat" : "truot";
+      if (session.ho_ten) ho_ten = session.ho_ten;
+      if (session.cccd) cccd = session.cccd;
+    }
+
+    return {
+      ma_dk: std.ma_dk,
+      khoa: std.khoa,
+      ho_ten,
+      cccd,
+      tong_phut,
+      so_bai_hoc,
+      trang_thai
+    };
+  });
+}
+
 module.exports = {
   syncCourses,
   syncStudents,
   upsertTienDoDaoTao,
   getTienDoDaoTaoList,
   getKhoaHocList,
-  getHocVienSearch
+  getHocVienSearch,
+  kiemTraDongBo
 };
