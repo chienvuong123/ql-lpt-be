@@ -326,16 +326,16 @@ class SyncController {
   }
 
   async kiemTraDongBo(req, res) {
-    const list = req.body.students || req.body.list || req.body;
-    if (!Array.isArray(list)) {
+    const khoa = req.body.khoa || req.query.khoa || (typeof req.body === "string" ? req.body : null);
+    if (!khoa) {
       return res.status(400).json({
         success: false,
-        message: "Danh sách học viên gửi lên phải là một mảng dữ liệu"
+        message: "Mã khóa học (khoa) không được để trống"
       });
     }
 
     try {
-      const results = await syncService.kiemTraDongBo(list);
+      const results = await syncService.kiemTraDongBo(khoa);
       res.status(200).json({
         success: true,
         data: results

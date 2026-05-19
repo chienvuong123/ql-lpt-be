@@ -326,17 +326,17 @@ async function getHocVienSearch(filters = {}) {
   request.timeout = 60000; // Thiết lập timeout thủ công 60 giây cho request này
 
   let whereClause = "WHERE 1=1";
- 
+
   if (filters.search) {
     request.input("search", mssql.NVarChar, `%${filters.search}%`);
     whereClause += ` AND (ho_ten LIKE @search OR ma_dk LIKE @search OR cccd LIKE @search)`;
   }
- 
+
   if (filters.ma_dk) {
     request.input("ma_dk", mssql.VarChar, filters.ma_dk);
     whereClause += ` AND ma_dk = @ma_dk`;
   }
- 
+
   if (filters.ma_khoa) {
     request.input("ma_khoa", mssql.VarChar, filters.ma_khoa);
     whereClause += ` AND (ma_khoa = @ma_khoa OR ma_khoa LIKE '%' + @ma_khoa)`;
@@ -357,7 +357,7 @@ async function getHocVienSearch(filters = {}) {
       WHERE dk.ma_dk = [dbo].[hoc_vien].ma_dk AND dk.giao_vien LIKE @gv_birth
     )`;
   }
- 
+
   const query = `
     WITH TopStudents AS (
       SELECT TOP 200 * 
@@ -372,7 +372,27 @@ async function getHocVienSearch(filters = {}) {
     ORDER BY ts.ho_ten ASC
     OPTION (FORCE ORDER, RECOMPILE)
   `;
- 
+
+  const result = await request.query(query);
+  return result.recordset;
+}
+
+async function getHocVienByKhoa(ma_khoa) {
+  const pool = await connectSQL();
+  const request = new mssql.Request(pool);
+  
+  const prefixedMk = ma_khoa.startsWith("30004") ? ma_khoa : "30004" + ma_khoa;
+  request.input("ma_khoa", mssql.VarChar, ma_khoa);
+  request.input("prefixed_ma_khoa", mssql.VarChar, prefixedMk);
+
+  const query = `
+    SELECT hv.ma_dk, hv.ho_ten, hv.cccd, dk.giao_vien, dk.xe_b1, dk.xe_b2
+    FROM [dbo].[hoc_vien] hv WITH (NOLOCK)
+    LEFT JOIN [dbo].[dang_ky_xe_gv] dk WITH (NOLOCK) ON hv.ma_dk = dk.ma_dk
+    WHERE hv.ma_khoa = @ma_khoa OR hv.ma_khoa = @prefixed_ma_khoa
+    ORDER BY hv.ho_ten ASC
+  `;
+
   const result = await request.query(query);
   return result.recordset;
 }
@@ -383,5 +403,6 @@ module.exports = {
   upsertTienDoDaoTao,
   getTienDoDaoTaoList,
   getKhoaHocList,
-  getHocVienSearch
+  getHocVienSearch,
+  getHocVienByKhoa
 };

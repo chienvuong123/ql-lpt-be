@@ -97,47 +97,41 @@ async function getHocVienSearch(filters) {
   return await SyncModel.getHocVienSearch(filters);
 }
 
-async function kiemTraDongBo(students) {
-  if (!Array.isArray(students) || students.length === 0) {
+async function kiemTraDongBo(ma_khoa) {
+  if (!ma_khoa) {
     return [];
   }
 
-  // 1. Group unique clean course codes
-  const uniqueKhoas = [...new Set(students.map(s => String(s.khoa || "").trim()).filter(Boolean))];
-  
-  // 2. Fetch session data for all unique courses in parallel
-  const cabinMapsByKhoa = {};
-  await Promise.all(
-    uniqueKhoas.map(async (rawKhoa) => {
-      let clean = rawKhoa;
-      if (!clean.startsWith("30004")) {
-        clean = "30004" + clean;
-      }
+  // 1. Get all students of this course from the local database
+  const students = await SyncModel.getHocVienByKhoa(ma_khoa);
+  if (students.length === 0) {
+    return [];
+  }
 
-      try {
-        let response = await cabinApiService.getDanhSachKetQuaCabin({ khoa: clean });
-        let list = response?.data || [];
+  // 2. Fetch session data for the course code from external Cabin API
+  let clean = String(ma_khoa).trim();
+  if (!clean.startsWith("30004")) {
+    clean = "30004" + clean;
+  }
 
-        // Fallback: if 30004 prefix yields 0 sessions, try raw course code
-        if (list.length === 0 && clean !== rawKhoa) {
-          response = await cabinApiService.getDanhSachKetQuaCabin({ khoa: rawKhoa });
-          list = response?.data || [];
-        }
+  let list = [];
+  try {
+    let response = await cabinApiService.getDanhSachKetQuaCabin({ khoa: clean });
+    list = response?.data || [];
 
-        const map = cabinApiService.buildCabinMap(list);
-        cabinMapsByKhoa[rawKhoa] = map;
-      } catch (err) {
-        console.error(`[SyncService] Lỗi lấy kết quả Cabin cho khoa ${rawKhoa}:`, err.message);
-        cabinMapsByKhoa[rawKhoa] = {};
-      }
-    })
-  );
+    // Fallback: if 30004 prefix yields 0 sessions, try raw course code
+    if (list.length === 0 && clean !== ma_khoa) {
+      response = await cabinApiService.getDanhSachKetQuaCabin({ khoa: ma_khoa });
+      list = response?.data || [];
+    }
+  } catch (err) {
+    console.error(`[SyncService] Lỗi lấy kết quả Cabin cho khoa ${ma_khoa}:`, err.message);
+  }
 
-  // 3. Match each student in the list
+  const map = cabinApiService.buildCabinMap(list);
+
+  // 3. Match each student from the local database against the Cabin map
   return students.map((std) => {
-    const rawKhoa = String(std.khoa || "").trim();
-    const map = cabinMapsByKhoa[rawKhoa] || {};
-    
     // Find matching ma_dk in this course map
     const matchedKey = Object.keys(map).find(k => isMaDkMatch(k, std.ma_dk));
     const session = matchedKey ? map[matchedKey] : null;
@@ -159,12 +153,15 @@ async function kiemTraDongBo(students) {
 
     return {
       ma_dk: std.ma_dk,
-      khoa: std.khoa,
+      khoa: ma_khoa,
       ho_ten,
       cccd,
       tong_phut,
       so_bai_hoc,
-      trang_thai
+      trang_thai,
+      giao_vien: std.giao_vien || null,
+      xe_b1: std.xe_b1 || null,
+      xe_b2: std.xe_b2 || null
     };
   });
 }
