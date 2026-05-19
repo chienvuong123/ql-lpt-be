@@ -106,12 +106,13 @@ const insertSingleAssignment = async (transaction, item) => {
     is_thieu_gio: isLocked ? 0 : item.is_thieu_gio ? 1 : 0,
     thoi_gian_hoc: isLocked ? null : item.thoi_gian_hoc || null,
     thoi_gian_tong: isLocked ? null : item.thoi_gian_tong || null,
+    so_lan_chia: null, // Mặc định tất cả số lần chia là null khi lưu lịch mới
   };
 
   Object.entries(fields).forEach(([k, v]) => req.input(k, v));
   return req.query(`
     INSERT INTO cabin_lich_phan_bo (ma_dk, ngay, ca_hoc, cabin_so, gio_bat_dau, gio_ket_thuc, is_locked, ghi_chu, ma_khoa, giao_vien, is_makeup, is_thieu_gio, thoi_gian_hoc, thoi_gian_tong, so_lan_chia)
-    VALUES (@ma_dk, @ngay, @ca_hoc, @cabin_so, @gio_bat_dau, @gio_ket_thuc, @is_locked, @ghi_chu, @ma_khoa, @giao_vien, @is_makeup, @is_thieu_gio, @thoi_gian_hoc, @thoi_gian_tong, 1)
+    VALUES (@ma_dk, @ngay, @ca_hoc, @cabin_so, @gio_bat_dau, @gio_ket_thuc, @is_locked, @ghi_chu, @ma_khoa, @giao_vien, @is_makeup, @is_thieu_gio, @thoi_gian_hoc, @thoi_gian_tong, @so_lan_chia)
   `);
 };
 
@@ -192,6 +193,14 @@ const updateSoLanChiaBatch = async (ids, count) => {
   const pool = await connectSQL();
   await pool.request()
     .query(`UPDATE cabin_lich_phan_bo SET so_lan_chia = ${parseInt(count)} WHERE id IN (${ids.join(", ")})`);
+  return true;
+};
+
+const incrementSoLanChiaBatch = async (ids) => {
+  if (!Array.isArray(ids) || ids.length === 0) return true;
+  const pool = await connectSQL();
+  await pool.request()
+    .query(`UPDATE cabin_lich_phan_bo SET so_lan_chia = ISNULL(so_lan_chia, 0) + 1 WHERE id IN (${ids.join(", ")})`);
   return true;
 };
 
@@ -315,6 +324,7 @@ module.exports = {
   updateSoLanChia,
   getPastAssignments,
   updateSoLanChiaBatch,
+  incrementSoLanChiaBatch,
   getCabinStudentListSQL,
   getCabinMakeupStudentListSQL,
   getTeacherByMaDkList,

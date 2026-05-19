@@ -31,30 +31,7 @@ const fetchSessionResults = async (khoas) => {
   );
 };
 
-const updatePastAssignments = async (students, cabinMap) => {
-  const maDkList = students.map((s) => s.ma_dk);
-  const pastAssignments = await cabinModel.getPastAssignments(maDkList);
-  const missedIds = [];
-  const missedMap = {};
-
-  pastAssignments.forEach((asm) => {
-    const studentMaDkFromApi = Object.keys(cabinMap).find((k) => isMaDkMatch(k, asm.ma_dk));
-    const session = studentMaDkFromApi ? cabinMap[studentMaDkFromApi] : { tong_thoi_gian: 0, so_bai_hoc: 0 };
-    const status = cabinApiService.getCabinStatus(session.tong_thoi_gian, session.so_bai_hoc);
-
-    if (status !== "dat") {
-      missedIds.push(asm.id);
-      missedMap[asm.ma_dk] = 2;
-    }
-  });
-
-  if (missedIds.length > 0) {
-    await cabinModel.updateSoLanChiaBatch(missedIds, 2);
-  }
-  return missedMap;
-};
-
-const mapStudent = (s, cabinMap, missedMap) => {
+const mapStudent = (s, cabinMap) => {
   const session = cabinMap[s.ma_dk] || { tong_thoi_gian: 0, so_bai_hoc: 0 };
   const tongPhut = Math.round(session.tong_thoi_gian / 60);
 
@@ -75,7 +52,7 @@ const mapStudent = (s, cabinMap, missedMap) => {
     trang_thai_cabin: cabinApiService.getCabinStatus(session.tong_thoi_gian, session.so_bai_hoc),
     ket_thuc_cabin: s.ket_thuc_cabin,
     ma_khoa_api: s.code,
-    so_lan_chia: missedMap[s.ma_dk] || s.so_lan_chia || 0,
+    so_lan_chia: s.so_lan_chia,
     is_makeup: s.is_makeup || false,
   };
 };
@@ -92,13 +69,12 @@ const getDanhSachCabinSQL = async ({ khoa, hoTen }) => {
   const uniqueKhoas = [...new Set(students.map((s) => s.ma_khoa))];
   const allSessionResults = await fetchSessionResults(uniqueKhoas);
   const cabinMap = cabinApiService.buildCabinMap(allSessionResults.flat());
-  const missedMap = await updatePastAssignments(students, cabinMap);
 
   return students
-    .map((s) => mapStudent(s, cabinMap, missedMap))
+    .map((s) => mapStudent(s, cabinMap))
     .filter((s) => {
       if (s.trang_thai_cabin === "dat") return false;
-      return (s.phut_cabin <= 140) || (s.so_lan_chia > 1 && !s.is_makeup);
+      return (s.phut_cabin <= 140) || (s.so_lan_chia >= 1 && !s.is_makeup);
     });
 };
 
@@ -130,6 +106,7 @@ const getDanhSachVerification = async () => {
 
   const chua_co_thong_tin_hoc = [];
   const da_hoc_chua_dat = [];
+  const failedIds = [];
 
   assignments.forEach((asm) => {
     const studentMaDkFromApi = Object.keys(cabinMap).find((k) => isMaDkMatch(k, asm.ma_dk));
@@ -158,10 +135,16 @@ const getDanhSachVerification = async () => {
 
     if (!session || session.tong_thoi_gian === 0) {
       chua_co_thong_tin_hoc.push(mapped);
+      failedIds.push(asm.assignment_id);
     } else if (mapped.trang_thai_cabin !== "dat") {
       da_hoc_chua_dat.push(mapped);
+      failedIds.push(asm.assignment_id);
     }
   });
+
+  if (failedIds.length > 0) {
+    await cabinModel.incrementSoLanChiaBatch(failedIds);
+  }
 
   return {
     chua_co_thong_tin_hoc,
