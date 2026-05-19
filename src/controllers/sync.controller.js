@@ -306,7 +306,7 @@ class SyncController {
    * GET /api/sync/students
    * Get list of students with search and course filters
    */
-  async getHocVienList(req, res) {
+  async getStudentsList(req, res) {
     const { search, ma_khoa, giao_vien, nam_sinh_gv } = { ...req.query, ...req.body };
 
     try {
@@ -316,7 +316,7 @@ class SyncController {
         data: list,
       });
     } catch (err) {
-      console.error("[SyncController] getHocVienList error:", err);
+      console.error("[SyncController] getStudentsList error:", err);
       res.status(500).json({
         success: false,
         message: "Lỗi lấy danh sách học viên",
