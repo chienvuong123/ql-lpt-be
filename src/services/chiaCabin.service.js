@@ -102,6 +102,74 @@ const getDanhSachCabinSQL = async ({ khoa, hoTen }) => {
     });
 };
 
+const getDanhSachVerification = async () => {
+  const now = new Date();
+
+  // Convert now to Vietnam timezone (UTC+7)
+  const vnTime = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+  const yyyy = vnTime.getUTCFullYear();
+  const mm = String(vnTime.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(vnTime.getUTCDate()).padStart(2, "0");
+  const hh = String(vnTime.getUTCHours()).padStart(2, "0");
+  const min = String(vnTime.getUTCMinutes()).padStart(2, "0");
+
+  const today = `${yyyy}-${mm}-${dd}`;
+  const nowTime = `${hh}:${min}`;
+
+  const assignments = await cabinModel.getAssignmentsForVerification({ today, nowTime });
+  if (assignments.length === 0) {
+    return { chua_co_thong_tin_hoc: [], da_hoc_chua_dat: [] };
+  }
+
+  // 1. Gặp tất cả các khóa của học viên được chia lịch để lấy kết quả từ API
+  const uniqueKhoas = [...new Set(assignments.map((a) => a.ma_khoa).filter(Boolean))];
+
+  // 2. Gọi API lấy kết quả tập cabin cho các khóa này
+  const allSessionResults = await fetchSessionResults(uniqueKhoas);
+  const cabinMap = cabinApiService.buildCabinMap(allSessionResults.flat());
+
+  const chua_co_thong_tin_hoc = [];
+  const da_hoc_chua_dat = [];
+
+  assignments.forEach((asm) => {
+    const studentMaDkFromApi = Object.keys(cabinMap).find((k) => isMaDkMatch(k, asm.ma_dk));
+    const session = studentMaDkFromApi ? cabinMap[studentMaDkFromApi] : null;
+
+    const mapped = {
+      assignment_id: asm.assignment_id,
+      ma_dk: asm.ma_dk,
+      ngay: asm.ngay ? new Date(asm.ngay).toISOString().split('T')[0] : null,
+      ca_hoc: asm.ca_hoc,
+      cabin_so: asm.cabin_so,
+      so_lan_chia: asm.so_lan_chia,
+      so_lan_chia_moi: (asm.so_lan_chia || 0) + 1,
+      is_makeup: asm.is_makeup,
+      ma_khoa: asm.ma_khoa,
+      giao_vien: asm.giao_vien || asm.gv_dang_ky,
+      ho_ten: asm.ho_ten,
+      cccd: asm.cccd,
+      gioi_tinh: asm.gioi_tinh,
+      phut_cabin: session ? Math.round(session.tong_thoi_gian / 60) : 0,
+      so_bai_hoc: session ? session.so_bai_hoc : 0,
+      trang_thai_cabin: session 
+        ? cabinApiService.getCabinStatus(session.tong_thoi_gian, session.so_bai_hoc)
+        : "chua_hoc"
+    };
+
+    if (!session || session.tong_thoi_gian === 0) {
+      chua_co_thong_tin_hoc.push(mapped);
+    } else if (mapped.trang_thai_cabin !== "dat") {
+      da_hoc_chua_dat.push(mapped);
+    }
+  });
+
+  return {
+    chua_co_thong_tin_hoc,
+    da_hoc_chua_dat
+  };
+};
+
 module.exports = {
   getDanhSachCabinSQL,
+  getDanhSachVerification,
 };

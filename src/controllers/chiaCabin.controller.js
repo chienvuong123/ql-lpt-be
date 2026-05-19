@@ -11,4 +11,20 @@ const getDanhSachCabinSQL = async (req, res) => {
   }
 };
 
-module.exports = { getDanhSachCabinSQL };
+const kiemTraChiaLich = async (req, res) => {
+  try {
+    const result = await chiaCabinService.getDanhSachVerification();
+    return res.json({
+      success: true,
+      data: result
+    });
+  } catch (err) {
+    console.error("[kiemTraChiaLich] Lỗi:", err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+module.exports = {
+  getDanhSachCabinSQL,
+  kiemTraChiaLich,
+};

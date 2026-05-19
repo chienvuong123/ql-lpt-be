@@ -17,6 +17,7 @@ router.get("/", getDanhSachDatCabin);
 router.get("/hoc-vien/:enrolmentPlanIid", getDanhSachHocVienCabin);
 router.post("/", upsertCabinNote);
 router.get("/danh-sach-chia-lich", controller.getDanhSachCabinSQL);
+router.get("/kiem-tra-chia-lich", controller.kiemTraChiaLich);
 
 router.post("/save-lich", saveLichPhanBo);
 router.get("/get-lich", getLichPhanBo);

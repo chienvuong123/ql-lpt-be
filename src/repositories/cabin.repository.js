@@ -272,6 +272,39 @@ const getTeacherByMaDkList = async (maDkList) => {
   return result.recordset;
 };
 
+const getAssignmentsForVerification = async ({ today, nowTime } = {}) => {
+  const pool = await connectSQL();
+  const req = pool.request();
+  req.input("today", mssql.VarChar, today);
+  req.input("now_time", mssql.VarChar, nowTime);
+  const result = await req.query(`
+    SELECT 
+      l.id AS assignment_id,
+      l.ma_dk,
+      l.ngay,
+      l.ca_hoc,
+      l.cabin_so,
+      l.so_lan_chia,
+      l.is_makeup,
+      l.ma_khoa,
+      l.giao_vien,
+      hv.ho_ten,
+      hv.cccd,
+      hv.ngay_sinh,
+      hv.gioi_tinh,
+      dk.giao_vien AS gv_dang_ky
+    FROM cabin_lich_phan_bo l
+    LEFT JOIN hoc_vien hv ON l.ma_dk = hv.ma_dk
+    LEFT JOIN dang_ky_xe_gv dk ON l.ma_dk = dk.ma_dk
+    WHERE l.ma_dk IS NOT NULL
+      AND (
+        l.ngay < @today 
+        OR (l.ngay = @today AND l.gio_ket_thuc < @now_time)
+      )
+  `);
+  return result.recordset;
+};
+
 module.exports = {
   getDatCabin,
   createOrUpdate,
@@ -285,4 +318,5 @@ module.exports = {
   getCabinStudentListSQL,
   getCabinMakeupStudentListSQL,
   getTeacherByMaDkList,
+  getAssignmentsForVerification,
 };
