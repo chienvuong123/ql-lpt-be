@@ -277,6 +277,61 @@ class SyncController {
       });
     }
   }
+
+  async getTienDoDaoTaoListB1(req, res) {
+    const { ma_khoa, tot_nghiep, loai, page = 1, limit = 10 } = req.query;
+    try {
+      const result = await syncService.getTienDoDaoTaoListPaginated({ ma_khoa, tot_nghiep, loai, hang: "B1", page, limit });
+      res.status(200).json({
+        success: true,
+        ...result
+      });
+    } catch (err) {
+      console.error("[SyncController] getTienDoDaoTaoListB1 error:", err);
+      res.status(500).json({
+        success: false,
+        message: "Lỗi lấy danh sách tiến độ đào tạo B1",
+        error: err.message,
+      });
+    }
+  }
+
+  async getTienDoDaoTaoListB2(req, res) {
+    const { ma_khoa, tot_nghiep, loai, page = 1, limit = 10 } = req.query;
+    try {
+      const result = await syncService.getTienDoDaoTaoListPaginated({ ma_khoa, tot_nghiep, loai, hang: "B2", page, limit });
+      res.status(200).json({
+        success: true,
+        ...result
+      });
+    } catch (err) {
+      console.error("[SyncController] getTienDoDaoTaoListB2 error:", err);
+      res.status(500).json({
+        success: false,
+        message: "Lỗi lấy danh sách tiến độ đào tạo B2",
+        error: err.message,
+      });
+    }
+  }
+
+  async getTienDoDaoTaoListC1(req, res) {
+    const { ma_khoa, tot_nghiep, loai, page = 1, limit = 10 } = req.query;
+    try {
+      const result = await syncService.getTienDoDaoTaoListPaginated({ ma_khoa, tot_nghiep, loai, hang: "C1", page, limit });
+      res.status(200).json({
+        success: true,
+        ...result
+      });
+    } catch (err) {
+      console.error("[SyncController] getTienDoDaoTaoListC1 error:", err);
+      res.status(500).json({
+        success: false,
+        message: "Lỗi lấy danh sách tiến độ đào tạo C1",
+        error: err.message,
+      });
+    }
+  }
+
   /**
  * GET /api/sync/courses
  * Get list of all courses

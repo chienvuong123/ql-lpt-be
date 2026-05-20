@@ -304,7 +304,85 @@ async function getTienDoDaoTaoList(filters = {}) {
   query += ` ORDER BY t.updated_at DESC, t.ma_khoa ASC`;
 
   const result = await request.query(query);
-  return result.recordset;
+}
+
+/**
+ * Get list of training progress with filters and pagination
+ * @param {Object} filters 
+ */
+async function getTienDoDaoTaoListPaginated(filters = {}) {
+  const pool = await connectSQL();
+  const request = new mssql.Request(pool);
+
+  let fromWhereClause = `
+    FROM [dbo].[tien_do_dao_tao] t
+    LEFT JOIN [dbo].[khoa_hoc] k ON t.ma_khoa = k.ma_khoa
+    WHERE 1=1
+  `;
+
+  if (filters.ma_khoa) {
+    request.input("ma_khoa", mssql.NVarChar, `%${filters.ma_khoa}%`);
+    fromWhereClause += ` AND (t.ma_khoa LIKE @ma_khoa OR k.ten_khoa LIKE @ma_khoa)`;
+  }
+
+  if (filters.tot_nghiep) {
+    request.input("tot_nghiep", mssql.Date, filters.tot_nghiep);
+    fromWhereClause += ` AND t.tot_nghiep = @tot_nghiep`;
+  }
+
+  if (filters.hang) {
+    request.input("hang", mssql.NVarChar, filters.hang);
+    fromWhereClause += ` AND t.hang = @hang`;
+  }
+
+  if (filters.loai !== undefined && filters.loai !== null && filters.loai !== "" && filters.loai !== "all") {
+    if (Array.isArray(filters.loai)) {
+      const types = filters.loai.map(Number).filter(n => !isNaN(n));
+      if (types.length > 0) {
+        if (types.includes(0)) {
+          fromWhereClause += ` AND (t.loai IN (${types.join(",")}) OR t.loai IS NULL)`;
+        } else {
+          fromWhereClause += ` AND t.loai IN (${types.join(",")})`;
+        }
+      }
+    } else if (typeof filters.loai === 'string' && filters.loai.includes(',')) {
+      const types = filters.loai.split(',').map(Number).filter(n => !isNaN(n));
+      if (types.length > 0) {
+        if (types.includes(0)) {
+          fromWhereClause += ` AND (t.loai IN (${types.join(",")}) OR t.loai IS NULL)`;
+        } else {
+          fromWhereClause += ` AND t.loai IN (${types.join(",")})`;
+        }
+      }
+    } else {
+      const l = (filters.loai === "null" || filters.loai === "0" || filters.loai === 0) ? 0 : Number(filters.loai);
+      request.input("loai", mssql.Int, l);
+      if (l === 0) {
+        fromWhereClause += ` AND (t.loai IS NULL OR t.loai = 0)`;
+      } else {
+        fromWhereClause += ` AND t.loai = @loai`;
+      }
+    }
+  } else {
+    fromWhereClause += ` AND (t.loai IS NULL OR t.loai <> 1)`;
+  }
+
+  const countQuery = `SELECT COUNT(*) as total ${fromWhereClause}`;
+  const countResult = await request.query(countQuery);
+  const total = countResult.recordset[0].total;
+
+  let query = `SELECT t.*, k.ten_khoa ${fromWhereClause} ORDER BY t.updated_at DESC, t.ma_khoa ASC`;
+  
+  const page = parseInt(filters.page) || 1;
+  const limit = parseInt(filters.limit) || 10;
+  const offset = (page - 1) * limit;
+
+  request.input("offset", mssql.Int, offset);
+  request.input("limit_val", mssql.Int, limit);
+  query += ` OFFSET @offset ROWS FETCH NEXT @limit_val ROWS ONLY`;
+
+  const result = await request.query(query);
+  return { data: result.recordset, total, page, limit };
 }
 
 /**
@@ -389,5 +467,6 @@ module.exports = {
   getTienDoDaoTaoList,
   getKhoaHocList,
   getHocVienSearch,
-  getHocVienByKhoa
+  getHocVienByKhoa,
+  getTienDoDaoTaoListPaginated
 };

@@ -89,6 +89,10 @@ async function getTienDoDaoTaoList(filters) {
   return await SyncModel.getTienDoDaoTaoList(filters);
 }
 
+async function getTienDoDaoTaoListPaginated(filters) {
+  return await SyncModel.getTienDoDaoTaoListPaginated(filters);
+}
+
 async function getKhoaHocList() {
   return await SyncModel.getKhoaHocList();
 }
@@ -171,6 +175,7 @@ module.exports = {
   syncStudents,
   upsertTienDoDaoTao,
   getTienDoDaoTaoList,
+  getTienDoDaoTaoListPaginated,
   getKhoaHocList,
   getHocVienSearch,
   kiemTraDongBo
