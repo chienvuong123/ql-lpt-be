@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 require("dotenv").config();
+require('express-async-errors');
 
 const connectDB = require("./src/configs/database");
 const connectSQL = require("./src/configs/sql");
@@ -53,6 +54,7 @@ app.use("/api/tien-do-dao-tao", require("./src/routes/hocbu.routes"));
 app.use("/api/student-detail", require("./src/routes/studentDetail.routes"));
 app.use("/api/check-configs", require("./src/routes/checkConfig.routes"));
 app.use("/api/forbidden-zones", require("./src/routes/forbiddenZone.routes"));
+app.use("/api/check-xe-giao-vien", require("./src/routes/checktrungxegiaovien.routes"));
 
 // ─── Danh sách API ───────────────────────────────────────────
 app.get("/", (req, res) => {
