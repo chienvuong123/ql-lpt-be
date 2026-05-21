@@ -301,7 +301,7 @@ async function getTienDoDaoTaoList(filters = {}) {
     query += ` AND (t.loai IS NULL OR t.loai <> 1)`;
   }
 
-  query += ` ORDER BY t.ma_khoa ASC`;
+  query += ` ORDER BY t.ma_khoa DESC`;
 
   const result = await request.query(query);
 }
@@ -371,7 +371,7 @@ async function getTienDoDaoTaoListPaginated(filters = {}) {
   const countResult = await request.query(countQuery);
   const total = countResult.recordset[0].total;
 
-  let query = `SELECT t.*, k.ten_khoa ${fromWhereClause} ORDER BY t.ma_khoa ASC`;
+  let query = `SELECT t.*, k.ten_khoa ${fromWhereClause} ORDER BY t.ma_khoa DESC`;
   
   const page = parseInt(filters.page) || 1;
   const limit = parseInt(filters.limit) || 10;
