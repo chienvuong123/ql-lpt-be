@@ -14,4 +14,6 @@ const formatPagination = (total, page, limit) => {
     };
 }
 
-module.exports = { parsePagination, formatPagination };
+const toLikeParam = (value) => `%${value || ''}%`;
+
+module.exports = { parsePagination, formatPagination, toLikeParam };

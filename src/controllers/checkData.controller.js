@@ -161,11 +161,7 @@ exports.getGiaoVienByKhoa = async (req, res) => {
     const filter = {};
     if (khoa) filter.khoaHoc = khoa;
 
-    console.log("Filter:", filter); // Log xem filter đang là gì
-
     const giaoViens = await StudentCheck.distinct("giaoVien", filter);
-
-    console.log("Result:", giaoViens); // Log xem trả về gì
 
     return res.json({
       success: true,
