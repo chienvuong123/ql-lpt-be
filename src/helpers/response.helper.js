@@ -14,17 +14,12 @@ const responseHelper = {
             error: error.message,
         });
     },
-    pagination: (res, data, total, page, limit, totalPage, message = "Success", statusCode = 200) => {
+    pagination: (res, data, pagination, message = "Success", statusCode = 200) => {
         return res.status(statusCode).json({
             success: true,
             message,
             data: data,
-            pagination: {
-                total,
-                page,
-                limit,
-                total_pages: totalPage,
-            },
+            pagination,
         });
     },
 };

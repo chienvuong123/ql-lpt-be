@@ -1,11 +1,13 @@
 const xeGiaoVienRepository = require("../repositories/checktrungxegiaovien.reponsitory");
-const CheckTrungXeGvModel = require("../models/checktrungxegiaovien.model");
+const ListXeVaGiaoVien = require("../models/checktrungxegiaovien.model");
 
-const getListXeVaGiaoVien = async (khoa) => {
-    const rawData = await xeGiaoVienRepository.getXeGiaoVienSql(khoa);
-    const formattedData = CheckTrungXeGvModel.formatList(rawData);
+const getListXeVaGiaoVien = async (khoa, page = 1, limit = 10) => {
+    const { data, pagination } = await xeGiaoVienRepository.getListXeVaGiaoVienSql(khoa, page, limit);
 
-    return formattedData;
+    return {
+        data: ListXeVaGiaoVien.formatList(data),
+        pagination,
+    };
 }
 
 module.exports = {

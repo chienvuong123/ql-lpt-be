@@ -1,18 +1,15 @@
+const BaseModel = require("./base.model");
 
-class CheckTrungXeGvModel {
+class ListXeVaGiaoVien extends BaseModel {
     constructor(data = {}) {
+        super();
         this.id = data.id || null;
         this.maDk = data.ma_dk || '';
         this.giaoVien = data.giao_vien || '';
         this.khoa = data.khoa || '';
-        this.ngayDangKy = data.ngay_dang_ky || null;
-    }
-
-    // Định nghĩa tĩnh để format mảng dữ liệu từ SQL trả về
-    static formatList(recordset) {
-        if (!Array.isArray(recordset)) return [];
-        return recordset.map(row => new CheckTrungXeGvModel(row));
+        this.xeB1 = data.xe_b1 || '';
+        this.xeB2 = data.xe_b2 || '';
     }
 }
 
-module.exports = CheckTrungXeGvModel;
+module.exports = ListXeVaGiaoVien;
