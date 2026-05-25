@@ -17,6 +17,7 @@ async function getConfigs(req, res) {
         enabled: !!row.enabled,
         startDate: formatDate(row.start_date),
         description: row.description,
+        value: row.value,
       };
     });
 
@@ -45,7 +46,7 @@ async function updateConfigs(req, res) {
 
     for (const [key, config] of Object.entries(updates)) {
       if (config && typeof config === "object") {
-        await CheckConfig.updateConfig(key, !!config.enabled, config.startDate);
+        await CheckConfig.updateConfig(key, !!config.enabled, config.startDate, config.value);
       }
     }
 
@@ -63,7 +64,7 @@ async function updateConfigs(req, res) {
 
 async function createConfig(req, res) {
   try {
-    const { checkKey, enabled, startDate, description } = req.body;
+    const { checkKey, enabled, startDate, description, value } = req.body;
 
     if (!checkKey) {
       return res.status(400).json({
@@ -80,7 +81,7 @@ async function createConfig(req, res) {
       });
     }
 
-    await CheckConfig.create(checkKey, !!enabled, startDate, description);
+    await CheckConfig.create(checkKey, !!enabled, startDate, description, value);
 
     res.status(201).json({
       success: true,
