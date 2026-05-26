@@ -2,27 +2,14 @@ const fs = require("fs");
 const path = require("path");
 const xeService = require("../services/xe.service");
 const responseHelper = require("../helpers/response.helper");
+const { uploadToCloudinary } = require("../helpers/cloudinary.helper");
 
-const saveVehicleImage = (file) => {
+const saveVehicleImage = async (file) => {
     if (!file) return null;
     
-    // Ensure directories exist: public/uploads/xe
-    const uploadDir = path.join(__dirname, "../../public/uploads/xe");
-    if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    
-    // Generate unique file name
-    const ext = path.extname(file.originalname) || ".jpg";
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1E9);
-    const fileName = `xe-${uniqueSuffix}${ext}`;
-    const filePath = path.join(uploadDir, fileName);
-    
-    // Write buffer to file
-    fs.writeFileSync(filePath, file.buffer);
-    
-    // Return relative URL for web client
-    return `/uploads/xe/${fileName}`;
+    // Upload buffer directly to Cloudinary and get secure URL
+    const result = await uploadToCloudinary(file.buffer, "quan_ly_be/xe");
+    return result.secure_url;
 }
 
 const getListXe = async (req, res, next) => {
@@ -54,7 +41,7 @@ const createXe = async (req, res, next) => {
         if (req.files && req.files.length > 0) {
             const imageFile = req.files.find(f => f.fieldname === "file" || f.fieldname === "anh" || f.fieldname === "anh_xe_tap_lai") || req.files[0];
             if (imageFile) {
-                req.body.anh_xe_tap_lai = saveVehicleImage(imageFile);
+                req.body.anh_xe_tap_lai = await saveVehicleImage(imageFile);
             }
         }
         const resultId = await xeService.createXe(req.body);
@@ -71,7 +58,7 @@ const editXe = async (req, res, next) => {
         if (req.files && req.files.length > 0) {
             const imageFile = req.files.find(f => f.fieldname === "file" || f.fieldname === "anh" || f.fieldname === "anh_xe_tap_lai") || req.files[0];
             if (imageFile) {
-                req.body.anh_xe_tap_lai = saveVehicleImage(imageFile);
+                req.body.anh_xe_tap_lai = await saveVehicleImage(imageFile);
             }
         }
         await xeService.editXe(id, req.body);
