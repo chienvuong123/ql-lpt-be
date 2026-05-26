@@ -25,6 +25,7 @@ class Xe extends BaseModel {
         this.so_may = data.so_may || '';
         this.loai_xe = data.loai_xe || '';
         this.anh_xe_tap_lai = data.anh_xe_tap_lai || '';
+        this.uy_quyen = data.uy_quyen !== undefined ? !!data.uy_quyen : false;
         this.ghi_chu = data.ghi_chu || '';
         this.created_at = data.created_at || null;
         this.updated_at = data.updated_at || null;

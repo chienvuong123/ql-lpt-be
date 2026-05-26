@@ -6,7 +6,7 @@ const { uploadToCloudinary } = require("../helpers/cloudinary.helper");
 
 const saveVehicleImage = async (file) => {
     if (!file) return null;
-    
+
     // Upload buffer directly to Cloudinary and get secure URL
     const result = await uploadToCloudinary(file.buffer, "quan_ly_be/xe");
     return result.secure_url;
@@ -16,7 +16,7 @@ const getListXe = async (req, res, next) => {
     const messageSuccess = "Lấy danh sách xe thành công!";
     try {
         const { search, ten_xe, nam_san_xuat, page, limit } = req.query;
-        
+
         // Merge frontend search filters (ten_xe, nam_san_xuat) into backend search parameter
         let effectiveSearch = search;
         if (!effectiveSearch) {
@@ -77,7 +77,7 @@ const importExcel = async (req, res, next) => {
                 message: "Vui lòng chọn tệp Excel để nhập!"
             });
         }
-        
+
         const result = await xeService.importFromExcel(req.file.buffer);
         return responseHelper.success(res, result, messageSuccess);
     } catch (error) {

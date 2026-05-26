@@ -56,6 +56,7 @@ app.use("/api/check-configs", require("./src/routes/checkConfig.routes"));
 app.use("/api/forbidden-zones", require("./src/routes/forbiddenZone.routes"));
 app.use("/api/xe-giao-vien", require("./src/routes/checktrungxegiaovien.routes"));
 app.use("/api/xe", require("./src/routes/xe.routes"));
+app.use("/api/uy-quyen", require("./src/routes/uyquyen.routes"));
 app.use("/api/hoc-vien", require("./src/routes/hocvien.routes"));
 
 // ─── Danh sách API ───────────────────────────────────────────
