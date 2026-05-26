@@ -36,7 +36,7 @@ const getListXeVaGiaoVienSql = async (khoa, search, rawPage, rawLimit) => {
         LEFT JOIN [dbo].[hoc_vien] hv ON dkxgv.ma_dk = hv.ma_dk
         WHERE (dkxgv.khoa LIKE @khoa OR dkxgv.giao_vien LIKE @khoa)
         AND (dkxgv.ma_dk LIKE @search OR dkxgv.ho_ten LIKE @search OR hv.cccd LIKE @search)
-        ORDER BY dkxgv.id
+        ORDER BY dkxgv.ma_dk
         OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
     `);
 
@@ -62,7 +62,7 @@ const editXeGiaoVienSql = async (id, giao_vien, xe_b1, xe_b2) => {
     await req.query(`
         UPDATE [dbo].[dang_ky_xe_gv]
         SET ${setClause}
-        WHERE id = @id
+        WHERE ma_dk = @id
     `);
 }
 
@@ -71,7 +71,7 @@ const getById = async (id) => {
     const req = pool.request();
     req.input('id', id);
     const result = await req.query(`
-        SELECT * FROM [dbo].[dang_ky_xe_gv] WHERE id = @id
+        SELECT * FROM [dbo].[dang_ky_xe_gv] WHERE ma_dk = @id
     `);
     return result.recordset[0];
 }

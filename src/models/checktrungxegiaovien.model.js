@@ -3,7 +3,7 @@ const BaseModel = require("./base.model");
 class ListXeVaGiaoVien extends BaseModel {
     constructor(data = {}) {
         super();
-        this.id = data.id || null;
+        this.id = data.ma_dk || null;
         this.ma_dk = data.ma_dk || '';
         this.giao_vien = data.giao_vien || '';
         this.khoa = data.khoa || '';
