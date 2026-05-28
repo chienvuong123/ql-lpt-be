@@ -27,16 +27,19 @@ const searchHocVienSql = async (search, ma_khoa, rawPage, rawLimit) => {
 
 
     const result = await req.query(`
-            SELECT * FROM hoc_vien 
-            WHERE (ho_ten LIKE @search 
-            OR ma_dk LIKE @search 
-            OR cccd LIKE @search)
-            AND ma_khoa LIKE @ma_khoa 
-            ORDER BY id
-            OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
-        `);
+                SELECT 
+                *,
+                COUNT(*) OVER() AS total_count
+                FROM hoc_vien
+                WHERE (ho_ten LIKE @search 
+                OR ma_dk LIKE @search 
+                OR cccd LIKE @search)
+                AND ma_khoa LIKE @ma_khoa 
+                ORDER BY id
+                OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+            `);
 
-    const total = await countHocVien(pool, search, ma_khoa);
+    const total = result.recordset[0]?.total_count ?? 0;
 
     return {
         data: result.recordset,

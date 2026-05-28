@@ -7,41 +7,43 @@ const config = {
   server: process.env.DB_SERVER,
   database: process.env.DB_DATABASE,
   port: Number(process.env.DB_PORT || 1433),
-  requestTimeout: 60000, // Thời gian tối đa cho 1 request (60 giây)
-  connectionTimeout: 30000, // Thời gian kết nối tối đa (30 giây)
-  options: {
-    encrypt: false,
-    trustServerCertificate: true,
-  },
-  pool: {
-    max: 20,
-    min: 2,
-    idleTimeoutMillis: 30000,
-    acquireTimeoutMillis: 15000,
-  },
+  requestTimeout: 60000,
+  connectionTimeout: 30000,
+  options: { encrypt: false, trustServerCertificate: true },
+  pool: { max: 20, min: 2, idleTimeoutMillis: 30000, acquireTimeoutMillis: 15000 },
 };
 
 let pool = null;
+let connectingPromise = null; // <-- thêm cái này
 
 async function connectSQL() {
+  // Pool đã sẵn sàng → dùng luôn
   if (pool) return pool;
 
-  try {
-    pool = await sql.connect(config);
-    console.log(`[SQL] Connected: ${config.server}:${config.port} | DB=${config.database}`);
+  // Đang có request khác đang kết nối → chờ chung promise đó
+  if (connectingPromise) return connectingPromise;
 
-    // Xử lý khi pool bị lỗi thì reset để lần sau reconnect
+  // Lần đầu tiên → tạo promise và cache nó ngay lập tức (sync, trước await)
+  connectingPromise = sql.connect(config).then((p) => {
+    pool = p;
+    connectingPromise = null;
+
     pool.on("error", (err) => {
       console.error("[SQL] Pool error:", err.message);
       pool = null;
+      connectingPromise = null;
     });
 
+    console.log(`[SQL] Connected: ${config.server}:${config.port} | DB=${config.database}`);
     return pool;
-  } catch (err) {
+  }).catch((err) => {
     pool = null;
+    connectingPromise = null;
     console.error(`[SQL] Connection failed: ${err.message}`);
     throw err;
-  }
+  });
+
+  return connectingPromise;
 }
 
 module.exports = connectSQL;

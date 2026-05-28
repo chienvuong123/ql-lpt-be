@@ -107,8 +107,11 @@ async function startServer() {
     const cronService = require("./src/services/cron.service");
     cronService.init();
 
-    app.listen(PORT, HOST, () => {
-      console.log(`🚀 Server: http://${HOST}:${PORT}`);
+    connectSQL().then(() => {
+      app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+    }).catch(err => {
+      console.error('Cannot connect to DB, shutting down', err);
+      process.exit(1);
     });
   } catch (err) {
     console.error("❌ Server failed to start:", err.message);
