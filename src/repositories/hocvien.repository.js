@@ -1,4 +1,5 @@
 const connectSQL = require("../configs/sql");
+const mssql = require("mssql");
 const { parsePagination, formatPagination, toLikeParam, toStartsWithParam, toExactParam } = require("../helpers/pagination.helper");
 
 const countHocVien = async (pool, search, ma_khoa) => {
@@ -19,10 +20,11 @@ const searchHocVienSql = async (search, ma_khoa, rawPage, rawLimit) => {
     const req = pool.request();
     const { page, limit, offset } = parsePagination(rawPage, rawLimit);
 
-    req.input('search', mssql.NVarChar, toStartsWithParam(search))
+    // Sử dụng hàm helper đã sửa
+    req.input('search', mssql.NVarChar, toContainsParam(search))
         .input('ma_khoa', mssql.VarChar, toExactParam(ma_khoa))
         .input('limit', mssql.Int, limit)
-        .input('offset', mssql.Int, offset)
+        .input('offset', mssql.Int, offset);
 
     const result = await req.query(`
         SELECT 
@@ -33,14 +35,16 @@ const searchHocVienSql = async (search, ma_khoa, rawPage, rawLimit) => {
             OR ma_dk  LIKE @search
             OR cccd   LIKE @search)
         AND (@ma_khoa IS NULL OR ma_khoa = @ma_khoa)
-        ORDER BY ho_ten
+        ORDER BY ho_ten ASC
         OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+        OPTION (RECOMPILE); -- Đảm bảo không bị dính lỗi parameter sniffing (chậm 25s)
     `);
 
-    const total = result.recordset[0]?.total_count ?? 0;
+    const recordset = result.recordset;
+    const total = recordset[0]?.total_count ?? 0;
 
     return {
-        data: result.recordset,
+        data: recordset,
         pagination: formatPagination(total, page, limit),
     };
 };
