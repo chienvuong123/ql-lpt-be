@@ -1,7 +1,7 @@
 const connectSQL = require("../configs/sql");
 const mssql = require("mssql");
 const { parsePagination, formatPagination, toLikeParam, toStartsWithParam, toExactParam } = require("../helpers/pagination.helper");
-
+const toContainsParam = (value) => value ? `%${value}%` : '%';
 const countHocVien = async (pool, search, ma_khoa) => {
     const result = await pool.request()
         .input('ma_khoa', toLikeParam(ma_khoa))
