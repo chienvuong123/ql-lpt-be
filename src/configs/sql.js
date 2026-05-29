@@ -10,7 +10,12 @@ const config = {
   requestTimeout: 60000,
   connectionTimeout: 30000,
   options: { encrypt: false, trustServerCertificate: true },
-  pool: { max: 20, min: 2, idleTimeoutMillis: 30000, acquireTimeoutMillis: 15000 },
+  pool: {
+    max: 10,
+    min: 0,
+    idleTimeoutMillis: 10000,
+    acquireTimeoutMillis: 15000
+  },
 };
 
 let pool = null;
