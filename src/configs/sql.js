@@ -11,8 +11,8 @@ const config = {
   connectionTimeout: 30000,
   options: { encrypt: false, trustServerCertificate: true },
   pool: {
-    max: 10,
-    min: 0,
+    max: 100,
+    min: 5,
     idleTimeoutMillis: 10000,
     acquireTimeoutMillis: 15000
   },

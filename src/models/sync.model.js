@@ -372,7 +372,7 @@ async function getTienDoDaoTaoListPaginated(filters = {}) {
   const total = countResult.recordset[0].total;
 
   let query = `SELECT t.*, k.ten_khoa ${fromWhereClause} ORDER BY t.ma_khoa DESC`;
-  
+
   const page = parseInt(filters.page) || 1;
   const limit = parseInt(filters.limit) || 10;
   const offset = (page - 1) * limit;
@@ -394,47 +394,50 @@ async function getKhoaHocList() {
   return result.recordset;
 }
 
-/**
- * Search students by name/ma_dk and course
- * @param {Object} filters { search, ma_khoa }
- */
+
 async function getHocVienSearch(filters = {}) {
   const pool = await connectSQL();
   const request = new mssql.Request(pool);
-  request.timeout = 60000; // Thiết lập timeout thủ công 60 giây cho request này
+  request.timeout = 60000;
 
   let whereClause = "WHERE 1=1";
 
+  // 1. Tìm kiếm CHUNG theo Tên, Mã ĐK, hoặc CCCD (Giữ nguyên)
   if (filters.search) {
     request.input("search", mssql.NVarChar, `%${filters.search}%`);
     whereClause += ` AND (hv.ho_ten LIKE @search OR hv.ma_dk LIKE @search OR hv.cccd LIKE @search)`;
   }
 
+  // 2. Tìm kiếm RIÊNG theo Mã ĐK (Giữ nguyên)
   if (filters.ma_dk) {
     request.input("ma_dk", mssql.VarChar, filters.ma_dk);
-    whereClause += ` AND ma_dk = @ma_dk`;
+    whereClause += ` AND hv.ma_dk = @ma_dk`;
   }
 
+  // 3. Tìm kiếm gần đúng theo Mã Khóa (Giữ nguyên logic LIKE cũ của bạn)
   if (filters.ma_khoa) {
     request.input("ma_khoa", mssql.VarChar, filters.ma_khoa);
-    whereClause += ` AND (ma_khoa = @ma_khoa OR ma_khoa LIKE '%' + @ma_khoa)`;
+    whereClause += ` AND (hv.ma_khoa = @ma_khoa OR hv.ma_khoa LIKE '%' + @ma_khoa)`;
   }
 
   const query = `
     WITH TopStudents AS (
-        SELECT TOP 200 hv.*
+        SELECT TOP 200 
+            hv.[id], hv.[ma_dk], hv.[ho], hv.[ten], hv.[ho_ten], hv.[cccd], 
+            hv.[dia_chi], hv.[anh], hv.[ma_khoa], hv.[ngay_sinh], hv.[ma_csdt], 
+            hv.[hang_gplx], hv.[hang], hv.[anh_nhan_dien], hv.[gioi_tinh], hv.[ghi_chu],
+            dk.giao_vien, dk.xe_b1, dk.xe_b2
         FROM [dbo].[hoc_vien] hv WITH (NOLOCK)
         INNER JOIN [dbo].[dang_ky_xe_gv] dk WITH (NOLOCK) ON dk.ma_dk = hv.ma_dk
         ${whereClause}
         ORDER BY hv.ho_ten ASC
     )
-    SELECT ts.*, kh.ten_khoa, dk.giao_vien, dk.xe_b1, dk.xe_b2
+    SELECT ts.*, kh.ten_khoa
     FROM TopStudents ts
     LEFT JOIN [dbo].[khoa_hoc] kh WITH (NOLOCK) ON ts.ma_khoa = kh.ma_khoa
-    LEFT JOIN [dbo].[dang_ky_xe_gv] dk WITH (NOLOCK) ON ts.ma_dk = dk.ma_dk
     ORDER BY ts.ho_ten ASC
-    OPTION (OPTIMIZE FOR UNKNOWN)
-`;
+    OPTION (RECOMPILE); -- Từ khóa "vàng" quyết định việc ép SQL Server chạy dưới 100ms
+  `;
 
   const result = await request.query(query);
   return result.recordset;

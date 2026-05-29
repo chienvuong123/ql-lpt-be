@@ -1,5 +1,5 @@
 const connectSQL = require("../configs/sql");
-const { parsePagination, formatPagination, toLikeParam } = require("../helpers/pagination.helper");
+const { parsePagination, formatPagination, toLikeParam, toStartsWithParam, toExactParam } = require("../helpers/pagination.helper");
 
 const countHocVien = async (pool, search, ma_khoa) => {
     const result = await pool.request()
@@ -16,36 +16,34 @@ const countHocVien = async (pool, search, ma_khoa) => {
 
 const searchHocVienSql = async (search, ma_khoa, rawPage, rawLimit) => {
     const pool = await connectSQL();
-    const req = await pool.request()
-
+    const req = pool.request();
     const { page, limit, offset } = parsePagination(rawPage, rawLimit);
 
-    req.input('ma_khoa', toLikeParam(ma_khoa))
-        .input('search', toLikeParam(search))
-        .input('limit', limit)
-        .input('offset', offset)
-
+    req.input('search', mssql.NVarChar, toStartsWithParam(search))
+        .input('ma_khoa', mssql.VarChar, toExactParam(ma_khoa))
+        .input('limit', mssql.Int, limit)
+        .input('offset', mssql.Int, offset)
 
     const result = await req.query(`
-                SELECT 
-                *,
-                COUNT(*) OVER() AS total_count
-                FROM hoc_vien
-                WHERE (ho_ten LIKE @search 
-                OR ma_dk LIKE @search 
-                OR cccd LIKE @search)
-                AND ma_khoa LIKE @ma_khoa 
-                ORDER BY id
-                OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
-            `);
+        SELECT 
+            *,
+            COUNT(*) OVER() AS total_count
+        FROM hoc_vien WITH (NOLOCK)
+        WHERE (ho_ten LIKE @search
+            OR ma_dk  LIKE @search
+            OR cccd   LIKE @search)
+        AND (@ma_khoa IS NULL OR ma_khoa = @ma_khoa)
+        ORDER BY ho_ten
+        OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+    `);
 
     const total = result.recordset[0]?.total_count ?? 0;
 
     return {
         data: result.recordset,
         pagination: formatPagination(total, page, limit),
-    }
-}
+    };
+};
 
 module.exports = {
     searchHocVienSql,
