@@ -1,5 +1,7 @@
 const axios = require("axios");
 const http = require("http");
+const connectSQL = require("../configs/sql");
+const mssql = require("mssql");
 const {
   getHanhTrinhToken,
   invalidateHanhTrinhToken,
@@ -60,11 +62,19 @@ async function withRetry(fn, retries = 3, baseDelayMs = 300) {
 // ─── Lấy studentInfo từ check-data-student ────────────────────────────────────
 async function getStudentInfo(maDK) {
   try {
-    const { data } = await axios.get(`${LOCAL_BASE}/api/check-data-student`);
-    const list = Array.isArray(data?.data || data?.result || data)
-      ? data?.data || data?.result || data
-      : [];
-    return list.find((s) => s.maDangKy === maDK) || null;
+    const pool = await connectSQL();
+    const result = await pool.request()
+      .input("maDangKy", mssql.VarChar, maDK)
+      .query(`
+        SELECT TOP 1 stt, ma_dang_ky AS maDangKy, khoa_hoc AS khoaHoc, ho_va_ten AS hoVaTen, 
+               ngay_sinh AS ngaySinh, gioi_tinh AS gioiTinh, so_cmnd AS soCMND, 
+               dia_chi_thuong_tru AS diaChiThuongTru, ngay_nhap AS ngayNhap, 
+               giao_vien AS giaoVien, xe_b2 AS xeB2, xe_b1 AS xeB1, ghi_chu AS ghiChu, 
+               created_at AS createdAt, updated_at AS updatedAt
+        FROM [dbo].[check_data_students] WITH (NOLOCK)
+        WHERE ma_dang_ky = @maDangKy
+      `);
+    return result.recordset[0] || null;
   } catch (err) {
     console.warn(
       "[getStudentInfo] Không lấy được check-data-student:",

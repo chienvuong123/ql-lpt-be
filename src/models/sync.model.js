@@ -402,24 +402,35 @@ async function getHocVienSearch(filters = {}) {
 
   let whereClause = "WHERE 1=1";
 
-  // 1. Tìm kiếm CHUNG theo Tên (Unicode) hoặc Mã ĐK, CCCD (Ansi) để tránh Implicit Type Conversion
+  // 1. Tìm kiếm CHUNG theo Tên, Mã ĐK, CCCD (Nãy đã đồng bộ kiểu NVARCHAR)
+  // Phân tích input để tránh quét toàn bộ bảng và tối ưu hóa index
   if (filters.search) {
-    request.input("searchUnicode", mssql.NVarChar, `%${filters.search}%`);
-    request.input("searchAnsi", mssql.VarChar, `%${filters.search}%`);
-    whereClause += ` AND (hv.ho_ten LIKE @searchUnicode OR hv.ma_dk LIKE @searchAnsi OR hv.cccd LIKE @searchAnsi)`;
+    const trimmed = filters.search.trim();
+    const hasSpace = trimmed.includes(" ");
+    const isNumeric = /^\d+$/.test(trimmed);
+
+    request.input("searchUnicode", mssql.NVarChar, `%${trimmed}%`);
+
+    if (isNumeric) {
+      whereClause += ` AND (hv.ma_dk LIKE @searchUnicode OR hv.cccd LIKE @searchUnicode)`;
+    } else if (hasSpace) {
+      whereClause += ` AND (hv.ho_ten LIKE @searchUnicode)`;
+    } else {
+      whereClause += ` AND (hv.ho_ten LIKE @searchUnicode OR hv.ma_dk LIKE @searchUnicode)`;
+    }
   }
 
-  // 2. Tìm kiếm RIÊNG theo Mã ĐK (Giữ nguyên)
+  // 2. Tìm kiếm RIÊNG theo Mã ĐK
   if (filters.ma_dk) {
-    request.input("ma_dk", mssql.VarChar, filters.ma_dk);
+    request.input("ma_dk", mssql.NVarChar, filters.ma_dk);
     whereClause += ` AND hv.ma_dk = @ma_dk`;
   }
 
   // 3. Tìm kiếm theo Mã Khóa (Tránh leading wildcard để sử dụng Index Seek)
   if (filters.ma_khoa) {
     const prefixedMk = filters.ma_khoa.startsWith("30004") ? filters.ma_khoa : "30004" + filters.ma_khoa;
-    request.input("ma_khoa", mssql.VarChar, filters.ma_khoa);
-    request.input("prefixed_ma_khoa", mssql.VarChar, prefixedMk);
+    request.input("ma_khoa", mssql.NVarChar, filters.ma_khoa);
+    request.input("prefixed_ma_khoa", mssql.NVarChar, prefixedMk);
     whereClause += ` AND (hv.ma_khoa = @ma_khoa OR hv.ma_khoa = @prefixed_ma_khoa)`;
   }
 

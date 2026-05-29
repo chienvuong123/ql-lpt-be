@@ -53,7 +53,7 @@ async function getLopHocLyThuyet(searchParams = {}, authInfo) {
 
   const url = `${LOTUS_BASE}/enrolment-plan/search?${params.toString()}`;
 
-  const response = await axios.post(url);
+  const response = await axios.post(url, null, { timeout: 10000 });
   return response.data;
 }
 
@@ -119,6 +119,7 @@ async function getHocVienTheoKhoa(
   const response = await axios.post(
     `${LOTUS_BASE}/api/v2/enrolment-plan/search-members`,
     data,
+    { timeout: 10000 }
   );
 
   if (response.data?.result) {

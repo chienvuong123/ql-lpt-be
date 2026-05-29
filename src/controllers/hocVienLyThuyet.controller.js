@@ -398,11 +398,16 @@ async function getDashboardLyThuyet(req, res) {
     }
 
     const enrolmentPlanIids = planList.map((k) => k.enrolmentPlanIid);
-
+    const pool = await connectSQL();
     const [checkDataRes, allDbData, allCabinNotes] = await Promise.all([
-      fetch(`${LOCAL_BASE}/api/check-data-student`)
-        .then((r) => r.json())
-        .catch(() => ({ data: [] })),
+      pool.request().query(`
+        SELECT stt, ma_dang_ky AS maDangKy, khoa_hoc AS khoaHoc, ho_va_ten AS hoVaTen, 
+               ngay_sinh AS ngaySinh, gioi_tinh AS gioiTinh, so_cmnd AS soCMND, 
+               dia_chi_thuong_tru AS diaChiThuongTru, ngay_nhap AS ngayNhap, 
+               giao_vien AS giaoVien, xe_b2 AS xeB2, xe_b1 AS xeB1, ghi_chu AS ghiChu, 
+               created_at AS createdAt, updated_at AS updatedAt
+        FROM [dbo].[check_data_students] WITH (NOLOCK)
+      `).then(result => ({ data: result.recordset || [] })).catch(() => ({ data: [] })),
 
       model.getAll({ maKhoa: { $in: enrolmentPlanIids } }).catch(() => []),
 

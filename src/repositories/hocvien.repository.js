@@ -22,10 +22,26 @@ const searchHocVienSql = async (search, ma_khoa, rawPage, rawLimit) => {
 
     const prefixedMk = ma_khoa && (ma_khoa.startsWith("30004") ? ma_khoa : "30004" + ma_khoa);
 
-    // Tách thành searchUnicode (cho ho_ten) và searchAnsi (cho ma_dk, cccd) để tránh Implicit Type Conversion
-    req.input('searchUnicode', mssql.NVarChar, toContainsParam(search))
-        .input('searchAnsi', mssql.VarChar, toContainsParam(search))
-        .input('ma_khoa', mssql.VarChar, toExactParam(ma_khoa))
+    let searchClause = "";
+    if (search && search.trim() !== "") {
+        const trimmed = search.trim();
+        const hasSpace = trimmed.includes(" ");
+        const isNumeric = /^\d+$/.test(trimmed);
+
+        if (isNumeric) {
+            req.input('searchAnsi', mssql.VarChar, `%${trimmed}%`);
+            searchClause = `(ma_dk LIKE @searchAnsi OR cccd LIKE @searchAnsi) AND`;
+        } else if (hasSpace) {
+            req.input('searchUnicode', mssql.NVarChar, `%${trimmed}%`);
+            searchClause = `(ho_ten LIKE @searchUnicode) AND`;
+        } else {
+            req.input('searchUnicode', mssql.NVarChar, `%${trimmed}%`);
+            req.input('searchAnsi', mssql.VarChar, `%${trimmed}%`);
+            searchClause = `(ho_ten LIKE @searchUnicode OR ma_dk LIKE @searchAnsi) AND`;
+        }
+    }
+
+    req.input('ma_khoa', mssql.VarChar, toExactParam(ma_khoa))
         .input('prefixed_ma_khoa', mssql.VarChar, toExactParam(prefixedMk))
         .input('limit', mssql.Int, limit)
         .input('offset', mssql.Int, offset);
@@ -35,10 +51,7 @@ const searchHocVienSql = async (search, ma_khoa, rawPage, rawLimit) => {
             *,
             COUNT(*) OVER() AS total_count
         FROM hoc_vien WITH (NOLOCK)
-        WHERE (ho_ten LIKE @searchUnicode
-            OR ma_dk  LIKE @searchAnsi
-            OR cccd   LIKE @searchAnsi)
-        AND (@ma_khoa IS NULL OR ma_khoa = @ma_khoa OR ma_khoa = @prefixed_ma_khoa)
+        WHERE ${searchClause} (@ma_khoa IS NULL OR ma_khoa = @ma_khoa OR ma_khoa = @prefixed_ma_khoa)
         ORDER BY ho_ten ASC
         OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
         OPTION (RECOMPILE); -- Đảm bảo không bị dính lỗi parameter sniffing

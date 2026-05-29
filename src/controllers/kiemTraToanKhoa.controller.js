@@ -1,5 +1,7 @@
 const axios = require("axios");
 const http = require("http");
+const connectSQL = require("../configs/sql");
+const mssql = require("mssql");
 const {
   getHanhTrinhToken,
   invalidateHanhTrinhToken,
@@ -162,12 +164,19 @@ async function getAllStudentCheckDataCached() {
   }
 
   try {
-    const { data } = await axios.get(`${LOCAL_BASE}/api/check-data-student`);
-    const list = data?.data || data?.result || data || [];
-    const result = Array.isArray(list) ? list : [];
+    const pool = await connectSQL();
+    const result = await pool.request().query(`
+      SELECT stt, ma_dang_ky AS maDangKy, khoa_hoc AS khoaHoc, ho_va_ten AS hoVaTen, 
+             ngay_sinh AS ngaySinh, gioi_tinh AS gioiTinh, so_cmnd AS soCMND, 
+             dia_chi_thuong_tru AS diaChiThuongTru, ngay_nhap AS ngayNhap, 
+             giao_vien AS giaoVien, xe_b2 AS xeB2, xe_b1 AS xeB1, ghi_chu AS ghiChu, 
+             created_at AS createdAt, updated_at AS updatedAt
+      FROM [dbo].[check_data_students] WITH (NOLOCK)
+    `);
+    const list = result.recordset || [];
 
-    _studentCheckCache = { ts: now, data: result };
-    return result;
+    _studentCheckCache = { ts: now, data: list };
+    return list;
   } catch (err) {
     console.error("[getAllStudentCheckDataCached]", err.message);
     return _studentCheckCache.data || [];
