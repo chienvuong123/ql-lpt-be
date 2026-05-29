@@ -1,5 +1,6 @@
 const XLSX = require("xlsx");
-const StudentCheck = require("../models/checkData.model");
+const connectSQL = require("../configs/sql");
+const mssql = require("mssql");
 const { default: axios } = require("axios");
 const { URL_DAT } = require("../constants/base");
 const {
@@ -60,54 +61,88 @@ exports.importFromExcel = async (req, res) => {
       return res.status(400).json({ success: false, message: "File trống." });
     }
 
-    // 1. Chuẩn bị mảng các thao tác (Operations)
-    const operations = rows
+    const pool = await connectSQL();
+    let insertedCount = 0;
+    let modifiedCount = 0;
+
+    const validRows = rows
       .slice(1)
-      .filter((row) => row[COL.MA_DANG_KY] || row[COL.HO_VA_TEN])
-      .map((row) => {
-        const studentData = {
-          stt: row[COL.STT] || null,
-          maDangKy: String(row[COL.MA_DANG_KY] || "").trim(),
-          khoaHoc: String(row[COL.KHOA] || "").trim(),
-          hoVaTen: String(row[COL.HO_VA_TEN] || "").trim(),
-          ngaySinh: parseExcelDate(row[COL.NGAY_SINH]),
-          gioiTinh: String(row[COL.GIOI_TINH]),
-          soCMND: String(row[COL.SO_CMND] || "").trim(),
-          diaChiThuongTru: String(row[COL.DIA_CHI] || "").trim(),
-          ngayNhap: parseExcelDate(row[COL.NGAY_NHAP]),
-          giaoVien: String(row[COL.GIAO_VIEN] || "").trim(),
-          xeB2: String(row[COL.XE_B2] || "").trim(),
-          xeB1: String(row[COL.XE_B1] || "").trim(),
-          ghiChu: String(row[COL.GHI_CHU] || "").trim(),
-        };
+      .filter((row) => row[COL.MA_DANG_KY] || row[COL.HO_VA_TEN]);
 
-        // 2. Định nghĩa logic Upsert:
-        // Dùng maDangKy (hoặc soCMND) làm "khóa" để kiểm tra trùng lặp
-        return {
-          updateOne: {
-            filter: { maDangKy: studentData.maDangKy }, // Điều kiện tìm kiếm
-            update: { $set: studentData }, // Dữ liệu cập nhật
-            upsert: true, // Nếu không thấy thì tạo mới
-          },
-        };
-      });
+    for (const row of validRows) {
+      const maDangKy = String(row[COL.MA_DANG_KY] || "").trim();
+      if (!maDangKy) continue;
 
-    if (operations.length === 0) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Dữ liệu không hợp lệ." });
+      const stt = row[COL.STT] ? Number(row[COL.STT]) : null;
+      const khoaHoc = String(row[COL.KHOA] || "").trim();
+      const hoVaTen = String(row[COL.HO_VA_TEN] || "").trim();
+      const ngaySinh = parseExcelDate(row[COL.NGAY_SINH]);
+      const gioiTinh = String(row[COL.GIOI_TINH] || "").trim();
+      const soCMND = String(row[COL.SO_CMND] || "").trim();
+      const diaChiThuongTru = String(row[COL.DIA_CHI] || "").trim();
+      const ngayNhap = parseExcelDate(row[COL.NGAY_NHAP]);
+      const giaoVien = String(row[COL.GIAO_VIEN] || "").trim();
+      const xeB2 = String(row[COL.XE_B2] || "").trim();
+      const xeB1 = String(row[COL.XE_B1] || "").trim();
+      const ghiChu = String(row[COL.GHI_CHU] || "").trim();
+
+      const request = pool.request();
+      request.input("stt", mssql.Int, stt);
+      request.input("maDangKy", mssql.VarChar, maDangKy);
+      request.input("khoaHoc", mssql.NVarChar, khoaHoc);
+      request.input("hoVaTen", mssql.NVarChar, hoVaTen);
+      request.input("ngaySinh", mssql.Date, ngaySinh);
+      request.input("gioiTinh", mssql.NVarChar, gioiTinh);
+      request.input("soCMND", mssql.VarChar, soCMND);
+      request.input("diaChiThuongTru", mssql.NVarChar, diaChiThuongTru);
+      request.input("ngayNhap", mssql.Date, ngayNhap);
+      request.input("giaoVien", mssql.NVarChar, giaoVien);
+      request.input("xeB2", mssql.NVarChar, xeB2);
+      request.input("xeB1", mssql.NVarChar, xeB1);
+      request.input("ghiChu", mssql.NVarChar, ghiChu);
+
+      const result = await request.query(`
+        IF EXISTS (SELECT 1 FROM [dbo].[check_data_students] WHERE ma_dang_ky = @maDangKy)
+        BEGIN
+          UPDATE [dbo].[check_data_students]
+          SET stt = @stt,
+              khoa_hoc = @khoaHoc,
+              ho_va_ten = @hoVaTen,
+              ngay_sinh = @ngaySinh,
+              gioi_tinh = @gioiTinh,
+              so_cmnd = @soCMND,
+              dia_chi_thuong_tru = @diaChiThuongTru,
+              ngay_nhap = @ngayNhap,
+              giao_vien = @giaoVien,
+              xe_b2 = @xeB2,
+              xe_b1 = @xeB1,
+              ghi_chu = @ghiChu,
+              updated_at = GETDATE()
+          WHERE ma_dang_ky = @maDangKy;
+          SELECT 'UPDATE' AS action;
+        END
+        ELSE
+        BEGIN
+          INSERT INTO [dbo].[check_data_students] (stt, ma_dang_ky, khoa_hoc, ho_va_ten, ngay_sinh, gioi_tinh, so_cmnd, dia_chi_thuong_tru, ngay_nhap, giao_vien, xe_b2, xe_b1, ghi_chu, created_at, updated_at)
+          VALUES (@stt, @maDangKy, @khoaHoc, @hoVaTen, @ngaySinh, @gioiTinh, @soCMND, @diaChiThuongTru, @ngayNhap, @giaoVien, @xeB2, @xeB1, @ghiChu, GETDATE(), GETDATE());
+          SELECT 'INSERT' AS action;
+        END
+      `);
+
+      if (result.recordset[0]?.action === "INSERT") {
+        insertedCount++;
+      } else {
+        modifiedCount++;
+      }
     }
-
-    // 3. Thực thi tất cả các lệnh trong 1 lần gửi duy nhất tới DB
-    const result = await StudentCheck.bulkWrite(operations);
 
     return res.status(200).json({
       success: true,
       message: "Xử lý file thành công.",
       details: {
-        totalProcessed: operations.length,
-        insertedCount: result.upsertedCount, // Số lượng bản ghi mới tạo
-        modifiedCount: result.modifiedCount, // Số lượng bản ghi cũ được cập nhật
+        totalProcessed: validRows.length,
+        insertedCount,
+        modifiedCount,
       },
     });
   } catch (error) {
@@ -123,27 +158,44 @@ exports.importFromExcel = async (req, res) => {
 exports.getCheckStudents = async (req, res) => {
   try {
     const { khoa, giaoVien, search } = req.query;
-    const filter = {};
+    const pool = await connectSQL();
+    const request = pool.request();
 
-    // 1. Thiết lập bộ lọc (Giữ nguyên logic của bạn)
-    if (khoa) filter.khoaHoc = khoa;
-    if (giaoVien) filter.giaoVien = giaoVien.trim();
-    if (search) {
-      filter.$or = [
-        { hoVaTen: new RegExp(search, "i") },
-        { maDangKy: new RegExp(search, "i") },
-        { soCMND: new RegExp(search, "i") },
-      ];
+    let query = `
+      SELECT stt, ma_dang_ky AS maDangKy, khoa_hoc AS khoaHoc, ho_va_ten AS hoVaTen, 
+             ngay_sinh AS ngaySinh, gioi_tinh AS gioiTinh, so_cmnd AS soCMND, 
+             dia_chi_thuong_tru AS diaChiThuongTru, ngay_nhap AS ngayNhap, 
+             giao_vien AS giaoVien, xe_b2 AS xeB2, xe_b1 AS xeB1, ghi_chu AS ghiChu, 
+             created_at AS createdAt, updated_at AS updatedAt
+      FROM [dbo].[check_data_students]
+      WHERE 1=1
+    `;
+
+    if (khoa) {
+      request.input("khoa", mssql.NVarChar, khoa);
+      query += ` AND khoa_hoc = @khoa`;
     }
 
-    // 2. Truy vấn dữ liệu (Bỏ skip và limit)
-    const data = await StudentCheck.find(filter).sort({ stt: 1 });
+    if (giaoVien) {
+      request.input("giaoVien", mssql.NVarChar, giaoVien.trim());
+      query += ` AND giao_vien = @giaoVien`;
+    }
 
-    // 3. Trả về kết quả
+    if (search) {
+      // Tách search thành Unicode (ho_va_ten) và Ansi (ma_dang_ky, so_cmnd) để tránh Implicit Type Conversion
+      request.input("searchUnicode", mssql.NVarChar, `%${search}%`);
+      request.input("searchAnsi", mssql.VarChar, `%${search}%`);
+      query += ` AND (ho_va_ten LIKE @searchUnicode OR ma_dang_ky LIKE @searchAnsi OR so_cmnd LIKE @searchAnsi)`;
+    }
+
+    query += ` ORDER BY stt ASC`;
+
+    const result = await request.query(query);
+
     return res.json({
       success: true,
-      total: data.length, // Tổng số bản ghi tìm thấy
-      data,
+      total: result.recordset.length,
+      data: result.recordset,
     });
   } catch (error) {
     console.error("Get students error:", error);
@@ -158,14 +210,22 @@ exports.getCheckStudents = async (req, res) => {
 exports.getGiaoVienByKhoa = async (req, res) => {
   try {
     const { khoa } = req.query;
-    const filter = {};
-    if (khoa) filter.khoaHoc = khoa;
+    const pool = await connectSQL();
+    const request = pool.request();
 
-    const giaoViens = await StudentCheck.distinct("giaoVien", filter);
+    let query = `SELECT DISTINCT giao_vien FROM [dbo].[check_data_students] WHERE 1=1`;
+
+    if (khoa) {
+      request.input("khoa", mssql.NVarChar, khoa);
+      query += ` AND khoa_hoc = @khoa`;
+    }
+
+    const result = await request.query(query);
+    const list = result.recordset.map(row => row.giao_vien).filter(Boolean);
 
     return res.json({
       success: true,
-      data: giaoViens.sort(),
+      data: list.sort(),
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });

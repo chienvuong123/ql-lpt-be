@@ -4,7 +4,6 @@ const path = require("path");
 require("dotenv").config();
 require('express-async-errors');
 
-const connectDB = require("./src/configs/database");
 const connectSQL = require("./src/configs/sql");
 const hocvienCheckRoute = require("./src/routes/hocviencheck.route");
 const checkDataRoute = require("./src/routes/checkData.routes");
@@ -100,7 +99,6 @@ app.use((err, req, res, next) => {
 // ─── Start Server ─────────────────────────────────────────────
 async function startServer() {
   try {
-    await connectDB();
     await connectSQL();
     console.log("✅ Database ready");
 

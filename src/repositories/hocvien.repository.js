@@ -20,9 +20,13 @@ const searchHocVienSql = async (search, ma_khoa, rawPage, rawLimit) => {
     const req = pool.request();
     const { page, limit, offset } = parsePagination(rawPage, rawLimit);
 
-    // Sử dụng hàm helper đã sửa
-    req.input('search', mssql.NVarChar, toContainsParam(search))
+    const prefixedMk = ma_khoa && (ma_khoa.startsWith("30004") ? ma_khoa : "30004" + ma_khoa);
+
+    // Tách thành searchUnicode (cho ho_ten) và searchAnsi (cho ma_dk, cccd) để tránh Implicit Type Conversion
+    req.input('searchUnicode', mssql.NVarChar, toContainsParam(search))
+        .input('searchAnsi', mssql.VarChar, toContainsParam(search))
         .input('ma_khoa', mssql.VarChar, toExactParam(ma_khoa))
+        .input('prefixed_ma_khoa', mssql.VarChar, toExactParam(prefixedMk))
         .input('limit', mssql.Int, limit)
         .input('offset', mssql.Int, offset);
 
@@ -31,13 +35,13 @@ const searchHocVienSql = async (search, ma_khoa, rawPage, rawLimit) => {
             *,
             COUNT(*) OVER() AS total_count
         FROM hoc_vien WITH (NOLOCK)
-        WHERE (ho_ten LIKE @search
-            OR ma_dk  LIKE @search
-            OR cccd   LIKE @search)
-        AND (@ma_khoa IS NULL OR ma_khoa = @ma_khoa)
+        WHERE (ho_ten LIKE @searchUnicode
+            OR ma_dk  LIKE @searchAnsi
+            OR cccd   LIKE @searchAnsi)
+        AND (@ma_khoa IS NULL OR ma_khoa = @ma_khoa OR ma_khoa = @prefixed_ma_khoa)
         ORDER BY ho_ten ASC
         OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
-        OPTION (RECOMPILE); -- Đảm bảo không bị dính lỗi parameter sniffing (chậm 25s)
+        OPTION (RECOMPILE); -- Đảm bảo không bị dính lỗi parameter sniffing
     `);
 
     const recordset = result.recordset;

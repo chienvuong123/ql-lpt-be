@@ -1,7 +1,8 @@
 // controllers/hocvienCheck.controller.js
 "use strict";
 
-const HocVienCheck = require("../models/hocviencheck.model");
+const connectSQL = require("../configs/sql");
+const mssql = require("mssql");
 
 async function upsertCheck(req, res) {
   try {
@@ -37,37 +38,39 @@ async function upsertCheck(req, res) {
       });
     }
 
-    // ── Upsert ────────────────────────────────────────────────
-    const updatePayload = {
-      dat_confirmed,
-      updatedBy: req.user?.username ?? req.user?.id ?? null,
-    };
+    // ── Upsert in SQL Server ───────────────────────────────────
+    const pool = await connectSQL();
+    const request = pool.request();
+    
+    const user = req.user?.username ?? req.user?.id ?? null;
+    request.input("maHocVien", mssql.VarChar, maHocVien.trim());
+    request.input("dat_confirmed", mssql.Bit, dat_confirmed ? 1 : 0);
+    request.input("internal_note", mssql.NVarChar, internal_note !== undefined ? (internal_note?.trim() || null) : null);
+    request.input("public_note", mssql.NVarChar, public_note !== undefined ? (public_note?.trim() || null) : null);
+    request.input("user", mssql.NVarChar, user);
 
-    // Chỉ cập nhật internal_note nếu client truyền lên
-    if (internal_note !== undefined) {
-      updatePayload.internal_note = internal_note.trim() || null;
-    }
+    const query = `
+      IF EXISTS (SELECT 1 FROM [dbo].[hocvien_checks] WHERE ma_hoc_vien = @maHocVien)
+      BEGIN
+        UPDATE [dbo].[hocvien_checks]
+        SET dat_confirmed = @dat_confirmed,
+            ${internal_note !== undefined ? "internal_note = @internal_note," : ""}
+            ${public_note !== undefined ? "public_note = @public_note," : ""}
+            updated_by = @user,
+            updated_at = GETDATE()
+        WHERE ma_hoc_vien = @maHocVien;
+      END
+      ELSE
+      BEGIN
+        INSERT INTO [dbo].[hocvien_checks] (ma_hoc_vien, dat_confirmed, internal_note, public_note, created_by, updated_by, created_at, updated_at)
+        VALUES (@maHocVien, @dat_confirmed, @internal_note, @public_note, @user, @user, GETDATE(), GETDATE());
+      END
 
-    // Chỉ cập nhật public_note nếu client truyền lên
-    if (public_note !== undefined) {
-      updatePayload.public_note = public_note.trim() || null;
-    }
+      SELECT * FROM [dbo].[hocvien_checks] WHERE ma_hoc_vien = @maHocVien;
+    `;
 
-    const record = await HocVienCheck.findOneAndUpdate(
-      { maHocVien: maHocVien.trim() },
-      {
-        $set: updatePayload,
-        $setOnInsert: {
-          maHocVien: maHocVien.trim(),
-          createdBy: req.user?.username ?? req.user?.id ?? null,
-        },
-      },
-      {
-        upsert: true, // tạo mới nếu chưa có
-        new: true, // trả về document sau khi update
-        runValidators: true,
-      },
-    );
+    const result = await request.query(query);
+    const record = result.recordset[0];
 
     return res.status(200).json({
       success: true,
@@ -97,9 +100,12 @@ async function getCheck(req, res) {
       });
     }
 
-    const record = await HocVienCheck.findOne({
-      maHocVien: maHocVien.trim(),
-    }).lean();
+    const pool = await connectSQL();
+    const result = await pool.request()
+      .input("maHocVien", mssql.VarChar, maHocVien.trim())
+      .query(`SELECT * FROM [dbo].[hocvien_checks] WHERE ma_hoc_vien = @maHocVien`);
+
+    const record = result.recordset[0];
 
     // Chưa có bản ghi → trả về mặc định
     if (!record) {
@@ -133,13 +139,13 @@ async function getCheck(req, res) {
 // ── Helper ────────────────────────────────────────────────────────────────────
 function formatRecord(record) {
   return {
-    maHocVien: record.maHocVien,
-    dat_confirmed: record.dat_confirmed ?? false,
+    maHocVien: record.ma_hoc_vien,
+    dat_confirmed: record.dat_confirmed === true || record.dat_confirmed === 1,
     internal_note: record.internal_note ?? null,
     public_note: record.public_note ?? null,
-    updatedAt: record.updatedAt ?? null,
-    updatedBy: record.updatedBy ?? null,
-    createdAt: record.createdAt ?? null,
+    updatedAt: record.updated_at ?? null,
+    updatedBy: record.updated_by ?? null,
+    createdAt: record.created_at ?? null,
   };
 }
 

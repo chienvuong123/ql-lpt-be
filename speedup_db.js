@@ -19,6 +19,7 @@ async function createIndexes() {
       "IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_hoc_vien_ma_dk') CREATE NONCLUSTERED INDEX IX_hoc_vien_ma_dk ON [dbo].[hoc_vien] (ma_dk);",
       "IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_hoc_vien_ho_ten') CREATE NONCLUSTERED INDEX IX_hoc_vien_ho_ten ON [dbo].[hoc_vien] (ho_ten);",
       "IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_hoc_vien_cccd') CREATE NONCLUSTERED INDEX IX_hoc_vien_cccd ON [dbo].[hoc_vien] (cccd);",
+      "IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_hoc_vien_ma_khoa') CREATE NONCLUSTERED INDEX IX_hoc_vien_ma_khoa ON [dbo].[hoc_vien] (ma_khoa);",
       
       // Table: dang_ky_xe_gv
       "IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_dang_ky_xe_gv_ma_dk') CREATE NONCLUSTERED INDEX IX_dang_ky_xe_gv_ma_dk ON [dbo].[dang_ky_xe_gv] (ma_dk);"

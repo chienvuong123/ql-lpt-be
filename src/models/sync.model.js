@@ -402,10 +402,11 @@ async function getHocVienSearch(filters = {}) {
 
   let whereClause = "WHERE 1=1";
 
-  // 1. Tìm kiếm CHUNG theo Tên, Mã ĐK, hoặc CCCD (Giữ nguyên)
+  // 1. Tìm kiếm CHUNG theo Tên (Unicode) hoặc Mã ĐK, CCCD (Ansi) để tránh Implicit Type Conversion
   if (filters.search) {
-    request.input("search", mssql.NVarChar, `%${filters.search}%`);
-    whereClause += ` AND (hv.ho_ten LIKE @search OR hv.ma_dk LIKE @search OR hv.cccd LIKE @search)`;
+    request.input("searchUnicode", mssql.NVarChar, `%${filters.search}%`);
+    request.input("searchAnsi", mssql.VarChar, `%${filters.search}%`);
+    whereClause += ` AND (hv.ho_ten LIKE @searchUnicode OR hv.ma_dk LIKE @searchAnsi OR hv.cccd LIKE @searchAnsi)`;
   }
 
   // 2. Tìm kiếm RIÊNG theo Mã ĐK (Giữ nguyên)
@@ -414,10 +415,12 @@ async function getHocVienSearch(filters = {}) {
     whereClause += ` AND hv.ma_dk = @ma_dk`;
   }
 
-  // 3. Tìm kiếm gần đúng theo Mã Khóa (Giữ nguyên logic LIKE cũ của bạn)
+  // 3. Tìm kiếm theo Mã Khóa (Tránh leading wildcard để sử dụng Index Seek)
   if (filters.ma_khoa) {
+    const prefixedMk = filters.ma_khoa.startsWith("30004") ? filters.ma_khoa : "30004" + filters.ma_khoa;
     request.input("ma_khoa", mssql.VarChar, filters.ma_khoa);
-    whereClause += ` AND (hv.ma_khoa = @ma_khoa OR hv.ma_khoa LIKE '%' + @ma_khoa)`;
+    request.input("prefixed_ma_khoa", mssql.VarChar, prefixedMk);
+    whereClause += ` AND (hv.ma_khoa = @ma_khoa OR hv.ma_khoa = @prefixed_ma_khoa)`;
   }
 
   const query = `
@@ -457,6 +460,7 @@ async function getHocVienByKhoa(ma_khoa) {
     LEFT JOIN [dbo].[dang_ky_xe_gv] dk WITH (NOLOCK) ON hv.ma_dk = dk.ma_dk
     WHERE hv.ma_khoa = @ma_khoa OR hv.ma_khoa = @prefixed_ma_khoa
     ORDER BY hv.ho_ten ASC
+    OPTION (RECOMPILE); -- Tránh parameter sniffing khi lọc theo khóa học có số lượng học viên biến động lớn
   `;
 
   const result = await request.query(query);
