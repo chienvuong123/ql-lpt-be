@@ -425,7 +425,7 @@ async function getHocVienSearch(filters = {}) {
         SELECT TOP 200 
             hv.[id], hv.[ma_dk], hv.[ho], hv.[ten], hv.[ho_ten], hv.[cccd], 
             hv.[dia_chi], hv.[anh], hv.[ma_khoa], hv.[ngay_sinh], hv.[ma_csdt], 
-            hv.[hang_gplx], hv.[hang], hv.[anh_nhan_dien], hv.[gioi_tinh], hv.[ghi_chu],
+            hv.[hang_gplx], hv.[hang], hv.[gioi_tinh],
             dk.giao_vien, dk.xe_b1, dk.xe_b2
         FROM [dbo].[hoc_vien] hv WITH (NOLOCK)
         INNER JOIN [dbo].[dang_ky_xe_gv] dk WITH (NOLOCK) ON dk.ma_dk = hv.ma_dk
