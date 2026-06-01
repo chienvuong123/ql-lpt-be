@@ -69,6 +69,13 @@ const searchDsNhanGplxSql = async (filters = {}, rawPage, rawLimit) => {
         conditions.push("g.ngay_thi = @ngayThiFilter");
     }
 
+    const giaoVien = filters.giao_vien || filters.ten_giao_vien || filters.nguoi_tuyen_sinh || filters.giaoVien || filters.tenGiaoVien;
+    if (giaoVien && giaoVien.trim() !== "") {
+        const trimmed = giaoVien.trim();
+        req.input('giaoVienFilter', mssql.NVarChar, `%${trimmed}%`);
+        conditions.push("gs.nguoi_tuyen_sinh LIKE @giaoVienFilter");
+    }
+
     let whereClause = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
 
     const startRow = offset + 1;
@@ -85,13 +92,14 @@ const searchDsNhanGplxSql = async (filters = {}, rawPage, rawLimit) => {
         ;WITH BaseData AS (
             SELECT 
                 g.*,
-                (
-                    SELECT TOP 1 gs.nguoi_tuyen_sinh 
-                    FROM google_sheet_data gs 
-                    WHERE LOWER(LTRIM(RTRIM(gs.ten_hoc_vien))) = LOWER(LTRIM(RTRIM(g.ho_ten))) 
-                      AND (LOWER(LTRIM(RTRIM(gs.ngay_sinh))) = LOWER(LTRIM(RTRIM(g.ngay_sinh))) OR (gs.ngay_sinh IS NULL AND g.ngay_sinh IS NULL))
-                ) AS dau_moi
+                gs.nguoi_tuyen_sinh AS dau_moi
             FROM ds_nhan_gplx g WITH (NOLOCK)
+            OUTER APPLY (
+                SELECT TOP 1 gs_inner.nguoi_tuyen_sinh
+                FROM google_sheet_data gs_inner WITH (NOLOCK)
+                WHERE gs_inner.ten_hoc_vien = g.ho_ten 
+                  AND (gs_inner.ngay_sinh = g.ngay_sinh OR (gs_inner.ngay_sinh IS NULL AND g.ngay_sinh IS NULL))
+            ) gs
             ${whereClause}
         ),
         OrderedData AS (
@@ -164,9 +172,6 @@ const updateRecord = async (pool, id, record) => {
        .input('so_gplx', mssql.NVarChar, record.so_gplx || null)
        .input('dia_chi', mssql.NVarChar, record.dia_chi || null)
        .input('da_nhan', mssql.Bit, record.da_nhan ? 1 : 0)
-       .input('ngay_nhan', mssql.NVarChar, record.ngay_nhan || null)
-       .input('nguoi_nhan', mssql.NVarChar, record.nguoi_nhan || null)
-       .input('ky_nhan', mssql.NVarChar, record.ky_nhan || null)
        .input('ghi_chu', mssql.NVarChar, record.ghi_chu || null)
        .input('ngay_thi', mssql.NVarChar, record.ngay_thi || null);
     
@@ -174,14 +179,11 @@ const updateRecord = async (pool, id, record) => {
         UPDATE ds_nhan_gplx
         SET ho_ten = @ho_ten,
             ngay_sinh = @ngay_sinh,
-            so_gplx = @so_gplx,
-            dia_chi = @dia_chi,
-            da_nhan = @da_nhan,
-            ngay_nhan = @ngay_nhan,
-            nguoi_nhan = @nguoi_nhan,
-            ky_nhan = @ky_nhan,
-            ghi_chu = @ghi_chu,
-            ngay_thi = @ngay_thi,
+            so_gplx = CASE WHEN @so_gplx IS NOT NULL AND @so_gplx <> '' THEN @so_gplx ELSE so_gplx END,
+            dia_chi = CASE WHEN @dia_chi IS NOT NULL AND @dia_chi <> '' THEN @dia_chi ELSE dia_chi END,
+            da_nhan = CASE WHEN da_nhan = 1 THEN 1 ELSE @da_nhan END,
+            ghi_chu = CASE WHEN @ghi_chu IS NOT NULL AND @ghi_chu <> '' THEN @ghi_chu ELSE ghi_chu END,
+            ngay_thi = CASE WHEN @ngay_thi IS NOT NULL AND @ngay_thi <> '' THEN @ngay_thi ELSE ngay_thi END,
             updated_at = GETDATE()
         WHERE id = @id
     `);

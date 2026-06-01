@@ -139,14 +139,11 @@ class DsNhanGplxExcelParser {
         }
 
         if (p1 > 12 && p2 <= 12) {
-          // p1 is day, p2 is month
+          // p1 is day, p2 is month (e.g. 24/11/1997) -> already DD/MM/YYYY
           return `${String(p1).padStart(2, '0')}/${String(p2).padStart(2, '0')}/${year}`;
-        } else if (p1 <= 12 && p2 > 12) {
-          // p1 is month, p2 is day -> swap to make it DD/MM/YYYY
-          return `${String(p2).padStart(2, '0')}/${String(p1).padStart(2, '0')}/${year}`;
         } else {
-          // Both <= 12, assume DD/MM/YYYY as default in Vietnamese datasets
-          return `${String(p1).padStart(2, '0')}/${String(p2).padStart(2, '0')}/${year}`;
+          // Otherwise, assume p1 is month, p2 is day (MM/DD/YYYY) -> convert to DD/MM/YYYY
+          return `${String(p2).padStart(2, '0')}/${String(p1).padStart(2, '0')}/${year}`;
         }
       }
 

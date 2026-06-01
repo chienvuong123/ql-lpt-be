@@ -5,7 +5,7 @@ const XLSX = require("xlsx");
 const listDsNhanGplx = async (req, res, next) => {
     const message = "Lấy danh sách ký nhận GPLX thành công!";
     try {
-        const { search, daNhan, da_nhan, ho_ten, ten_hoc_vien, hoTen, ngay_thi, ngayThi, dau_moi, dauMoi, page, limit } = req.query;
+        const { search, daNhan, da_nhan, ho_ten, ten_hoc_vien, hoTen, ngay_thi, ngayThi, dau_moi, dauMoi, giao_vien, ten_giao_vien, nguoi_tuyen_sinh, giaoVien, tenGiaoVien, page, limit } = req.query;
 
         const filters = {
             search,
@@ -13,6 +13,7 @@ const listDsNhanGplx = async (req, res, next) => {
             ho_ten: ho_ten || ten_hoc_vien || hoTen,
             ngay_thi: ngay_thi || ngayThi,
             dau_moi: dau_moi === "true" || dau_moi === true || dauMoi === "true" || dauMoi === true,
+            giao_vien: giao_vien || ten_giao_vien || nguoi_tuyen_sinh || giaoVien || tenGiaoVien,
         };
 
         const { data, pagination } = await service.searchDsNhanGplx(filters, page, limit);
@@ -78,7 +79,7 @@ const listDistinctDates = async (req, res, next) => {
 
 const exportExcel = async (req, res, next) => {
     try {
-        const { search, daNhan, da_nhan, ho_ten, ten_hoc_vien, hoTen, ngay_thi, ngayThi, dau_moi, dauMoi } = req.query;
+        const { search, daNhan, da_nhan, ho_ten, ten_hoc_vien, hoTen, ngay_thi, ngayThi, dau_moi, dauMoi, giao_vien, ten_giao_vien, nguoi_tuyen_sinh, giaoVien, tenGiaoVien } = req.query;
 
         const filters = {
             search,
@@ -86,6 +87,7 @@ const exportExcel = async (req, res, next) => {
             ho_ten: ho_ten || ten_hoc_vien || hoTen,
             ngay_thi: ngay_thi || ngayThi,
             dau_moi: dau_moi === "true" || dau_moi === true || dauMoi === "true" || dauMoi === true,
+            giao_vien: giao_vien || ten_giao_vien || nguoi_tuyen_sinh || giaoVien || tenGiaoVien,
         };
 
         // Fetch matching records (max limit 999999 to cover all matching records)
@@ -103,6 +105,7 @@ const exportExcel = async (req, res, next) => {
             { header: "Ngày sinh", key: "ngay_sinh", width: 15 },
             { header: "Số GPLX", key: "so_gplx", width: 18 },
             { header: "Địa chỉ", key: "dia_chi", width: 45 },
+            { header: "Đầu mối", key: "dau_moi", width: 20 },
             { header: "Ngày nhận", key: "ngay_nhan", width: 15 },
             { header: "Người nhận", key: "nguoi_nhan", width: 20 },
             { header: "Ký tên", key: "ky_nhan", width: 12 },
@@ -117,13 +120,13 @@ const exportExcel = async (req, res, next) => {
         const titleText = `DANH SÁCH KÝ NHẬN HỒ SƠ VÀ GPLX${dateStr}`.toUpperCase();
         const titleRow = worksheet.addRow([titleText]);
         titleRow.height = 30;
-        worksheet.mergeCells("A1:I1");
+        worksheet.mergeCells("A1:J1");
 
         // Row 2: Merged Instructions text (9pt, bold, centered, wrapped, tall height)
         const instructionText = "Người ký nhận có trách nhiệm bảo quản và bàn giao hồ sơ và GPLX đúng cho học viên đã ký nhận; thực hiện đối chiếu thông tin người nhận trước khi bàn giao.\nKhông tự ý giao cho người khác, không để thất lạc, hư hỏng hoặc chậm bàn giao hồ sơ GPLX. Trường hợp xảy ra mất mát, nhầm lẫn hoặc\nphát sinh khiếu nại trong quá trình quản lý, bàn giao, người ký nhận chịu trách nhiệm báo cáo và phối hợp xử lý theo quy định của Trung tâm";
         const instructionRow = worksheet.addRow([instructionText]);
         instructionRow.height = 54;
-        worksheet.mergeCells("A2:I2");
+        worksheet.mergeCells("A2:J2");
 
         // Row 3: Table Column Headers (10pt, bold, centered)
         const headerRow = worksheet.addRow([
@@ -132,6 +135,7 @@ const exportExcel = async (req, res, next) => {
             "Ngày sinh",
             "Số GPLX",
             "Địa chỉ",
+            "Đầu mối",
             "Ngày nhận",
             "Người nhận",
             "Ký tên",
@@ -147,6 +151,7 @@ const exportExcel = async (req, res, next) => {
                 student.ngay_sinh || "",
                 student.so_gplx || "",
                 student.dia_chi || "",
+                student.dau_moi || "",
                 student.ngay_nhan || "",
                 student.nguoi_nhan || "",
                 student.ky_nhan || "",
@@ -178,8 +183,8 @@ const exportExcel = async (req, res, next) => {
                     // Set default font for data rows (below header row)
                     if (rowNumber > 3) {
                         cell.font = { name: "Times New Roman", size: 10 };
-                        // Center-align specific columns
-                        if (colNumber === 1 || colNumber === 3 || colNumber === 4 || colNumber === 6 || colNumber === 8) {
+                        // Center-align specific columns (STT, Ngày sinh, Số GPLX, Ngày nhận, Ký tên)
+                        if (colNumber === 1 || colNumber === 3 || colNumber === 4 || colNumber === 7 || colNumber === 9) {
                             cell.alignment = { horizontal: "center", vertical: "middle" };
                         } else {
                             cell.alignment = { horizontal: "left", vertical: "middle" };
