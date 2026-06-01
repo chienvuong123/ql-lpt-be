@@ -77,8 +77,12 @@ const searchDsNhanGplxSql = async (filters = {}, rawPage, rawLimit) => {
     req.input('start_row', mssql.Int, startRow)
        .input('end_row', mssql.Int, endRow);
 
+    const tenExpression = `CASE WHEN CHARINDEX(' ', LTRIM(RTRIM(ho_ten))) > 0 THEN RIGHT(LTRIM(RTRIM(ho_ten)), CHARINDEX(' ', REVERSE(LTRIM(RTRIM(ho_ten)))) - 1) ELSE LTRIM(RTRIM(ho_ten)) END`;
+    const isDauMoiSort = filters.dau_moi === true || filters.dau_moi === "true";
+    const sortOrder = isDauMoiSort ? `dau_moi ASC, ${tenExpression} ASC, ho_ten ASC` : `${tenExpression} ASC, ho_ten ASC`;
+
     const queryStr = `
-        ;WITH OrderedData AS (
+        ;WITH BaseData AS (
             SELECT 
                 g.*,
                 (
@@ -86,16 +90,21 @@ const searchDsNhanGplxSql = async (filters = {}, rawPage, rawLimit) => {
                     FROM google_sheet_data gs 
                     WHERE LOWER(LTRIM(RTRIM(gs.ten_hoc_vien))) = LOWER(LTRIM(RTRIM(g.ho_ten))) 
                       AND (LOWER(LTRIM(RTRIM(gs.ngay_sinh))) = LOWER(LTRIM(RTRIM(g.ngay_sinh))) OR (gs.ngay_sinh IS NULL AND g.ngay_sinh IS NULL))
-                ) AS dau_moi,
-                ROW_NUMBER() OVER (ORDER BY g.ho_ten ASC) AS row_num,
-                COUNT(*) OVER() AS total_count
+                ) AS dau_moi
             FROM ds_nhan_gplx g WITH (NOLOCK)
             ${whereClause}
+        ),
+        OrderedData AS (
+            SELECT 
+                *,
+                ROW_NUMBER() OVER (ORDER BY ${sortOrder}) AS row_num,
+                COUNT(*) OVER() AS total_count
+            FROM BaseData
         )
         SELECT *
         FROM OrderedData
         WHERE row_num BETWEEN @start_row AND @end_row
-        ORDER BY ho_ten ASC;
+        ORDER BY ${sortOrder};
     `;
 
     const result = await req.query(queryStr);

@@ -5,13 +5,14 @@ const XLSX = require("xlsx");
 const listDsNhanGplx = async (req, res, next) => {
     const message = "Lấy danh sách ký nhận GPLX thành công!";
     try {
-        const { search, daNhan, da_nhan, ho_ten, ten_hoc_vien, hoTen, ngay_thi, ngayThi, page, limit } = req.query;
+        const { search, daNhan, da_nhan, ho_ten, ten_hoc_vien, hoTen, ngay_thi, ngayThi, dau_moi, dauMoi, page, limit } = req.query;
 
         const filters = {
             search,
             da_nhan: da_nhan !== undefined ? da_nhan : daNhan,
             ho_ten: ho_ten || ten_hoc_vien || hoTen,
             ngay_thi: ngay_thi || ngayThi,
+            dau_moi: dau_moi === "true" || dau_moi === true || dauMoi === "true" || dauMoi === true,
         };
 
         const { data, pagination } = await service.searchDsNhanGplx(filters, page, limit);
@@ -77,13 +78,14 @@ const listDistinctDates = async (req, res, next) => {
 
 const exportExcel = async (req, res, next) => {
     try {
-        const { search, daNhan, da_nhan, ho_ten, ten_hoc_vien, hoTen, ngay_thi, ngayThi } = req.query;
+        const { search, daNhan, da_nhan, ho_ten, ten_hoc_vien, hoTen, ngay_thi, ngayThi, dau_moi, dauMoi } = req.query;
 
         const filters = {
             search,
             da_nhan: da_nhan !== undefined ? da_nhan : daNhan,
             ho_ten: ho_ten || ten_hoc_vien || hoTen,
             ngay_thi: ngay_thi || ngayThi,
+            dau_moi: dau_moi === "true" || dau_moi === true || dauMoi === "true" || dauMoi === true,
         };
 
         // Fetch matching records (max limit 999999 to cover all matching records)
