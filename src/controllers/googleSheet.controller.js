@@ -3,10 +3,9 @@ const googleSheetService = require("../services/googleSheet.service");
 class GoogleSheetController {
   async getHocVienList(req, res) {
     try {
-      // ID mới mà bạn cung cấp
       const SPREADSHEET_ID = "1TEeB_qAGJz_aLCzjDOUxEitgrwNWohcy6VjU3k6DppU";
-      // GID cụ thể từ đường dẫn của bạn
-      const GID = "1754545655";
+      // Hỗ trợ truyền GID động qua query param (?gid=...), mặc định là "1754545655"
+      const GID = req.query.gid || "1754545655";
       
       const data = await googleSheetService.fetchSheetData(SPREADSHEET_ID, GID);
       

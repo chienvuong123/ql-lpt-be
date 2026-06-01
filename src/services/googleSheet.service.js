@@ -2,10 +2,19 @@ const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
 
-function getOAuthClient() {
+function getAuthClient() {
+  const serviceAccountPath = path.join(process.cwd(), "service_account.json");
+  if (fs.existsSync(serviceAccountPath)) {
+    // Authenticate using Service Account - NO login required!
+    return new google.auth.GoogleAuth({
+      keyFile: serviceAccountPath,
+      scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+    });
+  }
+
   const credentialsPath = path.join(process.cwd(), "oauth_credentials.json");
   if (!fs.existsSync(credentialsPath)) {
-    throw new Error("Không tìm thấy oauth_credentials.json ở thư mục gốc!");
+    throw new Error("Không tìm thấy service_account.json hoặc oauth_credentials.json ở thư mục gốc!");
   }
   
   const credentials = JSON.parse(fs.readFileSync(credentialsPath));
@@ -25,7 +34,6 @@ function getOAuthClient() {
   const token = JSON.parse(fs.readFileSync(tokenPath));
   oAuth2Client.setCredentials(token);
 
-  // Tự động lưu lại token mới khi googleapis tự động gia hạn
   oAuth2Client.on("tokens", (tokens) => {
     try {
       const currentToken = JSON.parse(fs.readFileSync(tokenPath));
@@ -59,7 +67,7 @@ class GoogleSheetService {
    */
   async fetchSheetData(spreadsheetId, gid = null) {
     try {
-      const auth = getOAuthClient();
+      const auth = getAuthClient();
       const sheets = google.sheets({ version: "v4", auth });
 
       const meta = await sheets.spreadsheets.get({ spreadsheetId });
