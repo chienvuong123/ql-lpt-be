@@ -1,4 +1,5 @@
 const axios = require("axios");
+const { generateSandTokens } = require("./lotusAuth.service");
 
 const LOTUS_BASE = "https://staging-api.lotuslms.com";
 
@@ -20,6 +21,9 @@ async function getStudentProgressInEnrolmentPlan(params, authInfo) {
   const url = `${LOTUS_BASE}/student/api/get-student-courses-in-enrolment-plan?${queryParams.toString()}`;
 
   const formData = new URLSearchParams();
+  const { sand_ri, sand_rit } = generateSandTokens(authInfo.iid || authInfo.uiid);
+  formData.append("_sand_ri", sand_ri);
+  formData.append("_sand_rit", sand_rit);
   formData.append("_sand_token", authInfo.token);
   formData.append("_sand_uiid", authInfo.iid || authInfo.uiid);
   formData.append("_sand_uid", authInfo.id || authInfo.uid);
@@ -47,6 +51,9 @@ async function getUserScoreByRubric(params, authInfo) {
   const url = `${LOTUS_BASE}/rubrik/api/get-user-score-by-rubric?${queryParams.toString()}`;
 
   const formData = new URLSearchParams();
+  const { sand_ri, sand_rit } = generateSandTokens(authInfo.iid || authInfo.uiid);
+  formData.append("_sand_ri", sand_ri);
+  formData.append("_sand_rit", sand_rit);
   formData.append("_sand_token", authInfo.token);
   formData.append("_sand_uiid", authInfo.iid || authInfo.uiid);
   formData.append("_sand_uid", authInfo.id || authInfo.uid);
@@ -74,6 +81,9 @@ async function getCameraSnapshot(params, authInfo) {
   const url = `${LOTUS_BASE}/camera-snapshot/api/view?${queryParams.toString()}`;
 
   const formData = new URLSearchParams();
+  const { sand_ri, sand_rit } = generateSandTokens(authInfo.iid || authInfo.uiid);
+  formData.append("_sand_ri", sand_ri);
+  formData.append("_sand_rit", sand_rit);
   formData.append("_sand_token", authInfo.token);
   formData.append("_sand_uiid", authInfo.iid || authInfo.uiid);
   formData.append("_sand_uid", authInfo.id || authInfo.uid);
@@ -101,6 +111,9 @@ async function getTimeTrackingLog(params, authInfo) {
   const url = `${LOTUS_BASE}/time-tracking/course-time-tracking/log-search?${queryParams.toString()}`;
 
   const formData = new URLSearchParams();
+  const { sand_ri, sand_rit } = generateSandTokens(authInfo.iid || authInfo.uiid);
+  formData.append("_sand_ri", sand_ri);
+  formData.append("_sand_rit", sand_rit);
   formData.append("_sand_token", authInfo.token);
   formData.append("_sand_uiid", authInfo.iid || authInfo.uiid);
   formData.append("_sand_uid", authInfo.id || authInfo.uid);
@@ -128,6 +141,9 @@ async function getLearningTimeTracking(params, authInfo) {
   const url = `${LOTUS_BASE}/time-tracking/learning-time-tracking/search?${queryParams.toString()}`;
 
   const formData = new URLSearchParams();
+  const { sand_ri, sand_rit } = generateSandTokens(authInfo.iid || authInfo.uiid);
+  formData.append("_sand_ri", sand_ri);
+  formData.append("_sand_rit", sand_rit);
   formData.append("_sand_token", authInfo.token);
   formData.append("_sand_uiid", authInfo.iid || authInfo.uiid);
   formData.append("_sand_uid", authInfo.id || authInfo.uid);
@@ -155,6 +171,9 @@ async function getDetailLearningTime(params, authInfo) {
   const url = `${LOTUS_BASE}/time-tracking/course-time-tracking/get-detail-learning-time?${queryParams.toString()}`;
 
   const formData = new URLSearchParams();
+  const { sand_ri, sand_rit } = generateSandTokens(authInfo.iid || authInfo.uiid);
+  formData.append("_sand_ri", sand_ri);
+  formData.append("_sand_rit", sand_rit);
   formData.append("_sand_token", authInfo.token);
   formData.append("_sand_uiid", authInfo.iid || authInfo.uiid);
   formData.append("_sand_uid", authInfo.id || authInfo.uid);

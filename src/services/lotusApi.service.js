@@ -1,5 +1,5 @@
 const axios = require("axios");
-const { getToken, invalidateToken } = require("./lotusAuth.service");
+const { getToken, invalidateToken, generateSandTokens } = require("./lotusAuth.service");
 
 const LOTUS_BASE = "https://staging-api.lotuslms.com";
 const ORG_ID = "22197961";
@@ -46,6 +46,10 @@ async function getLopHocLyThuyet(searchParams = {}, authInfo) {
   params.append("_sand_get_total", 0);
   params.append("text", searchParams.text || "");
 
+  const { sand_ri, sand_rit } = generateSandTokens(authInfo.iid);
+  params.append("_sand_ri", sand_ri);
+  params.append("_sand_rit", sand_rit);
+
   params.append("_sand_session_id", authInfo.sessionId);
   params.append("_sand_token", authInfo.token);
   params.append("_sand_uid", authInfo.id || authInfo.uid);
@@ -53,8 +57,17 @@ async function getLopHocLyThuyet(searchParams = {}, authInfo) {
 
   const url = `${LOTUS_BASE}/enrolment-plan/search?${params.toString()}`;
 
-  const response = await axios.post(url, null, { timeout: 10000 });
-  return response.data;
+  try {
+    const response = await axios.post(url, null, { timeout: 10000 });
+    return response.data;
+  } catch (error) {
+    console.error(`[getLopHocLyThuyet] Error:`, error.message);
+    if (error.response) {
+      console.error(`[getLopHocLyThuyet] Response error status: ${error.response.status}`);
+      console.error(`[getLopHocLyThuyet] Response error data:`, error.response.data);
+    }
+    throw error;
+  }
 }
 
 const _courseCache = new Map();
@@ -67,9 +80,9 @@ async function getHocVienTheoKhoa(
 ) {
   const cacheKey = `${enrolmentPlanIid}_${extraParams.page || 1}_${extraParams.text || ""}`;
   const cachedEntry = _courseCache.get(cacheKey);
-  
+
   if (cachedEntry && (Date.now() - cachedEntry.ts < 120000)) {
-      return cachedEntry.data; // Trả về từ RAM ngay lập tức (0ms)
+    return cachedEntry.data; // Trả về từ RAM ngay lập tức (0ms)
   }
 
   const data = new URLSearchParams();
@@ -107,14 +120,16 @@ async function getHocVienTheoKhoa(
   data.append("_sand_readmin", 1);
   data.append("_sand_is_wan", false);
   data.append("_sand_domain", "lapphuongthanh");
-  data.append(
-    "_sand_web_url",
-    `https://lapphuongthanh.huelms.com/admin/enrolment-plan/${enrolmentPlanIid}/members`,
-  );
+  const { sand_ri, sand_rit } = generateSandTokens(authInfo.iid);
+  data.append("_sand_ri", sand_ri);
+  data.append("_sand_rit", sand_rit);
+
   data.append("_sand_session_id", authInfo.sessionId);
   data.append("_sand_token", authInfo.token);
   data.append("_sand_uiid", authInfo.iid);
   data.append("_sand_uid", authInfo.id);
+
+  console.log(`[getHocVienTheoKhoa] Requesting: ${LOTUS_BASE}/api/v2/enrolment-plan/search-members (Plan IID: ${enrolmentPlanIid})`);
 
   const response = await axios.post(
     `${LOTUS_BASE}/api/v2/enrolment-plan/search-members`,
@@ -122,10 +137,12 @@ async function getHocVienTheoKhoa(
     { timeout: 10000 }
   );
 
+  console.log(`[getHocVienTheoKhoa] Success! Received data. Total items: ${response.data?.result?.length || 0}`);
+
   if (response.data?.result) {
-      _courseCache.set(cacheKey, { ts: Date.now(), data: response.data });
+    _courseCache.set(cacheKey, { ts: Date.now(), data: response.data });
   }
-  
+
   return response.data;
 }
 
