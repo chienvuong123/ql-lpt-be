@@ -53,10 +53,8 @@ const googleSheetModel = require("../models/googleSheet.model");
 class GoogleSheetService {
   constructor() {
     this.SHEETS_TO_SYNC = [
-      { spreadsheetId: "1TEeB_qAGJz_aLCzjDOUxEitgrwNWohcy6VjU3k6DppU", gid: "652741371" },
-      { spreadsheetId: "1TEeB_qAGJz_aLCzjDOUxEitgrwNWohcy6VjU3k6DppU", gid: "258055040" },
-      { spreadsheetId: "1TEeB_qAGJz_aLCzjDOUxEitgrwNWohcy6VjU3k6DppU", gid: "802299212" },
       { spreadsheetId: "1TEeB_qAGJz_aLCzjDOUxEitgrwNWohcy6VjU3k6DppU", gid: "1754545655" },
+      { spreadsheetId: "1TEeB_qAGJz_aLCzjDOUxEitgrwNWohcy6VjU3k6DppU", gid: "258055040" },
     ];
   }
 
@@ -114,14 +112,17 @@ class GoogleSheetService {
     }
   }
 
-  async syncAllSheetsToDatabase() {
+  async syncAllSheetsToDatabase(specificGid = null) {
     console.log("[GoogleSheetService] Bắt đầu đồng bộ dữ liệu từ Google Sheets vào SQL...");
     try {
       await googleSheetModel.createTableIfNotExists();
       
       let allSyncedData = [];
+      const sheetsToSync = specificGid
+        ? this.SHEETS_TO_SYNC.filter(s => String(s.gid) === String(specificGid))
+        : this.SHEETS_TO_SYNC;
 
-      for (const sheet of this.SHEETS_TO_SYNC) {
+      for (const sheet of sheetsToSync) {
         console.log(`[GoogleSheetService] Đang lấy dữ liệu từ GID: ${sheet.gid}...`);
         const data = await this.fetchSheetData(sheet.spreadsheetId, sheet.gid);
         

@@ -32,7 +32,6 @@ const createTableIfNotExists = async () => {
       END
     `;
     await pool.request().query(query);
-    console.log("[DsNhanGplxRepository] Đảm bảo bảng ds_nhan_gplx đã tồn tại và đồng bộ cột ngay_thi.");
 };
 
 const searchDsNhanGplxSql = async (filters = {}, rawPage, rawLimit) => {
@@ -82,7 +81,7 @@ const searchDsNhanGplxSql = async (filters = {}, rawPage, rawLimit) => {
     const endRow = offset + limit;
 
     req.input('start_row', mssql.Int, startRow)
-       .input('end_row', mssql.Int, endRow);
+        .input('end_row', mssql.Int, endRow);
 
     const tenExpression = `CASE WHEN CHARINDEX(' ', LTRIM(RTRIM(ho_ten))) > 0 THEN RIGHT(LTRIM(RTRIM(ho_ten)), CHARINDEX(' ', REVERSE(LTRIM(RTRIM(ho_ten)))) - 1) ELSE LTRIM(RTRIM(ho_ten)) END`;
     const isDauMoiSort = filters.dau_moi === true || filters.dau_moi === "true";
@@ -130,7 +129,7 @@ const findExistingRecord = async (pool, ho_ten, ngay_sinh, so_gplx) => {
     req.input('ho_ten', mssql.NVarChar, ho_ten);
     req.input('ngay_sinh', mssql.NVarChar, ngay_sinh || null);
     req.input('so_gplx', mssql.NVarChar, so_gplx || null);
-    
+
     let query = "SELECT * FROM ds_nhan_gplx WHERE 1=0"; // fallback
     if (so_gplx) {
         query = "SELECT * FROM ds_nhan_gplx WHERE so_gplx = @so_gplx";
@@ -148,16 +147,16 @@ const findExistingRecord = async (pool, ho_ten, ngay_sinh, so_gplx) => {
 const insertRecord = async (pool, record) => {
     const req = pool.request();
     req.input('ho_ten', mssql.NVarChar, record.ho_ten)
-       .input('ngay_sinh', mssql.NVarChar, record.ngay_sinh || null)
-       .input('so_gplx', mssql.NVarChar, record.so_gplx || null)
-       .input('dia_chi', mssql.NVarChar, record.dia_chi || null)
-       .input('da_nhan', mssql.Bit, record.da_nhan ? 1 : 0)
-       .input('ngay_nhan', mssql.NVarChar, record.ngay_nhan || null)
-       .input('nguoi_nhan', mssql.NVarChar, record.nguoi_nhan || null)
-       .input('ky_nhan', mssql.NVarChar, record.ky_nhan || null)
-       .input('ghi_chu', mssql.NVarChar, record.ghi_chu || null)
-       .input('ngay_thi', mssql.NVarChar, record.ngay_thi || null);
-    
+        .input('ngay_sinh', mssql.NVarChar, record.ngay_sinh || null)
+        .input('so_gplx', mssql.NVarChar, record.so_gplx || null)
+        .input('dia_chi', mssql.NVarChar, record.dia_chi || null)
+        .input('da_nhan', mssql.Bit, record.da_nhan ? 1 : 0)
+        .input('ngay_nhan', mssql.NVarChar, record.ngay_nhan || null)
+        .input('nguoi_nhan', mssql.NVarChar, record.nguoi_nhan || null)
+        .input('ky_nhan', mssql.NVarChar, record.ky_nhan || null)
+        .input('ghi_chu', mssql.NVarChar, record.ghi_chu || null)
+        .input('ngay_thi', mssql.NVarChar, record.ngay_thi || null);
+
     await req.query(`
         INSERT INTO ds_nhan_gplx (ho_ten, ngay_sinh, so_gplx, dia_chi, da_nhan, ngay_nhan, nguoi_nhan, ky_nhan, ghi_chu, ngay_thi)
         VALUES (@ho_ten, @ngay_sinh, @so_gplx, @dia_chi, @da_nhan, @ngay_nhan, @nguoi_nhan, @ky_nhan, @ghi_chu, @ngay_thi)
@@ -167,14 +166,14 @@ const insertRecord = async (pool, record) => {
 const updateRecord = async (pool, id, record) => {
     const req = pool.request();
     req.input('id', mssql.Int, id)
-       .input('ho_ten', mssql.NVarChar, record.ho_ten)
-       .input('ngay_sinh', mssql.NVarChar, record.ngay_sinh || null)
-       .input('so_gplx', mssql.NVarChar, record.so_gplx || null)
-       .input('dia_chi', mssql.NVarChar, record.dia_chi || null)
-       .input('da_nhan', mssql.Bit, record.da_nhan ? 1 : 0)
-       .input('ghi_chu', mssql.NVarChar, record.ghi_chu || null)
-       .input('ngay_thi', mssql.NVarChar, record.ngay_thi || null);
-    
+        .input('ho_ten', mssql.NVarChar, record.ho_ten)
+        .input('ngay_sinh', mssql.NVarChar, record.ngay_sinh || null)
+        .input('so_gplx', mssql.NVarChar, record.so_gplx || null)
+        .input('dia_chi', mssql.NVarChar, record.dia_chi || null)
+        .input('da_nhan', mssql.Bit, record.da_nhan ? 1 : 0)
+        .input('ghi_chu', mssql.NVarChar, record.ghi_chu || null)
+        .input('ngay_thi', mssql.NVarChar, record.ngay_thi || null);
+
     await req.query(`
         UPDATE ds_nhan_gplx
         SET ho_ten = @ho_ten,
@@ -194,7 +193,7 @@ const updateDaNhan = async (ids, status) => {
     const pool = await connectSQL();
     const req = pool.request();
     req.input('status', mssql.Bit, status ? 1 : 0);
-    
+
     const placeholders = ids.map((id, index) => {
         req.input(`id_${index}`, mssql.Int, id);
         return `@id_${index}`;

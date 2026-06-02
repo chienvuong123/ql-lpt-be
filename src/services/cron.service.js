@@ -48,7 +48,7 @@ async function fetchRawHanhTrinhRecords(maDk, maKhoaHoc) {
   };
 
   const hanhTrinhAxios = axios.create({ baseURL: "http://113.160.131.3:7782", timeout: 20000 });
-  
+
   const fetchAttempt = async (useKhoa) => {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
@@ -111,14 +111,32 @@ class CronService {
       }
     });
 
-    // Đồng bộ Google Sheets vào 12:00 và 17:00
+    // Đồng bộ Google Sheets vào 12:00 và 17:00 (chủ yếu lấy GID 1754545655, tự động thử lại tối đa 5 lần nếu lỗi)
     cron.schedule("0 12,17 * * *", async () => {
-      console.log(`[CronService] [${new Date().toLocaleString()}] Đồng bộ Google Sheets...`);
+      console.log(`[CronService] [${new Date().toLocaleString()}] Bắt đầu tiến trình đồng bộ Google Sheet GID 1754545655...`);
       try {
         const googleSheetService = require("./googleSheet.service");
-        await googleSheetService.syncAllSheetsToDatabase();
+        
+        let success = false;
+        for (let attempt = 1; attempt <= 5; attempt++) {
+          try {
+            console.log(`[CronService] Đang đồng bộ (Lần thử ${attempt}/5)...`);
+            await googleSheetService.syncAllSheetsToDatabase("1754545655");
+            success = true;
+            console.log(`[CronService] Đồng bộ thành công ở lần thử ${attempt}.`);
+            break;
+          } catch (err) {
+            console.warn(`[CronService] Lần thử ${attempt}/5 thất bại: ${err.message}`);
+            if (attempt < 5) {
+              console.log("[CronService] Chờ 2 giây trước khi thử lại...");
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            } else {
+              throw err; // Ném lỗi ra ngoài nếu cả 5 lần đều xịt
+            }
+          }
+        }
       } catch (error) {
-        console.error("[CronService] Lỗi đồng bộ Google Sheets:", error.message);
+        console.error("[CronService] Lỗi đồng bộ Google Sheets sau 5 lần thử:", error.message);
       }
     });
 
