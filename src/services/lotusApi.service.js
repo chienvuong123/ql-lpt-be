@@ -72,21 +72,35 @@ async function getLopHocLyThuyet(searchParams = {}, authInfo) {
 
 const _courseCache = new Map();
 
-// Lấy danh sách học viên theo lớp (Có tích hợp Smart Cache 2 phút)
+// Lấy danh sách học viên theo lớp (Có tích hợp Smart Cache 2 phút & SQL Server Backup)
 async function getHocVienTheoKhoa(
   enrolmentPlanIid,
   extraParams = {},
   authInfo,
 ) {
-  const cacheKey = `${enrolmentPlanIid}_${extraParams.page || 1}_${extraParams.text || ""}`;
-  const cachedEntry = _courseCache.get(cacheKey);
-
-  if (cachedEntry && (Date.now() - cachedEntry.ts < 120000)) {
-    return cachedEntry.data; // Trả về từ RAM ngay lập tức (0ms)
+  const isForceBackup = extraParams.from_backup === true || extraParams.from_backup === "true";
+  
+  // 1. If explicit backup read requested
+  if (isForceBackup) {
+    const backupRepository = require("../repositories/backup.repository");
+    const localData = await backupRepository.getHocVienKhoa(enrolmentPlanIid, extraParams.text || "");
+    return {
+      success: true,
+      total: localData.length,
+      result: localData.map(mapBackupToLotusStudent),
+      _is_backup: true,
+    };
   }
 
-  const data = new URLSearchParams();
+  // 2. RAM Cache Check
+  const cacheKey = `${enrolmentPlanIid}_${extraParams.page || 1}_${extraParams.text || ""}`;
+  const cachedEntry = _courseCache.get(cacheKey);
+  if (cachedEntry && (Date.now() - cachedEntry.ts < 120000)) {
+    return cachedEntry.data;
+  }
 
+  // 3. Prepare Form Data for Lotus LMS API
+  const data = new URLSearchParams();
   data.append("_sand_get_total", 0);
   data.append("user_organizations[0]", ORG_ID);
   data.append("include_sub_organizations", 1);
@@ -131,19 +145,90 @@ async function getHocVienTheoKhoa(
 
   console.log(`[getHocVienTheoKhoa] Requesting: ${LOTUS_BASE}/api/v2/enrolment-plan/search-members (Plan IID: ${enrolmentPlanIid})`);
 
-  const response = await axios.post(
-    `${LOTUS_BASE}/api/v2/enrolment-plan/search-members`,
-    data,
-    { timeout: 10000 }
-  );
+  try {
+    const response = await axios.post(
+      `${LOTUS_BASE}/api/v2/enrolment-plan/search-members`,
+      data,
+      { timeout: 10000 }
+    );
 
-  console.log(`[getHocVienTheoKhoa] Success! Received data. Total items: ${response.data?.result?.length || 0}`);
+    console.log(`[getHocVienTheoKhoa] Success! Received data. Total items: ${response.data?.result?.length || 0}`);
 
-  if (response.data?.result) {
-    _courseCache.set(cacheKey, { ts: Date.now(), data: response.data });
+    if (response.data?.result) {
+      _courseCache.set(cacheKey, { ts: Date.now(), data: response.data });
+      
+      // Asynchronously trigger SQL Server DB cache backup
+      const backupService = require("./backup.service");
+      backupService.backupHocVienTheoKhoa(enrolmentPlanIid, response.data.result).catch((e) => {
+        console.error("[getHocVienTheoKhoa] DB Cache Backup Failed:", e.message);
+      });
+    }
+
+    return response.data;
+  } catch (error) {
+    console.warn(`[getHocVienTheoKhoa] API Call Failed: ${error.message}. Querying local backup as fallback...`);
+    
+    // Auto fallback to local SQL Server Cache Backup if available
+    const backupRepository = require("../repositories/backup.repository");
+    const localData = await backupRepository.getHocVienKhoa(enrolmentPlanIid, extraParams.text || "");
+    if (localData && localData.length > 0) {
+      return {
+        success: true,
+        total: localData.length,
+        result: localData.map(mapBackupToLotusStudent),
+        _is_backup: true,
+      };
+    }
+    
+    throw error;
   }
+}
 
-  return response.data;
+// Mapper helper to translate SQL backup structure back to original Lotus LMS object structure
+function mapBackupToLotusStudent(s) {
+  return {
+    id: s.ma_dk,
+    user: {
+      iid: s.user_iid,
+      name: s.ho_ten,
+      first_name: s.first_name,
+      last_name: s.last_name,
+      avatar: s.avatar,
+      birthday: s.birthday,
+      birth_year: s.birth_year,
+      sex: s.sex,
+      identification_card: s.identification_card,
+      identification_card_date: s.identification_card_date,
+      identification_card_place: s.identification_card_place,
+      nationality: s.nationality,
+      organization_name: s.organization_name,
+      school: s.school,
+      status: s.user_status,
+      admission_code: s.ma_dk,
+    },
+    last_login_info: s.last_login_ts ? { ts: s.last_login_ts, device: s.last_login_device } : null,
+    learning_progress: {
+      item_iid: s.item_iid,
+      total_hour_learned: s.total_hour_learned ? parseFloat(s.total_hour_learned) : 0,
+      progress: s.progress ? parseFloat(s.progress) : 0,
+      passed: s.passed === 1 || s.passed === true,
+      learned: s.learned === 1 || s.learned === true,
+      score_by_rubrik: (() => {
+        if (!s.score_by_rubrik) return [];
+        try {
+          const parsed = JSON.parse(s.score_by_rubrik);
+          if (Array.isArray(parsed)) return parsed;
+          if (parsed && typeof parsed === "object") {
+            const arr = parsed.score_by_rubrik || parsed.score_by_rubric;
+            if (Array.isArray(arr)) return arr;
+          }
+          return [];
+        } catch (e) {
+          return [];
+        }
+      })(),
+    }
+  };
 }
 
 // Wrapper tự động retry khi token hết hạn

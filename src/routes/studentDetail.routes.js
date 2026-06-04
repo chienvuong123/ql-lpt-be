@@ -20,4 +20,7 @@ router.post("/learning-time", studentDetailController.getLearningTimeTracking);
 // Route proxy lấy chi tiết thời gian học của một môn từ Lotus
 router.post("/detail-learning-time", studentDetailController.getDetailLearningTime);
 
+// Route đồng bộ ngầm học tập hàng loạt chịu tải an toàn (5s-10s delay)
+router.post("/sync-batch", studentDetailController.syncBatchCourses);
+
 module.exports = router;

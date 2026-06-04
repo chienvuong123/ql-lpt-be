@@ -153,6 +153,39 @@ class StudentDetailController {
       );
     }
   }
+
+  /**
+   * POST /api/student-detail/sync-batch
+   * Trích xuất danh sách khóa học và chạy đồng bộ ngầm chịu tải an toàn
+   */
+  async syncBatchCourses(req, res) {
+    try {
+      const { plans } = req.body;
+      if (!Array.isArray(plans) || plans.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Tham số 'plans' phải là một mảng không rỗng."
+        });
+      }
+
+      // Khởi động tiến trình chạy ngầm
+      studentDetailService.startBatchSync(plans).catch((err) => {
+        console.error("[syncBatchCourses] Background Batch Sync Failed:", err.message);
+      });
+
+      return res.status(202).json({
+        success: true,
+        message: "Tiến trình đồng bộ học viên hàng loạt đã được khởi động chạy ngầm với độ giãn cách an toàn từ 5-10 giây."
+      });
+    } catch (error) {
+      console.error("[syncBatchCourses] Error:", error.message);
+      res.status(500).json({
+        success: false,
+        message: "Lỗi hệ thống khi khởi tạo đồng bộ hàng loạt",
+        error: error.message
+      });
+    }
+  }
 }
 
 module.exports = new StudentDetailController();
