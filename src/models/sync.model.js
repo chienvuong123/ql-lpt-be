@@ -304,6 +304,7 @@ async function getTienDoDaoTaoList(filters = {}) {
   query += ` ORDER BY t.ma_khoa DESC`;
 
   const result = await request.query(query);
+  return result.recordset;
 }
 
 /**
