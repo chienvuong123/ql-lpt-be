@@ -14,6 +14,24 @@ async function getStudentProgressInEnrolmentPlan(params, authInfo) {
   // 1. Check if backup only query is requested
   if (isForceBackup && maDk) {
     const backupRepository = require("../repositories/backup.repository");
+    const cachedLogs = await backupRepository.getTienDoHoanThanh({ ma_dk: maDk, enrolment_plan_iid: planIid });
+    if (cachedLogs && cachedLogs.length > 0) {
+      return {
+        success: true,
+        count: cachedLogs.length,
+        total: cachedLogs.length,
+        result: cachedLogs.map(r => ({
+          iid: Number(r.course_iid),
+          id: r.course_iid,
+          name: r.course_name,
+          cp: r.cp,
+          p: r.p,
+          pf: r.pf,
+          rubric_iid: r.rubric_iid ? Number(r.rubric_iid) : null,
+        })),
+        _is_backup: true
+      };
+    }
     const cached = await backupRepository.getHocVienHocTap(maDk);
     if (cached) {
       return {
@@ -60,7 +78,7 @@ async function getStudentProgressInEnrolmentPlan(params, authInfo) {
     // Asynchronously trigger local database cache backup
     if (maDk) {
       const backupService = require("./backup.service");
-      backupService.backupStudentProgress(maDk, planIid, result).catch(err => {
+      backupService.backupTienDoHoanThanh(maDk, planIid, result).catch(err => {
         console.error("[getStudentProgressInEnrolmentPlan] Local Cache Backup Failed:", err.message);
       });
     }
@@ -70,6 +88,24 @@ async function getStudentProgressInEnrolmentPlan(params, authInfo) {
     console.warn(`[getStudentProgressInEnrolmentPlan] API failed: ${error.message}. Checking local backup fallback...`);
     if (maDk) {
       const backupRepository = require("../repositories/backup.repository");
+      const cachedLogs = await backupRepository.getTienDoHoanThanh({ ma_dk: maDk, enrolment_plan_iid: planIid });
+      if (cachedLogs && cachedLogs.length > 0) {
+        return {
+          success: true,
+          count: cachedLogs.length,
+          total: cachedLogs.length,
+          result: cachedLogs.map(r => ({
+            iid: Number(r.course_iid),
+            id: r.course_iid,
+            name: r.course_name,
+            cp: r.cp,
+            p: r.p,
+            pf: r.pf,
+            rubric_iid: r.rubric_iid ? Number(r.rubric_iid) : null,
+          })),
+          _is_backup: true
+        };
+      }
       const cached = await backupRepository.getHocVienHocTap(maDk);
       if (cached) {
         return {
@@ -101,10 +137,34 @@ async function getUserScoreByRubric(params, authInfo) {
   // 1. Check if backup only query is requested
   if (isForceBackup && maDk) {
     const backupRepository = require("../repositories/backup.repository");
-    const cached = await backupRepository.getHocVienHocTap(maDk);
-    if (cached && cached.score_by_rubrik) {
+    const cached = await backupRepository.getScoreByRubric({ ma_dk: maDk, enrolment_plan_iid: planIid });
+    if (cached && cached.length > 0) {
+      const r = cached[0];
       try {
-        const scoreData = JSON.parse(cached.score_by_rubrik);
+        const scoreByRubrikArray = r.score_by_rubrik ? JSON.parse(r.score_by_rubrik) : [];
+        return {
+          success: true,
+          result: {
+            iid: Number(r.rubric_iid),
+            rubric: {
+              iid: Number(r.rubric_iid),
+              name: r.rubric_name,
+            },
+            score: r.score,
+            cp: r.cp,
+            passed: r.passed,
+            score_by_rubrik: scoreByRubrikArray,
+          },
+          _is_backup: true
+        };
+      } catch (err) {
+        console.error("[getUserScoreByRubric] Failed to parse cached score_by_rubrik from new table:", err.message);
+      }
+    }
+    const cachedLegacy = await backupRepository.getHocVienHocTap(maDk);
+    if (cachedLegacy && cachedLegacy.score_by_rubrik) {
+      try {
+        const scoreData = JSON.parse(cachedLegacy.score_by_rubrik);
         if (Array.isArray(scoreData)) {
           return {
             success: true,
@@ -162,10 +222,34 @@ async function getUserScoreByRubric(params, authInfo) {
     console.warn(`[getUserScoreByRubric] API failed: ${error.message}. Checking local backup fallback...`);
     if (maDk) {
       const backupRepository = require("../repositories/backup.repository");
-      const cached = await backupRepository.getHocVienHocTap(maDk);
-      if (cached && cached.score_by_rubrik) {
+      const cached = await backupRepository.getScoreByRubric({ ma_dk: maDk, enrolment_plan_iid: planIid });
+      if (cached && cached.length > 0) {
+        const r = cached[0];
         try {
-          const scoreData = JSON.parse(cached.score_by_rubrik);
+          const scoreByRubrikArray = r.score_by_rubrik ? JSON.parse(r.score_by_rubrik) : [];
+          return {
+            success: true,
+            result: {
+              iid: Number(r.rubric_iid),
+              rubric: {
+                iid: Number(r.rubric_iid),
+                name: r.rubric_name,
+              },
+              score: r.score,
+              cp: r.cp,
+              passed: r.passed,
+              score_by_rubrik: scoreByRubrikArray,
+            },
+            _is_backup: true
+          };
+        } catch (err) {
+          console.error("[getUserScoreByRubric] Failed to parse cached score_by_rubrik inside fallback:", err.message);
+        }
+      }
+      const cachedLegacy = await backupRepository.getHocVienHocTap(maDk);
+      if (cachedLegacy && cachedLegacy.score_by_rubrik) {
+        try {
+          const scoreData = JSON.parse(cachedLegacy.score_by_rubrik);
           if (Array.isArray(scoreData)) {
             return {
               success: true,

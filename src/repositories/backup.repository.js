@@ -53,6 +53,26 @@ const SCHEMAS = {
     progress: mssql.Decimal(5, 2),
     last_learned_at: mssql.Int,
     last_learned_at_iso: mssql.DateTime2(0),
+  },
+  tdht: {
+    ma_dk: mssql.VarChar,
+    enrolment_plan_iid: mssql.VarChar,
+    course_iid: mssql.VarChar,
+    course_name: mssql.NVarChar,
+    cp: mssql.Decimal(5, 2),
+    p: mssql.Decimal(10, 2),
+    pf: mssql.Int,
+    rubric_iid: mssql.VarChar,
+  },
+  sbr: {
+    ma_dk: mssql.VarChar,
+    enrolment_plan_iid: mssql.VarChar,
+    rubric_iid: mssql.VarChar,
+    rubric_name: mssql.NVarChar,
+    score: mssql.Decimal(10, 2),
+    cp: mssql.Decimal(5, 2),
+    passed: mssql.Int,
+    score_by_rubrik: mssql.NVarChar,
   }
 };
 
@@ -160,6 +180,50 @@ async function getLearningTimeTracking(filters = {}) {
   return result.recordset;
 }
 
+async function getTienDoHoanThanh(filters = {}) {
+  const pool = await connectSQL();
+  const request = pool.request();
+  let where = "WHERE 1=1";
+  
+  if (filters.ma_dk) {
+    request.input("ma_dk", mssql.VarChar, filters.ma_dk);
+    where += " AND ma_dk = @ma_dk";
+  }
+  if (filters.enrolment_plan_iid) {
+    request.input("enrolment_plan_iid", mssql.VarChar, filters.enrolment_plan_iid);
+    where += " AND enrolment_plan_iid = @enrolment_plan_iid";
+  }
+  
+  const result = await request.query(`
+    SELECT * FROM [BACK_UP].[dbo].[backup_tien_do_hoan_thanh] WITH (NOLOCK)
+    ${where}
+    ORDER BY id ASC
+  `);
+  return result.recordset;
+}
+
+async function getScoreByRubric(filters = {}) {
+  const pool = await connectSQL();
+  const request = pool.request();
+  let where = "WHERE 1=1";
+  
+  if (filters.ma_dk) {
+    request.input("ma_dk", mssql.VarChar, filters.ma_dk);
+    where += " AND ma_dk = @ma_dk";
+  }
+  if (filters.enrolment_plan_iid) {
+    request.input("enrolment_plan_iid", mssql.VarChar, filters.enrolment_plan_iid);
+    where += " AND enrolment_plan_iid = @enrolment_plan_iid";
+  }
+  
+  const result = await request.query(`
+    SELECT * FROM [BACK_UP].[dbo].[backup_score_by_rubric] WITH (NOLOCK)
+    ${where}
+    ORDER BY id ASC
+  `);
+  return result.recordset;
+}
+
 // 3. Single Upsert implementations
 async function upsertHocVienKhoaItem(pool, record) {
   const request = pool.request();
@@ -235,6 +299,34 @@ async function upsertLearningTimeItem(pool, record) {
   `);
 }
 
+async function upsertTienDoHoanThanhItem(pool, record) {
+  const request = pool.request();
+  bindInputs(request, record, SCHEMAS.tdht);
+  await request.query(`
+    IF EXISTS (SELECT 1 FROM [BACK_UP].[dbo].[backup_tien_do_hoan_thanh] WHERE ma_dk = @ma_dk AND enrolment_plan_iid = @enrolment_plan_iid AND course_iid = @course_iid)
+      UPDATE [BACK_UP].[dbo].[backup_tien_do_hoan_thanh] SET
+        course_name = @course_name, cp = @cp, p = @p, pf = @pf, rubric_iid = @rubric_iid, synced_at = SYSDATETIME()
+      WHERE ma_dk = @ma_dk AND enrolment_plan_iid = @enrolment_plan_iid AND course_iid = @course_iid;
+    ELSE
+      INSERT INTO [BACK_UP].[dbo].[backup_tien_do_hoan_thanh] (ma_dk, enrolment_plan_iid, course_iid, course_name, cp, p, pf, rubric_iid)
+      VALUES (@ma_dk, @enrolment_plan_iid, @course_iid, @course_name, @cp, @p, @pf, @rubric_iid);
+  `);
+}
+
+async function upsertScoreByRubricTableItem(pool, record) {
+  const request = pool.request();
+  bindInputs(request, record, SCHEMAS.sbr);
+  await request.query(`
+    IF EXISTS (SELECT 1 FROM [BACK_UP].[dbo].[backup_score_by_rubric] WHERE ma_dk = @ma_dk AND enrolment_plan_iid = @enrolment_plan_iid AND rubric_iid = @rubric_iid)
+      UPDATE [BACK_UP].[dbo].[backup_score_by_rubric] SET
+        rubric_name = @rubric_name, score = @score, cp = @cp, passed = @passed, score_by_rubrik = @score_by_rubrik, synced_at = SYSDATETIME()
+      WHERE ma_dk = @ma_dk AND enrolment_plan_iid = @enrolment_plan_iid AND rubric_iid = @rubric_iid;
+    ELSE
+      INSERT INTO [BACK_UP].[dbo].[backup_score_by_rubric] (ma_dk, enrolment_plan_iid, rubric_iid, rubric_name, score, cp, passed, score_by_rubrik)
+      VALUES (@ma_dk, @enrolment_plan_iid, @rubric_iid, @rubric_name, @score, @cp, @passed, @score_by_rubrik);
+  `);
+}
+
 // 4. Batch Upsert wrappers
 async function upsertHocVienKhoa(records) {
   if (!records || !records.length) return 0;
@@ -282,6 +374,27 @@ async function upsertLearningTimeTracking(records) {
     );
   }
   return records.length;
+}
+
+async function upsertTienDoHoanThanh(records) {
+  if (!records || !records.length) return 0;
+  const pool = await connectSQL();
+  for (const record of records) {
+    if (!record.ma_dk || !record.enrolment_plan_iid || !record.course_iid) continue;
+    await upsertTienDoHoanThanhItem(pool, record).catch(err => 
+      console.error("[backupRepo] upsertTienDoHoanThanh single record failed:", err.message)
+    );
+  }
+  return records.length;
+}
+
+async function upsertScoreByRubricTable(record) {
+  if (!record || !record.ma_dk || !record.enrolment_plan_iid || !record.rubric_iid) return 0;
+  const pool = await connectSQL();
+  await upsertScoreByRubricTableItem(pool, record).catch(err => 
+    console.error("[backupRepo] upsertScoreByRubricTable single record failed:", err.message)
+  );
+  return 1;
 }
 
 async function getHocVienHocTap(maDk) {
@@ -450,6 +563,40 @@ async function initializeBackupDatabase() {
         );
       END;
 
+      IF OBJECT_ID(N'dbo.backup_tien_do_hoan_thanh', N'U') IS NULL
+      BEGIN
+        CREATE TABLE dbo.backup_tien_do_hoan_thanh (
+          id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+          ma_dk VARCHAR(100) NOT NULL,
+          enrolment_plan_iid VARCHAR(100) NOT NULL,
+          course_iid VARCHAR(100) NOT NULL,
+          course_name NVARCHAR(255) NULL,
+          cp DECIMAL(5,2) NOT NULL DEFAULT 0.0,
+          p DECIMAL(10,2) NOT NULL DEFAULT 0.0,
+          pf INT NOT NULL DEFAULT 0,
+          rubric_iid VARCHAR(100) NULL,
+          synced_at DATETIME2(0) NOT NULL DEFAULT SYSDATETIME(),
+          CONSTRAINT UQ_backup_tien_do_hoan_thanh UNIQUE (ma_dk, enrolment_plan_iid, course_iid)
+        );
+      END;
+
+      IF OBJECT_ID(N'dbo.backup_score_by_rubric', N'U') IS NULL
+      BEGIN
+        CREATE TABLE dbo.backup_score_by_rubric (
+          id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+          ma_dk VARCHAR(100) NOT NULL,
+          enrolment_plan_iid VARCHAR(100) NOT NULL,
+          rubric_iid VARCHAR(100) NOT NULL,
+          rubric_name NVARCHAR(255) NULL,
+          score DECIMAL(10,2) NOT NULL DEFAULT 0.0,
+          cp DECIMAL(5,2) NOT NULL DEFAULT 0.0,
+          passed INT NOT NULL DEFAULT 0,
+          score_by_rubrik NVARCHAR(MAX) NULL,
+          synced_at DATETIME2(0) NOT NULL DEFAULT SYSDATETIME(),
+          CONSTRAINT UQ_backup_score_by_rubric UNIQUE (ma_dk, enrolment_plan_iid, rubric_iid)
+        );
+      END;
+
       USE [${process.env.DB_DATABASE || "QUAN_LY_LPT"}];
     `);
     console.log("[backupRepo] Database BACK_UP and all backup tables initialized/verified.");
@@ -463,11 +610,15 @@ module.exports = {
   getCameraSnapshots,
   getTimeTrackingLogs,
   getLearningTimeTracking,
+  getTienDoHoanThanh,
+  getScoreByRubric,
   getHocVienHocTap,
   upsertHocVienKhoa,
   upsertCameraSnapshots,
   upsertTimeTrackingLogs,
   upsertLearningTimeTracking,
+  upsertTienDoHoanThanh,
+  upsertScoreByRubricTable,
   upsertHocVienHocTap,
   upsertScoreByRubric,
   initializeBackupDatabase,

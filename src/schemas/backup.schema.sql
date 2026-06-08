@@ -130,3 +130,46 @@ BEGIN
   CREATE NONCLUSTERED INDEX idx_backup_lt_ma_dk ON dbo.backup_learning_time(ma_dk, enrolment_plan_iid) INCLUDE (item_iid, total_time, progress);
   CREATE NONCLUSTERED INDEX idx_backup_lt_item ON dbo.backup_learning_time(item_iid);
 END;
+
+-- 5. Table: backup_tien_do_hoan_thanh (caches /tien-do-hoan-thanh)
+IF OBJECT_ID(N'dbo.backup_tien_do_hoan_thanh', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.backup_tien_do_hoan_thanh (
+    id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    ma_dk VARCHAR(100) NOT NULL,
+    enrolment_plan_iid VARCHAR(100) NOT NULL,
+    course_iid VARCHAR(100) NOT NULL,
+    course_name NVARCHAR(255) NULL,
+    cp DECIMAL(5,2) NOT NULL DEFAULT 0.0,
+    p DECIMAL(10,2) NOT NULL DEFAULT 0.0,
+    pf INT NOT NULL DEFAULT 0,
+    rubric_iid VARCHAR(100) NULL,
+    synced_at DATETIME2(0) NOT NULL DEFAULT SYSDATETIME(),
+    
+    CONSTRAINT UQ_backup_tien_do_hoan_thanh UNIQUE (ma_dk, enrolment_plan_iid, course_iid)
+  );
+  
+  CREATE NONCLUSTERED INDEX idx_backup_tdht_ma_dk ON dbo.backup_tien_do_hoan_thanh(ma_dk, enrolment_plan_iid);
+END;
+
+-- 6. Table: backup_score_by_rubric (caches /score-by-rubric)
+IF OBJECT_ID(N'dbo.backup_score_by_rubric', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.backup_score_by_rubric (
+    id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    ma_dk VARCHAR(100) NOT NULL,
+    enrolment_plan_iid VARCHAR(100) NOT NULL,
+    rubric_iid VARCHAR(100) NOT NULL,
+    rubric_name NVARCHAR(255) NULL,
+    score DECIMAL(10,2) NOT NULL DEFAULT 0.0,
+    cp DECIMAL(5,2) NOT NULL DEFAULT 0.0,
+    passed INT NOT NULL DEFAULT 0,
+    score_by_rubrik NVARCHAR(MAX) NULL, -- JSON string of detailed rubric scores
+    synced_at DATETIME2(0) NOT NULL DEFAULT SYSDATETIME(),
+    
+    CONSTRAINT UQ_backup_score_by_rubric UNIQUE (ma_dk, enrolment_plan_iid, rubric_iid)
+  );
+  
+  CREATE NONCLUSTERED INDEX idx_backup_sbr_ma_dk ON dbo.backup_score_by_rubric(ma_dk, enrolment_plan_iid);
+END;
+
