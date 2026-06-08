@@ -364,6 +364,100 @@ async function upsertScoreByRubric(maDk, enrolmentPlanIid, scoreJson) {
   return 1;
 }
 
+async function initializeBackupDatabase() {
+  const pool = await connectSQL();
+  const request = pool.request();
+  try {
+    // 1. Create BACK_UP database if not exists
+    await request.query(`
+      IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = N'BACK_UP')
+      BEGIN
+        CREATE DATABASE [BACK_UP];
+      END
+    `);
+    
+    // 2. Create tables inside BACK_UP
+    await request.query(`
+      USE [BACK_UP];
+
+      IF OBJECT_ID(N'dbo.hoc_vien_hoc_tap', N'U') IS NULL
+      BEGIN
+        CREATE TABLE dbo.hoc_vien_hoc_tap (
+          ma_dk VARCHAR(100) NOT NULL PRIMARY KEY,
+          ma_khoa VARCHAR(20) NULL,
+          enrolment_plan_iid VARCHAR(100) NULL,
+          total_hour_learned DECIMAL(10, 2) NOT NULL DEFAULT 0.0,
+          progress DECIMAL(5, 2) NOT NULL DEFAULT 0.0,
+          passed BIT NOT NULL DEFAULT 0,
+          learned BIT NOT NULL DEFAULT 0,
+          score_by_rubrik NVARCHAR(MAX) NULL,
+          updated_at DATETIME2(0) NOT NULL DEFAULT SYSDATETIME()
+        );
+      END;
+
+      IF OBJECT_ID(N'dbo.backup_camera_snapshot', N'U') IS NULL
+      BEGIN
+        CREATE TABLE dbo.backup_camera_snapshot (
+          id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+          lotus_snapshot_id VARCHAR(100) NULL,
+          ma_dk VARCHAR(100) NOT NULL,
+          enrolment_plan_iid VARCHAR(100) NULL,
+          item_iid VARCHAR(100) NULL,
+          image_url VARCHAR(500) NOT NULL,
+          captured_at INT NOT NULL,
+          captured_at_iso DATETIME2(0) NULL,
+          verify_status NVARCHAR(50) NULL,
+          synced_at DATETIME2(0) NOT NULL DEFAULT SYSDATETIME(),
+          CONSTRAINT UQ_backup_camera_snapshot UNIQUE (ma_dk, captured_at, image_url)
+        );
+      END;
+
+      IF OBJECT_ID(N'dbo.backup_time_tracking', N'U') IS NULL
+      BEGIN
+        CREATE TABLE dbo.backup_time_tracking (
+          id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+          lotus_log_id VARCHAR(100) NULL,
+          ma_dk VARCHAR(100) NOT NULL,
+          enrolment_plan_iid VARCHAR(100) NULL,
+          item_iid VARCHAR(100) NULL,
+          item_name NVARCHAR(255) NULL,
+          start_time INT NOT NULL,
+          start_time_iso DATETIME2(0) NULL,
+          end_time INT NULL,
+          end_time_iso DATETIME2(0) NULL,
+          duration INT NOT NULL DEFAULT 0,
+          device NVARCHAR(255) NULL,
+          ip_address VARCHAR(50) NULL,
+          synced_at DATETIME2(0) NOT NULL DEFAULT SYSDATETIME(),
+          CONSTRAINT UQ_backup_time_tracking UNIQUE (ma_dk, start_time, item_iid)
+        );
+      END;
+
+      IF OBJECT_ID(N'dbo.backup_learning_time', N'U') IS NULL
+      BEGIN
+        CREATE TABLE dbo.backup_learning_time (
+          id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+          ma_dk VARCHAR(100) NOT NULL,
+          enrolment_plan_iid VARCHAR(100) NOT NULL,
+          item_iid VARCHAR(100) NOT NULL,
+          item_name NVARCHAR(255) NULL,
+          total_time INT NOT NULL DEFAULT 0,
+          progress DECIMAL(5,2) NOT NULL DEFAULT 0.0,
+          last_learned_at INT NULL,
+          last_learned_at_iso DATETIME2(0) NULL,
+          synced_at DATETIME2(0) NOT NULL DEFAULT SYSDATETIME(),
+          CONSTRAINT UQ_backup_learning_time UNIQUE (ma_dk, enrolment_plan_iid, item_iid)
+        );
+      END;
+
+      USE [${process.env.DB_DATABASE || "QUAN_LY_LPT"}];
+    `);
+    console.log("[backupRepo] Database BACK_UP and all backup tables initialized/verified.");
+  } catch (err) {
+    console.error("[backupRepo] Failed to initialize BACK_UP database:", err.message);
+  }
+}
+
 module.exports = {
   getHocVienKhoa,
   getCameraSnapshots,
@@ -376,4 +470,5 @@ module.exports = {
   upsertLearningTimeTracking,
   upsertHocVienHocTap,
   upsertScoreByRubric,
+  initializeBackupDatabase,
 };

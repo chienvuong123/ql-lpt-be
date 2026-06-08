@@ -103,15 +103,14 @@ async function startServer() {
     await connectSQL();
     console.log("✅ Database ready");
 
+    // Initialize/verify backup database structure
+    const backupRepository = require("./src/repositories/backup.repository");
+    await backupRepository.initializeBackupDatabase();
+
     const cronService = require("./src/services/cron.service");
     cronService.init();
 
-    connectSQL().then(() => {
-      app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-    }).catch(err => {
-      console.error('Cannot connect to DB, shutting down', err);
-      process.exit(1);
-    });
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   } catch (err) {
     console.error("❌ Server failed to start:", err.message);
     process.exit(1);
