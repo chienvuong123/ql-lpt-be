@@ -396,63 +396,92 @@ async function getKhoaHocList() {
 }
 
 
+// ============================================================
+// MODEL: getHocVienSearch
+// ============================================================
 async function getHocVienSearch(filters = {}) {
   const pool = await connectSQL();
   const request = new mssql.Request(pool);
-  request.timeout = 60000;
+  request.timeout = 30000; // Giảm từ 60s → 30s, nếu chậm hơn là có vấn đề khác
 
   let whereClause = "WHERE 1=1";
 
-  // 1. Tìm kiếm CHUNG theo Tên, Mã ĐK, CCCD (Nãy đã đồng bộ kiểu NVARCHAR)
-  // Phân tích input để tránh quét toàn bộ bảng và tối ưu hóa index
+  // 1. Tìm kiếm chung: Tên, Mã ĐK, CCCD
   if (filters.search) {
     const trimmed = filters.search.trim();
-    const hasSpace = trimmed.includes(" ");
     const isNumeric = /^\d+$/.test(trimmed);
-
-    request.input("searchUnicode", mssql.NVarChar, `%${trimmed}%`);
+    const hasSpace = trimmed.includes(" ");
 
     if (isNumeric) {
+      // Số → trailing wildcard → Index Seek được
+      request.input("searchUnicode", mssql.NVarChar, `${trimmed}%`);
       whereClause += ` AND (hv.ma_dk LIKE @searchUnicode OR hv.cccd LIKE @searchUnicode)`;
     } else if (hasSpace) {
-      whereClause += ` AND (hv.ho_ten LIKE @searchUnicode)`;
+      // Có khoảng trắng → chắc chắn là họ tên đầy đủ → chấp nhận full scan
+      request.input("searchUnicode", mssql.NVarChar, `%${trimmed}%`);
+      whereClause += ` AND hv.ho_ten LIKE @searchUnicode`;
     } else {
+      // Từ đơn → trailing wildcard → Index Seek được
+      request.input("searchUnicode", mssql.NVarChar, `${trimmed}%`);
       whereClause += ` AND (hv.ho_ten LIKE @searchUnicode OR hv.ma_dk LIKE @searchUnicode)`;
     }
   }
 
-  // 2. Tìm kiếm RIÊNG theo Mã ĐK
+  // 2. Lọc riêng theo Mã ĐK (exact match)
   if (filters.ma_dk) {
-    request.input("ma_dk", mssql.NVarChar, filters.ma_dk);
+    request.input("ma_dk", mssql.NVarChar, filters.ma_dk.trim());
     whereClause += ` AND hv.ma_dk = @ma_dk`;
   }
 
-  // 3. Tìm kiếm theo Mã Khóa (Tránh leading wildcard để sử dụng Index Seek)
+  // 3. Lọc theo Mã Khóa — chuẩn hóa 1 giá trị, dùng = thay vì OR
   if (filters.ma_khoa) {
-    const prefixedMk = filters.ma_khoa.startsWith("30004") ? filters.ma_khoa : "30004" + filters.ma_khoa;
-    request.input("ma_khoa", mssql.NVarChar, filters.ma_khoa);
-    request.input("prefixed_ma_khoa", mssql.NVarChar, prefixedMk);
-    whereClause += ` AND (hv.ma_khoa = @ma_khoa OR hv.ma_khoa = @prefixed_ma_khoa)`;
+    const normalizedMk = filters.ma_khoa.trim().startsWith("30004")
+      ? filters.ma_khoa.trim()
+      : "30004" + filters.ma_khoa.trim();
+    request.input("ma_khoa", mssql.NVarChar, normalizedMk);
+    whereClause += ` AND hv.ma_khoa = @ma_khoa`;
+  }
+
+  // 4. Lọc theo giáo viên (nếu có)
+  if (filters.giao_vien) {
+    request.input("giao_vien", mssql.NVarChar, filters.giao_vien.trim());
+    whereClause += ` AND dk.giao_vien = @giao_vien`;
+  }
+
+  // 5. Lọc theo năm sinh giáo viên (nếu có)
+  if (filters.nam_sinh_gv) {
+    request.input("nam_sinh_gv", mssql.NVarChar, filters.nam_sinh_gv.trim());
+    whereClause += ` AND dk.nam_sinh_gv = @nam_sinh_gv`;
   }
 
   const query = `
-    WITH TopStudents AS (
-        SELECT TOP 200 
-            hv.[id], hv.[ma_dk], hv.[ho], hv.[ten], hv.[ho_ten], hv.[cccd], 
-            hv.[dia_chi], hv.[anh], hv.[ma_khoa], hv.[ngay_sinh], hv.[ma_csdt], 
-            hv.[hang_gplx], hv.[hang], hv.[gioi_tinh],
-            dk.giao_vien, dk.xe_b1, dk.xe_b2
-        FROM [dbo].[hoc_vien] hv WITH (NOLOCK)
-        INNER JOIN [dbo].[dang_ky_xe_gv] dk WITH (NOLOCK) ON dk.ma_dk = hv.ma_dk
-        ${whereClause}
-        ORDER BY hv.ho_ten ASC
-    )
-    SELECT ts.*, kh.ten_khoa
-    FROM TopStudents ts
-    LEFT JOIN [dbo].[khoa_hoc] kh WITH (NOLOCK) ON ts.ma_khoa = kh.ma_khoa
-    ORDER BY ts.ho_ten ASC
-    OPTION (RECOMPILE); -- Từ khóa "vàng" quyết định việc ép SQL Server chạy dưới 100ms
+    SELECT TOP 200
+        hv.[id],
+        hv.[ma_dk],
+        hv.[ho],
+        hv.[ten],
+        hv.[ho_ten],
+        hv.[cccd],
+        hv.[dia_chi],
+        hv.[anh],
+        hv.[ma_khoa],
+        hv.[ngay_sinh],
+        hv.[ma_csdt],
+        hv.[hang_gplx],
+        hv.[hang],
+        hv.[gioi_tinh],
+        dk.giao_vien,
+        dk.xe_b1,
+        dk.xe_b2,
+        kh.ten_khoa
+    FROM [dbo].[hoc_vien] hv WITH (NOLOCK)
+    INNER JOIN [dbo].[dang_ky_xe_gv] dk WITH (NOLOCK) ON dk.ma_dk = hv.ma_dk
+    LEFT JOIN [dbo].[khoa_hoc] kh WITH (NOLOCK) ON kh.ma_khoa = hv.ma_khoa
+    ${whereClause}
+    ORDER BY hv.ho_ten ASC
+    OPTION (RECOMPILE);
   `;
+  // Bỏ CTE + double ORDER BY → flat query, 1 lần sort, join thẳng
 
   const result = await request.query(query);
   return result.recordset;

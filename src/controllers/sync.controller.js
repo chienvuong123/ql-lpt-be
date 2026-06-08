@@ -361,18 +361,42 @@ class SyncController {
    * GET /api/sync/students
    * Get list of students with search and course filters
    */
+  // ============================================================
+  // CONTROLLER: getStudentsList
+  // ============================================================
   async getStudentsList(req, res) {
-    const { search, ma_khoa, giao_vien, nam_sinh_gv } = { ...req.query, ...req.body };
+    // Lấy đủ các filter kể cả giao_vien, nam_sinh_gv
+    const { search, ma_khoa, ma_dk, giao_vien, nam_sinh_gv } = {
+      ...req.query,
+      ...req.body,
+    };
+
+    // Validate: bắt buộc ít nhất 1 điều kiện để tránh quét toàn bảng
+    const hasFilter = search || ma_khoa || ma_dk || giao_vien || nam_sinh_gv;
+    if (!hasFilter) {
+      return res.status(400).json({
+        success: false,
+        message: "Vui lòng nhập ít nhất 1 điều kiện tìm kiếm",
+      });
+    }
 
     try {
-      const list = await syncService.getHocVienSearch({ search, ma_khoa, giao_vien, nam_sinh_gv });
-      res.status(200).json({
+      const list = await syncService.getHocVienSearch({
+        search,
+        ma_khoa,
+        ma_dk,
+        giao_vien,
+        nam_sinh_gv,
+      });
+
+      return res.status(200).json({
         success: true,
+        total: list.length,
         data: list,
       });
     } catch (err) {
       console.error("[SyncController] getStudentsList error:", err);
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         message: "Lỗi lấy danh sách học viên",
         error: err.message,
