@@ -10,6 +10,8 @@ const {
   computeSummary,
   evaluate,
   HANG_DAO_TAO_CONFIG,
+  setSystemConfig,
+  getInvalidSessionIndexes,
 } = require("../utils/evaluate");
 
 const HANH_TRINH_BASE = "http://113.160.131.3:7782";
@@ -63,7 +65,7 @@ async function withRetry(fn, retries = 3, baseDelayMs = 300) {
 async function getStudentInfo(maDK) {
   try {
     const pool = await connectSQL();
-    const result = await pool.request()
+    let result = await pool.request()
       .input("maDangKy", mssql.VarChar, maDK)
       .query(`
         SELECT TOP 1 stt, ma_dang_ky AS maDangKy, khoa_hoc AS khoaHoc, ho_va_ten AS hoVaTen, 
@@ -73,6 +75,21 @@ async function getStudentInfo(maDK) {
                created_at AS createdAt, updated_at AS updatedAt
         FROM [dbo].[check_data_students] WITH (NOLOCK)
         WHERE ma_dang_ky = @maDangKy
+      `);
+    if (result.recordset && result.recordset.length > 0) {
+      return result.recordset[0];
+    }
+
+    result = await pool.request()
+      .input("maDK", mssql.VarChar, maDK)
+      .query(`
+        SELECT TOP 1 stt, ma_dk AS maDangKy, khoa AS khoaHoc, ho_ten AS hoVaTen, 
+               ngay_sinh AS ngaySinh, gioi_tinh AS gioiTinh, cccd AS soCMND, 
+               dia_chi AS diaChiThuongTru, ngay_nhap AS ngayNhap, 
+               giao_vien AS giaoVien, xe_b2 AS xeB2, xe_b1 AS xeB1, ghi_chu AS ghiChu, 
+               created_at AS createdAt, updated_at AS updatedAt
+        FROM [dbo].[dang_ky_xe_gv] WITH (NOLOCK)
+        WHERE ma_dk = @maDK
       `);
     return result.recordset[0] || null;
   } catch (err) {
@@ -88,9 +105,62 @@ async function getStudentInfo(maDK) {
 function isDuDieuKienToiThieu(summary, hangDaoTao) {
   const cfg = HANG_DAO_TAO_CONFIG[hangDaoTao] || HANG_DAO_TAO_CONFIG["B.01"];
   return (
-    summary.tongThoiGianGio >= cfg.thoiGian.tong &&
-    summary.tongQuangDuong >= cfg.quangDuong.tong
+    summary.tongThoiGianChuaLoaiGio >= cfg.thoiGian.tong &&
+    summary.tongQuangDuongChuaLoai >= cfg.quangDuong.tong
   );
+}
+
+function buildStatusMap(phienHocList = []) {
+  const statusMap = {};
+  
+  const formatDate = (val) => {
+    if (!val) return "";
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return "";
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
+  const formatTime = (val) => {
+    if (!val) return "";
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return "";
+    const h = String(d.getHours()).padStart(2, "0");
+    const min = String(d.getMinutes()).padStart(2, "0");
+    const sec = String(d.getSeconds()).padStart(2, "0");
+    return `${h}:${min}:${sec}`;
+  };
+
+  const normalizePlateStr = (plate) => {
+    if (!plate) return "";
+    return plate.replace(/[-.\s]/g, "").toUpperCase().trim();
+  };
+
+  phienHocList.forEach((row) => {
+    const status = row.trang_thai;
+    if (status !== "DUYET" && status !== "HUY") return;
+
+    const sessionId = row.phien_hoc_id || row.id;
+    if (sessionId) {
+      statusMap[`id:${sessionId}`] = { status };
+    }
+
+    const date = formatDate(row.ngay || row.gio_tu);
+    const startTime = formatTime(row.gio_tu);
+    const endTime = formatTime(row.gio_den);
+    const plate = normalizePlateStr(row.bien_so_xe);
+
+    if (date && plate && startTime && endTime) {
+      statusMap[`slot:${date}|${plate}|${startTime}|${endTime}`] = { status };
+    }
+    if (date && startTime && endTime) {
+      statusMap[`time:${date}|${startTime}|${endTime}`] = { status };
+    }
+  });
+
+  return statusMap;
 }
 
 // ─── Controller ───────────────────────────────────────────────────────────────
@@ -112,6 +182,8 @@ async function evaluateOne(req, res) {
   const endDate = ngayketthuc || new Date().toISOString().slice(0, 19);
 
   try {
+    const pool = await connectSQL();
+
     // 1. Lấy token
     const { token } = await getCachedToken();
 
@@ -159,15 +231,59 @@ async function evaluateOne(req, res) {
       });
     }
 
+    // Fetch configs, forbidden zones, and phien_hoc_dat records in parallel
+    const [checkConfigs, forbiddenZoneRows, phienHocList, studentInfo] = await Promise.all([
+      pool.request().query(`
+        SELECT check_key, enabled, start_date, value
+        FROM check_configs
+      `).then(r => r.recordset.map(row => {
+        let val = row.value;
+        if (val !== null && val !== undefined) {
+          try {
+            val = JSON.parse(val);
+          } catch (e) {
+            if (!isNaN(val) && String(val).trim() !== "") {
+              val = Number(val);
+            }
+          }
+        }
+        return { ...row, value: val };
+      })).catch(() => []),
+      pool.request().query(`
+        SELECT name, lat, lng, radius_m, enabled
+        FROM forbidden_zones
+      `).then(r => r.recordset).catch(() => []),
+      pool.request()
+        .input("ma_dk", mssql.VarChar, ma_dk)
+        .query(`
+          SELECT phien_hoc_id, id, ngay, gio_tu, gio_den, bien_so_xe, trang_thai
+          FROM phien_hoc_dat
+          WHERE ma_dk = @ma_dk
+        `).then(r => r.recordset).catch(() => []),
+      getStudentInfo(ma_dk)
+    ]);
+
+    const configMap = {};
+    checkConfigs.forEach((cfg) => {
+      configMap[cfg.check_key] = {
+        enabled: cfg.enabled,
+        startDate: cfg.start_date,
+        value: cfg.value,
+      };
+    });
+    setSystemConfig(configMap);
+
+    const forbiddenZones = forbiddenZoneRows.filter((z) => z.enabled === true || z.enabled === 1);
+    const statusMap = buildStatusMap(phienHocList);
+
     // 4. Tính summary
     const hangDaoTao = dataSource[0]?.HangDaoTao || "B.01";
-    const summary = computeSummary(dataSource, hangDaoTao);
-
-    // 5. Lấy studentInfo để check GV + xe
-    const studentInfo = await getStudentInfo(ma_dk);
+    const summary = computeSummary(dataSource, hangDaoTao, studentInfo, [], [], statusMap);
 
     // 6. Evaluate
-    const evalResult = evaluate(summary, dataSource, studentInfo);
+    const evalResult = evaluate(summary, dataSource, [], studentInfo, [], statusMap);
+    const { invalidIndexes, tuDongLoiIndexes, invalidReasons } =
+      getInvalidSessionIndexes(dataSource, studentInfo, [], [], statusMap);
 
     // 7. Trả về đầy đủ thông tin để debug
     const cfg = HANG_DAO_TAO_CONFIG[hangDaoTao] || HANG_DAO_TAO_CONFIG["B.01"];
@@ -220,6 +336,11 @@ async function evaluateOne(req, res) {
         tongQuangDuongKm: s.TongQuangDuong,
         thoiGianBanDemGiay: s.ThoiGianBanDem || 0,
         quangDuongBanDemKm: s.QuangDuongBanDem || 0,
+        isValid: !invalidIndexes.has(idx),
+        isTuDongLoi: tuDongLoiIndexes.has(idx),
+        sessionErrors: (invalidReasons.get(idx) || []).map((msg) => ({
+          message: msg,
+        })),
       })),
     });
   } catch (err) {

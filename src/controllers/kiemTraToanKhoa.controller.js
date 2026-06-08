@@ -11,6 +11,7 @@ const {
   computeSummary,
   evaluate,
   getInvalidSessionIndexes,
+  setSystemConfig,
 } = require("../utils/evaluate");
 
 const { LOCAL_BASE } = require("../constants/base");
@@ -165,16 +166,41 @@ async function getAllStudentCheckDataCached() {
 
   try {
     const pool = await connectSQL();
-    const result = await pool.request().query(`
-      SELECT stt, ma_dang_ky AS maDangKy, khoa_hoc AS khoaHoc, ho_va_ten AS hoVaTen, 
-             ngay_sinh AS ngaySinh, gioi_tinh AS gioiTinh, so_cmnd AS soCMND, 
-             dia_chi_thuong_tru AS diaChiThuongTru, ngay_nhap AS ngayNhap, 
-             giao_vien AS giaoVien, xe_b2 AS xeB2, xe_b1 AS xeB1, ghi_chu AS ghiChu, 
-             created_at AS createdAt, updated_at AS updatedAt
-      FROM [dbo].[check_data_students] WITH (NOLOCK)
-    `);
-    const list = result.recordset || [];
+    const [checkResult, regResult] = await Promise.all([
+      pool.request().query(`
+        SELECT stt, ma_dang_ky AS maDangKy, khoa_hoc AS khoaHoc, ho_va_ten AS hoVaTen, 
+               ngay_sinh AS ngaySinh, gioi_tinh AS gioiTinh, so_cmnd AS soCMND, 
+               dia_chi_thuong_tru AS diaChiThuongTru, ngay_nhap AS ngayNhap, 
+               giao_vien AS giaoVien, xe_b2 AS xeB2, xe_b1 AS xeB1, ghi_chu AS ghiChu, 
+               created_at AS createdAt, updated_at AS updatedAt
+        FROM [dbo].[check_data_students] WITH (NOLOCK)
+      `),
+      pool.request().query(`
+        SELECT stt, ma_dk AS maDangKy, khoa AS khoaHoc, ho_ten AS hoVaTen, 
+               ngay_sinh AS ngaySinh, gioi_tinh AS gioiTinh, cccd AS soCMND, 
+               dia_chi AS diaChiThuongTru, ngay_nhap AS ngayNhap, 
+               giao_vien AS giaoVien, xe_b2 AS xeB2, xe_b1 AS xeB1, ghi_chu AS ghiChu, 
+               created_at AS createdAt, updated_at AS updatedAt
+        FROM [dbo].[dang_ky_xe_gv] WITH (NOLOCK)
+      `)
+    ]);
 
+    const checkList = checkResult.recordset || [];
+    const regList = regResult.recordset || [];
+
+    const map = new Map();
+    regList.forEach(item => {
+      if (item.maDangKy) {
+        map.set(item.maDangKy, item);
+      }
+    });
+    checkList.forEach(item => {
+      if (item.maDangKy) {
+        map.set(item.maDangKy, item);
+      }
+    });
+
+    const list = Array.from(map.values());
     _studentCheckCache = { ts: now, data: list };
     return list;
   } catch (err) {
@@ -273,11 +299,65 @@ function withConcurrencyLimit(tasks, limit, signal) {
   });
 }
 
+function buildStatusMap(phienHocList = []) {
+  const statusMap = {};
+  
+  const formatDate = (val) => {
+    if (!val) return "";
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return "";
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
+  const formatTime = (val) => {
+    if (!val) return "";
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return "";
+    const h = String(d.getHours()).padStart(2, "0");
+    const min = String(d.getMinutes()).padStart(2, "0");
+    const sec = String(d.getSeconds()).padStart(2, "0");
+    return `${h}:${min}:${sec}`;
+  };
+
+  const normalizePlateStr = (plate) => {
+    if (!plate) return "";
+    return plate.replace(/[-.\s]/g, "").toUpperCase().trim();
+  };
+
+  phienHocList.forEach((row) => {
+    const status = row.trang_thai;
+    if (status !== "DUYET" && status !== "HUY") return;
+
+    const sessionId = row.phien_hoc_id || row.id;
+    if (sessionId) {
+      statusMap[`id:${sessionId}`] = { status };
+    }
+
+    const date = formatDate(row.ngay || row.gio_tu);
+    const startTime = formatTime(row.gio_tu);
+    const endTime = formatTime(row.gio_den);
+    const plate = normalizePlateStr(row.bien_so_xe);
+
+    if (date && plate && startTime && endTime) {
+      statusMap[`slot:${date}|${plate}|${startTime}|${endTime}`] = { status };
+    }
+    if (date && startTime && endTime) {
+      statusMap[`time:${date}|${startTime}|${endTime}`] = { status };
+    }
+  });
+
+  return statusMap;
+}
+
 // ─── Core Fetch & Evaluate ─────────────────────────────────────
 async function fetchAndEvaluate(
   { maDK, maKhoaHoc },
   { ngaybatdau, endDate, signal },
   studentCheckMap,
+  statusMap = {},
 ) {
   const cacheKey = `${maDK}::${maKhoaHoc}::${ngaybatdau}::${endDate}`;
   const cached = getCached(cacheKey);
@@ -289,6 +369,7 @@ async function fetchAndEvaluate(
       { ngaybatdau, endDate, signal },
       studentCheckMap,
       cacheKey,
+      statusMap,
     ),
   );
 }
@@ -298,6 +379,7 @@ async function _fetchRaw(
   { ngaybatdau, endDate, signal },
   studentCheckMap,
   cacheKey,
+  statusMap = {},
 ) {
   try {
     const params = new URLSearchParams({
@@ -349,11 +431,11 @@ async function _fetchRaw(
     }
 
     const hangDaoTao = dataSource[0]?.HangDaoTao || "B.01";
-    const summary = computeSummary(dataSource, hangDaoTao, studentInfo);
+    const summary = computeSummary(dataSource, hangDaoTao, studentInfo, [], [], statusMap);
 
-    const evalResult = evaluate(summary, dataSource, studentInfo);
+    const evalResult = evaluate(summary, dataSource, [], studentInfo, [], statusMap);
     const { invalidIndexes, tuDongLoiIndexes, invalidReasons } =
-      getInvalidSessionIndexes(dataSource, studentInfo);
+      getInvalidSessionIndexes(dataSource, studentInfo, [], [], statusMap);
 
     return setAndReturn(cacheKey, {
       maDK,
@@ -456,13 +538,47 @@ async function kiemTraToanKhoa(req, res) {
 
     const endDate = ngayketthuc || new Date().toISOString().slice(0, 19);
 
-    // Load student check data (quan trọng)
-    const checkDataList = await getAllStudentCheckDataCached();
+    const CheckConfigModel = require("../models/checkConfig.model");
+    const ForbiddenZoneModel = require("../models/forbiddenZone.model");
+    const PhienHocModel = require("../models/phienHocDAT.model");
+
+    // Load student check data, configs, forbidden zones, and phien_hoc_dat
+    const [checkDataList, checkConfigs, forbiddenZoneRows, phienHocList] = await Promise.all([
+      getAllStudentCheckDataCached(),
+      CheckConfigModel.getAll().catch(() => []),
+      ForbiddenZoneModel.getAll().catch(() => []),
+      PhienHocModel.getPhienHocDATByMaDKList(ma_dk).catch(() => []),
+    ]);
+
+    const configMap = {};
+    checkConfigs.forEach((cfg) => {
+      configMap[cfg.check_key] = {
+        enabled: cfg.enabled,
+        startDate: cfg.start_date,
+        value: cfg.value,
+      };
+    });
+    setSystemConfig(configMap);
+
+    const forbiddenZones = forbiddenZoneRows.filter((z) => z.enabled === true || z.enabled === 1);
     const studentCheckMap = buildStudentCheckMap(checkDataList);
 
-    // await getCachedToken().catch((e) =>
-    //   console.warn("[pre-warm token]", e.message),
-    // );
+    // Group phien_hoc_dat by ma_dk and build statusMaps
+    const phienHocMapByMaDK = new Map();
+    phienHocList.forEach((row) => {
+      const maDK = row.ma_dk;
+      if (!phienHocMapByMaDK.has(maDK)) {
+        phienHocMapByMaDK.set(maDK, []);
+      }
+      phienHocMapByMaDK.get(maDK).push(row);
+    });
+
+    const studentStatusMap = new Map();
+    ma_dk.forEach((maDK) => {
+      const list = phienHocMapByMaDK.get(maDK) || [];
+      const statusMap = buildStatusMap(list);
+      studentStatusMap.set(maDK, statusMap);
+    });
 
     const tEvaluate = Date.now();
 
@@ -472,6 +588,7 @@ async function kiemTraToanKhoa(req, res) {
           { maDK, maKhoaHoc: ma_khoa_hoc },
           { ngaybatdau, endDate, signal: abortController.signal },
           studentCheckMap,
+          studentStatusMap.get(maDK) || {},
         ),
     );
 

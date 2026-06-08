@@ -234,7 +234,93 @@ class CronService {
     const regList = await vehicleRegistrationModel.findByMaDkList(students.map(s => s.ma_dk));
     const regMap = Object.fromEntries(regList.map(r => [r.ma_dk, { giaoVien: r.giao_vien, xeB1: r.xe_b1, xeB2: r.xe_b2 }]));
 
-    const results = await mapConcurrent(students, 8, (s) => fetchRawHanhTrinhRecords(s.ma_dk, ma_khoa));
+    const CheckConfigModel = require("../models/checkConfig.model");
+    const ForbiddenZoneModel = require("../models/forbiddenZone.model");
+    const PhienHocModel = require("../models/phienHocDAT.model");
+
+    const [checkConfigs, forbiddenZoneRows, phienHocList, results] = await Promise.all([
+      CheckConfigModel.getAll().catch(() => []),
+      ForbiddenZoneModel.getAll().catch(() => []),
+      PhienHocModel.getPhienHocDATByMaDKList(students.map(s => s.ma_dk)).catch(() => []),
+      mapConcurrent(students, 8, (s) => fetchRawHanhTrinhRecords(s.ma_dk, ma_khoa))
+    ]);
+
+    const configMap = {};
+    checkConfigs.forEach((cfg) => {
+      configMap[cfg.check_key] = {
+        enabled: cfg.enabled,
+        startDate: cfg.start_date,
+        value: cfg.value,
+      };
+    });
+    evaluateUtils.setSystemConfig(configMap);
+
+    const forbiddenZones = forbiddenZoneRows.filter((z) => z.enabled === true || z.enabled === 1);
+
+    const buildStatusMapLocal = (list = []) => {
+      const statusMap = {};
+      const formatDate = (val) => {
+        if (!val) return "";
+        const d = new Date(val);
+        if (isNaN(d.getTime())) return "";
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        const day = String(d.getDate()).padStart(2, "0");
+        return `${y}-${m}-${day}`;
+      };
+      const formatTime = (val) => {
+        if (!val) return "";
+        const d = new Date(val);
+        if (isNaN(d.getTime())) return "";
+        const h = String(d.getHours()).padStart(2, "0");
+        const min = String(d.getMinutes()).padStart(2, "0");
+        const sec = String(d.getSeconds()).padStart(2, "0");
+        return `${h}:${min}:${sec}`;
+      };
+      const normalizePlateStr = (plate) => {
+        if (!plate) return "";
+        return plate.replace(/[-.\s]/g, "").toUpperCase().trim();
+      };
+
+      list.forEach((row) => {
+        const status = row.trang_thai;
+        if (status !== "DUYET" && status !== "HUY") return;
+
+        const sessionId = row.phien_hoc_id || row.id;
+        if (sessionId) {
+          statusMap[`id:${sessionId}`] = { status };
+        }
+
+        const date = formatDate(row.ngay || row.gio_tu);
+        const startTime = formatTime(row.gio_tu);
+        const endTime = formatTime(row.gio_den);
+        const plate = normalizePlateStr(row.bien_so_xe);
+
+        if (date && plate && startTime && endTime) {
+          statusMap[`slot:${date}|${plate}|${startTime}|${endTime}`] = { status };
+        }
+        if (date && startTime && endTime) {
+          statusMap[`time:${date}|${startTime}|${endTime}`] = { status };
+        }
+      });
+      return statusMap;
+    };
+
+    const phienHocMapByMaDK = new Map();
+    phienHocList.forEach((row) => {
+      const maDK = row.ma_dk;
+      if (!phienHocMapByMaDK.has(maDK)) {
+        phienHocMapByMaDK.set(maDK, []);
+      }
+      phienHocMapByMaDK.get(maDK).push(row);
+    });
+
+    const studentStatusMap = new Map();
+    students.forEach((s) => {
+      const list = phienHocMapByMaDK.get(s.ma_dk) || [];
+      const statusMap = buildStatusMapLocal(list);
+      studentStatusMap.set(s.ma_dk, statusMap);
+    });
 
     const failed = [];
     for (let i = 0; i < students.length; i++) {
@@ -248,8 +334,9 @@ class CronService {
         QuangDuongBanDem: Number(sess.QuangDuongBanDem || 0)
       }));
 
-      const sum = evaluateUtils.computeSummary(sessions, s.hang_gplx || s.hang, reg);
-      const evalRes = evaluateUtils.evaluate(sum, sessions, reg);
+      const statusMap = studentStatusMap.get(s.ma_dk) || {};
+      const sum = evaluateUtils.computeSummary(sessions, s.hang_gplx || s.hang, reg, [], [], statusMap);
+      const evalRes = evaluateUtils.evaluate(sum, sessions, [], reg, [], statusMap);
 
       if (evalRes.status === 'fail') {
         failed.push({

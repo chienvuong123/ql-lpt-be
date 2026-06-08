@@ -15,6 +15,7 @@ const {
   evaluate,
   HANG_DAO_TAO_CONFIG,
   getInvalidSessionIndexes,
+  setSystemConfig,
 } = require("../utils/evaluate");
 const { LOCAL_BASE } = require("../constants/base");
 
@@ -157,15 +158,41 @@ async function getAllStudentCheckDataCached() {
   }
   try {
     const pool = await connectSQL();
-    const result = await pool.request().query(`
-      SELECT stt, ma_dang_ky AS maDangKy, khoa_hoc AS khoaHoc, ho_va_ten AS hoVaTen, 
-             ngay_sinh AS ngaySinh, gioi_tinh AS gioiTinh, so_cmnd AS soCMND, 
-             dia_chi_thuong_tru AS diaChiThuongTru, ngay_nhap AS ngayNhap, 
-             giao_vien AS giaoVien, xe_b2 AS xeB2, xe_b1 AS xeB1, ghi_chu AS ghiChu, 
-             created_at AS createdAt, updated_at AS updatedAt
-      FROM [dbo].[check_data_students] WITH (NOLOCK)
-    `);
-    const list = result.recordset || [];
+    const [checkResult, regResult] = await Promise.all([
+      pool.request().query(`
+        SELECT stt, ma_dang_ky AS maDangKy, khoa_hoc AS khoaHoc, ho_va_ten AS hoVaTen, 
+               ngay_sinh AS ngaySinh, gioi_tinh AS gioiTinh, so_cmnd AS soCMND, 
+               dia_chi_thuong_tru AS diaChiThuongTru, ngay_nhap AS ngayNhap, 
+               giao_vien AS giaoVien, xe_b2 AS xeB2, xe_b1 AS xeB1, ghi_chu AS ghiChu, 
+               created_at AS createdAt, updated_at AS updatedAt
+        FROM [dbo].[check_data_students] WITH (NOLOCK)
+      `),
+      pool.request().query(`
+        SELECT stt, ma_dk AS maDangKy, khoa AS khoaHoc, ho_ten AS hoVaTen, 
+               ngay_sinh AS ngaySinh, gioi_tinh AS gioiTinh, cccd AS soCMND, 
+               dia_chi AS diaChiThuongTru, ngay_nhap AS ngayNhap, 
+               giao_vien AS giaoVien, xe_b2 AS xeB2, xe_b1 AS xeB1, ghi_chu AS ghiChu, 
+               created_at AS createdAt, updated_at AS updatedAt
+        FROM [dbo].[dang_ky_xe_gv] WITH (NOLOCK)
+      `)
+    ]);
+
+    const checkList = checkResult.recordset || [];
+    const regList = regResult.recordset || [];
+
+    const map = new Map();
+    regList.forEach(item => {
+      if (item.maDangKy) {
+        map.set(item.maDangKy, item);
+      }
+    });
+    checkList.forEach(item => {
+      if (item.maDangKy) {
+        map.set(item.maDangKy, item);
+      }
+    });
+
+    const list = Array.from(map.values());
     _studentCheckCache = { ts: now, data: list };
     return list;
   } catch (err) {
@@ -243,6 +270,59 @@ function isDuDieuKienToiThieu(summary, hangDaoTao) {
     summary.tongThoiGianChuaLoaiGio >= cfg.thoiGian.tong &&
     summary.tongQuangDuongChuaLoai >= cfg.quangDuong.tong
   );
+}
+
+function buildStatusMap(phienHocList = []) {
+  const statusMap = {};
+  
+  const formatDate = (val) => {
+    if (!val) return "";
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return "";
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
+  const formatTime = (val) => {
+    if (!val) return "";
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return "";
+    const h = String(d.getHours()).padStart(2, "0");
+    const min = String(d.getMinutes()).padStart(2, "0");
+    const sec = String(d.getSeconds()).padStart(2, "0");
+    return `${h}:${min}:${sec}`;
+  };
+
+  const normalizePlateStr = (plate) => {
+    if (!plate) return "";
+    return plate.replace(/[-.\s]/g, "").toUpperCase().trim();
+  };
+
+  phienHocList.forEach((row) => {
+    const status = row.trang_thai;
+    if (status !== "DUYET" && status !== "HUY") return;
+
+    const sessionId = row.phien_hoc_id || row.id;
+    if (sessionId) {
+      statusMap[`id:${sessionId}`] = { status };
+    }
+
+    const date = formatDate(row.ngay || row.gio_tu);
+    const startTime = formatTime(row.gio_tu);
+    const endTime = formatTime(row.gio_den);
+    const plate = normalizePlateStr(row.bien_so_xe);
+
+    if (date && plate && startTime && endTime) {
+      statusMap[`slot:${date}|${plate}|${startTime}|${endTime}`] = { status };
+    }
+    if (date && startTime && endTime) {
+      statusMap[`time:${date}|${startTime}|${endTime}`] = { status };
+    }
+  });
+
+  return statusMap;
 }
 
 // ─── formatErrorSummary — gộp cả errors lẫn warnings quan trọng ──────────────
@@ -390,6 +470,7 @@ async function fetchAndEvaluate(
   { maDK, maKhoaHoc, planIid, student },
   { ngaybatdau, endDate, signal },
   studentCheckMap,
+  statusMap = {},
 ) {
   const cacheKey = `${maDK}::${maKhoaHoc}::${ngaybatdau}::${endDate}`;
   const cached = getCached(cacheKey);
@@ -401,6 +482,7 @@ async function fetchAndEvaluate(
       { ngaybatdau, endDate, signal },
       studentCheckMap,
       cacheKey,
+      statusMap,
     ),
   );
 }
@@ -410,6 +492,7 @@ async function _fetchRaw(
   { ngaybatdau, endDate, signal },
   studentCheckMap,
   cacheKey,
+  statusMap = {},
 ) {
   try {
     const params = new URLSearchParams({
@@ -465,7 +548,7 @@ async function _fetchRaw(
 
     const hangDaoTao = dataSource[0]?.HangDaoTao || "B.01";
     const studentInfo = studentCheckMap.get(maDK) || null;
-    const summary = computeSummary(dataSource, hangDaoTao, studentInfo);
+    const summary = computeSummary(dataSource, hangDaoTao, studentInfo, [], [], statusMap);
 
     // ── Kiểm tra điều kiện tối thiểu ──
     if (!isDuDieuKienToiThieu(summary, hangDaoTao)) {
@@ -502,9 +585,9 @@ async function _fetchRaw(
     }
 
     // ── Evaluate ──
-    const evalResult = evaluate(summary, dataSource, studentInfo);
+    const evalResult = evaluate(summary, dataSource, [], studentInfo, [], statusMap);
     const { invalidIndexes, tuDongLoiIndexes, invalidReasons } =
-      getInvalidSessionIndexes(dataSource, studentInfo);
+      getInvalidSessionIndexes(dataSource, studentInfo, [], [], statusMap);
 
     return setAndReturn(cacheKey, {
       maDK,
@@ -661,9 +744,15 @@ async function evaluateHanhTrinh(req, res) {
       });
     }
 
+    const CheckConfigModel = require("../models/checkConfig.model");
+    const ForbiddenZoneModel = require("../models/forbiddenZone.model");
+    const PhienHocModel = require("../models/phienHocDAT.model");
+
     const tFetchMeta = Date.now();
-    const [checkDataList, ...membersPerPlan] = await Promise.all([
+    const [checkDataList, checkConfigs, forbiddenZoneRows, ...membersPerPlan] = await Promise.all([
       getAllStudentCheckDataCached(),
+      CheckConfigModel.getAll().catch(() => []),
+      ForbiddenZoneModel.getAll().catch(() => []),
       ...enrolmentPlanIids.map(async (planIid) => {
         try {
           const members = await getMembersPerPlanCached(planIid);
@@ -674,7 +763,18 @@ async function evaluateHanhTrinh(req, res) {
         }
       }),
     ]);
-    mark("load checkData + membersPerPlan", tFetchMeta);
+    mark("load checkData + checkConfigs + forbiddenZones + membersPerPlan", tFetchMeta);
+
+    // Apply system configurations
+    const configMap = {};
+    checkConfigs.forEach((cfg) => {
+      configMap[cfg.check_key] = {
+        enabled: cfg.enabled,
+        startDate: cfg.start_date,
+        value: cfg.value,
+      };
+    });
+    setSystemConfig(configMap);
 
     const studentCheckMap = buildStudentCheckMap(checkDataList);
 
@@ -704,6 +804,31 @@ async function evaluateHanhTrinh(req, res) {
     const allStudents = [...uniqueStudentsMap.values()];
     mark("build allStudents", tBuildStudents);
 
+    // Load phien_hoc_dat records for all students in the batch
+    const tFetchPhienHoc = Date.now();
+    const allMaDKs = allStudents.map((s) => s.maDK);
+    const phienHocList = allMaDKs.length > 0
+      ? await PhienHocModel.getPhienHocDATByMaDKList(allMaDKs).catch(() => [])
+      : [];
+    mark("load phien_hoc_dat for all ma_dk", tFetchPhienHoc);
+
+    // Group phien_hoc_dat by ma_dk and build statusMaps
+    const phienHocMapByMaDK = new Map();
+    phienHocList.forEach((row) => {
+      const maDK = row.ma_dk;
+      if (!phienHocMapByMaDK.has(maDK)) {
+        phienHocMapByMaDK.set(maDK, []);
+      }
+      phienHocMapByMaDK.get(maDK).push(row);
+    });
+
+    const studentStatusMap = new Map();
+    allStudents.forEach((s) => {
+      const list = phienHocMapByMaDK.get(s.maDK) || [];
+      const statusMap = buildStatusMap(list);
+      studentStatusMap.set(s.maDK, statusMap);
+    });
+
     const tEvaluate = Date.now();
     const results = await withConcurrencyLimit(
       allStudents.map(
@@ -712,6 +837,7 @@ async function evaluateHanhTrinh(req, res) {
             s,
             { ngaybatdau, endDate, signal: abortController.signal },
             studentCheckMap,
+            studentStatusMap.get(s.maDK) || {},
           ),
       ),
       CONCURRENCY,
