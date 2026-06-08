@@ -421,8 +421,8 @@ async function getHocVienSearch(filters = {}) {
       request.input("searchUnicode", mssql.NVarChar, `%${trimmed}%`);
       whereClause += ` AND hv.ho_ten LIKE @searchUnicode`;
     } else {
-      // Từ đơn → trailing wildcard → Index Seek được
-      request.input("searchUnicode", mssql.NVarChar, `${trimmed}%`);
+      // Từ đơn không chứa khoảng trắng (ví dụ: "Bình") -> Cần tìm kiếm chứa trong ho_ten để khớp với tên nằm ở cuối
+      request.input("searchUnicode", mssql.NVarChar, `%${trimmed}%`);
       whereClause += ` AND (hv.ho_ten LIKE @searchUnicode OR hv.ma_dk LIKE @searchUnicode)`;
     }
   }
