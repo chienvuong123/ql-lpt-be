@@ -88,6 +88,39 @@ async function getThongKeCabinKhoa(req, res) {
   }
 }
 
+const cabinAttendanceService = require("../services/cabinAttendance.service");
+
+async function checkAttendanceShift(req, res) {
+  try {
+    const { date, ca_hoc } = req.query;
+    
+    // Nếu không truyền date, mặc định lấy ngày hôm nay theo múi giờ VN (UTC+7)
+    let dateStr = date;
+    if (!dateStr) {
+      const now = new Date();
+      const vnTime = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+      const yyyy = vnTime.getUTCFullYear();
+      const mm = String(vnTime.getUTCMonth() + 1).padStart(2, "0");
+      const dd = String(vnTime.getUTCDate()).padStart(2, "0");
+      dateStr = `${yyyy}-${mm}-${dd}`;
+    }
+
+    if (!ca_hoc) {
+      return res.status(400).json({ success: false, message: "Thiếu ca_hoc (1-6) để kiểm tra" });
+    }
+
+    const result = await cabinAttendanceService.checkAttendanceAndNotify({
+      dateStr,
+      caHoc: parseInt(ca_hoc),
+    });
+
+    return res.json({ success: true, data: result });
+  } catch (err) {
+    console.error("[checkAttendanceShift]", err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
 module.exports = {
   getDanhSachDatCabin,
   getDanhSachHocVienCabin,
@@ -97,4 +130,5 @@ module.exports = {
   updateLichNote,
   checkOnlineStatus,
   getThongKeCabinKhoa,
+  checkAttendanceShift,
 };

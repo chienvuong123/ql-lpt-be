@@ -314,6 +314,34 @@ const getAssignmentsForVerification = async ({ today, nowTime } = {}) => {
   return result.recordset;
 };
 
+const getAssignmentsByShift = async (dateStr, caHoc) => {
+  const pool = await connectSQL();
+  const req = pool.request();
+  req.input("date", mssql.VarChar, dateStr);
+  req.input("caHoc", mssql.Int, caHoc);
+  const result = await req.query(`
+    SELECT 
+      l.id AS assignment_id,
+      l.ma_dk,
+      l.ngay,
+      l.ca_hoc,
+      l.cabin_so,
+      l.ma_khoa,
+      COALESCE(NULLIF(LTRIM(RTRIM(l.giao_vien)), ''), LTRIM(RTRIM(dk.giao_vien))) AS giao_vien,
+      hv.ho_ten,
+      hv.cccd,
+      hv.ngay_sinh,
+      hv.gioi_tinh,
+      kh.ten_khoa
+    FROM cabin_lich_phan_bo l
+    LEFT JOIN hoc_vien hv ON l.ma_dk = hv.ma_dk
+    LEFT JOIN dang_ky_xe_gv dk ON l.ma_dk = dk.ma_dk
+    LEFT JOIN khoa_hoc kh ON l.ma_khoa = kh.ma_khoa
+    WHERE l.ngay = @date AND l.ca_hoc = @caHoc AND l.ma_dk IS NOT NULL
+  `);
+  return result.recordset;
+};
+
 module.exports = {
   getDatCabin,
   createOrUpdate,
@@ -329,4 +357,5 @@ module.exports = {
   getCabinMakeupStudentListSQL,
   getTeacherByMaDkList,
   getAssignmentsForVerification,
+  getAssignmentsByShift,
 };

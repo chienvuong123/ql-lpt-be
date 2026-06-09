@@ -140,7 +140,71 @@ class CronService {
       }
     });
 
-    console.log("[CronService] Tác vụ tự động và sync Google Sheet đã hoạt động.");
+    // Cấu hình kiểm tra chuyên cần Cabin tự động sau khi kết thúc ca học 10 phút
+    const getTodayVNStr = () => {
+      const now = new Date();
+      const vnTime = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+      const yyyy = vnTime.getUTCFullYear();
+      const mm = String(vnTime.getUTCMonth() + 1).padStart(2, "0");
+      const dd = String(vnTime.getUTCDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    };
+
+    const getHourVN = () => {
+      const now = new Date();
+      const vnTime = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+      return vnTime.getUTCHours();
+    };
+
+    // Kiểm tra Ca 1 (múi giờ 9h), Ca 3 (14h), Ca 5 (19h)
+    cron.schedule("40 9,14,19 * * *", async () => {
+      const hour = getHourVN();
+      let caHoc = null;
+      if (hour === 9) caHoc = 1;
+      else if (hour === 14) caHoc = 3;
+      else if (hour === 19) caHoc = 5;
+
+      if (caHoc) {
+        const dateStr = getTodayVNStr();
+        console.log(`[CronService] [${new Date().toLocaleString()}] Bắt đầu kiểm tra chuyên cần Cabin Ca ${caHoc} ngày ${dateStr}...`);
+        try {
+          const cabinAttendanceService = require("./cabinAttendance.service");
+          const result = await cabinAttendanceService.checkAttendanceAndNotify({ dateStr, caHoc });
+          console.log(`[CronService] Kết quả kiểm tra chuyên cần Ca ${caHoc}:`, result);
+        } catch (err) {
+          console.error(`[CronService] Lỗi kiểm tra chuyên cần Ca ${caHoc}:`, err.message);
+        }
+      }
+    }, {
+      scheduled: true,
+      timezone: "Asia/Ho_Chi_Minh"
+    });
+
+    // Kiểm tra Ca 2 (múi giờ 12h), Ca 4 (17h), Ca 6 (22h)
+    cron.schedule("10 12,17,22 * * *", async () => {
+      const hour = getHourVN();
+      let caHoc = null;
+      if (hour === 12) caHoc = 2;
+      else if (hour === 17) caHoc = 4;
+      else if (hour === 22) caHoc = 6;
+
+      if (caHoc) {
+        const dateStr = getTodayVNStr();
+        console.log(`[CronService] [${new Date().toLocaleString()}] Bắt đầu kiểm tra chuyên cần Cabin Ca ${caHoc} ngày ${dateStr}...`);
+        try {
+          const cabinAttendanceService = require("./cabinAttendance.service");
+          const result = await cabinAttendanceService.checkAttendanceAndNotify({ dateStr, caHoc });
+          console.log(`[CronService] Kết quả kiểm tra chuyên cần Ca ${caHoc}:`, result);
+        } catch (err) {
+          console.error(`[CronService] Lỗi kiểm tra chuyên cần Ca ${caHoc}:`, err.message);
+        }
+      }
+    }, {
+      scheduled: true,
+      timezone: "Asia/Ho_Chi_Minh"
+    });
+
+    console.log("[CronService] Tác vụ tự động, sync Google Sheet và kiểm tra chuyên cần Cabin đã hoạt động.");
   }
 
   // ─── CORE JOB METHODS (Migrated from hocBu.service) ───────────────────────────────────

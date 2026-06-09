@@ -8,6 +8,7 @@ const {
   updateLichNote,
   checkOnlineStatus,
   getThongKeCabinKhoa,
+  checkAttendanceShift,
 } = require("../controllers/cabin.controller");
 const controller = require("../controllers/chiaCabin.controller");
 
@@ -28,5 +29,8 @@ router.post("/check-online", checkOnlineStatus);
 
 // API thống kê cabin theo khóa
 router.get("/thong-ke-khoa", getThongKeCabinKhoa);
+
+// API kiểm tra chuyên cần và báo Telegram theo ca
+router.get("/check-attendance-shift", checkAttendanceShift);
 
 module.exports = router;
