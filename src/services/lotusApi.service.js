@@ -41,24 +41,32 @@ async function getLopHocLyThuyet(searchParams = {}, authInfo) {
   params.append("_sand_ga_browserToken", "");
   params.append("_sand_domain", "lapphuongthanh");
   params.append("_sand_masked", "");
-  params.append("_sand_use_internal_network", 0);
   params.append("allow_cache_api_cdn", 1);
   params.append("_sand_get_total", 0);
-  params.append("text", searchParams.text || "");
-
-  const { sand_ri, sand_rit } = generateSandTokens(authInfo.iid);
-  params.append("_sand_ri", sand_ri);
-  params.append("_sand_rit", sand_rit);
+  
+  if (searchParams.text) {
+    params.append("text", searchParams.text);
+  }
 
   params.append("_sand_session_id", authInfo.sessionId);
-  params.append("_sand_token", authInfo.token);
-  params.append("_sand_uid", authInfo.id || authInfo.uid);
-  params.append("_sand_uiid", authInfo.iid);
+  params.append("_sand_client_sync_token", "n:692ebb9e9c2a6ddfb98063a0");
+  params.append("lang", "vn");
+  params.append("_sand_user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36");
+
+  const { sand_ri, sand_rit } = generateSandTokens(authInfo.iid);
+  const bodyParams = new URLSearchParams();
+  bodyParams.append("_sand_web_url", "https://lapphuongthanh.huelms.com/admin/enrolment-plan");
+  bodyParams.append("_sand_device_uuid", "26aaca1b-7137-4cbc-810e-13daf412f718");
+  bodyParams.append("_sand_token", authInfo.token);
+  bodyParams.append("_sand_uiid", authInfo.iid);
+  bodyParams.append("_sand_ri", sand_ri);
+  bodyParams.append("_sand_rit", sand_rit);
+  bodyParams.append("_sand_uid", authInfo.id || authInfo.uid);
 
   const url = `${LOTUS_BASE}/enrolment-plan/search?${params.toString()}`;
 
   try {
-    const response = await axios.post(url, null, { timeout: 10000 });
+    const response = await axios.post(url, bodyParams, { timeout: 10000 });
     return response.data;
   } catch (error) {
     console.error(`[getLopHocLyThuyet] Error:`, error.message);

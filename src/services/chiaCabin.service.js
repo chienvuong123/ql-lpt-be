@@ -43,7 +43,17 @@ const mapStudent = (s, cabinMap) => {
     cccd: s.cccd,
     nam_sinh: s.ngay_sinh ? new Date(s.ngay_sinh).getFullYear() : null,
     gioi_tinh: s.gioi_tinh,
-    hang_xe: s.ten_khoa?.match(/K\d+B01/i) ? "B1" : "B2",
+    hang_xe: (() => {
+      const name = String(s.ten_khoa || "").toUpperCase();
+      if (/B\d{4}/.test(name)) return "B1";
+      if (/B\d{3}/.test(name)) return "B2";
+      if (/C\d+/.test(name)) return "C";
+      
+      const h = String(s.hang_gplx || s.hang || "").toUpperCase();
+      if (h.includes("B1")) return "B1";
+      if (h.includes("B2")) return "B2";
+      return h || "B2";
+    })(),
     giao_vien: s.giao_vien,
     phut_cabin: tongPhut > 0 ? tongPhut : 0,
     tong_thoi_gian: session.tong_thoi_gian,
