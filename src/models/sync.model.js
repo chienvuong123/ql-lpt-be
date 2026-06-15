@@ -392,26 +392,26 @@ async function getTienDoDaoTaoListPaginated(filters = {}) {
 async function getKhoaHocList(filters = {}) {
   const pool = await connectSQL();
   const request = new mssql.Request(pool);
-  
+
   let query = "SELECT * FROM [dbo].[khoa_hoc] WHERE 1=1";
-  
+
   if (filters.ten_khoa) {
     request.input("ten_khoa", mssql.NVarChar, `%${filters.ten_khoa.trim()}%`);
     query += " AND ten_khoa LIKE @ten_khoa";
   }
-  
+
   if (filters.ma_khoa) {
     request.input("ma_khoa", mssql.VarChar, `%${filters.ma_khoa.trim()}%`);
     query += " AND ma_khoa LIKE @ma_khoa";
   }
-  
+
   if (filters.code) {
     request.input("code", mssql.VarChar, `%${filters.code.trim()}%`);
     query += " AND code LIKE @code";
   }
-  
+
   query += " ORDER BY ngay_bat_dau DESC, created_at DESC, updated_at DESC, ma_khoa ASC";
-  
+
   const result = await request.query(query);
   return result.recordset;
 }
@@ -494,7 +494,8 @@ async function getHocVienSearch(filters = {}) {
         dk.giao_vien,
         dk.xe_b1,
         dk.xe_b2,
-        kh.ten_khoa
+        kh.ten_khoa,
+        kh.code
     FROM [dbo].[hoc_vien] hv WITH (NOLOCK)
     INNER JOIN [dbo].[dang_ky_xe_gv] dk WITH (NOLOCK) ON dk.ma_dk = hv.ma_dk
     LEFT JOIN [dbo].[khoa_hoc] kh WITH (NOLOCK) ON kh.ma_khoa = hv.ma_khoa
