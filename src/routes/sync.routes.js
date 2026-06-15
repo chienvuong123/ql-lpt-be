@@ -19,4 +19,12 @@ router.get("/tien-do/b2", syncController.getTienDoDaoTaoListB2);
 router.get("/tien-do/c1", syncController.getTienDoDaoTaoListC1);
 router.post("/kiem-tra-dong-bo", syncController.kiemTraDongBo);
 
+const multer = require("multer");
+const uploadXml = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }
+}).single("file");
+
+router.post("/import-xml", uploadXml, syncController.importXml);
+
 module.exports = router;

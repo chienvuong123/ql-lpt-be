@@ -389,9 +389,30 @@ async function getTienDoDaoTaoListPaginated(filters = {}) {
 /**
  * Get all courses from khoa_hoc table
  */
-async function getKhoaHocList() {
+async function getKhoaHocList(filters = {}) {
   const pool = await connectSQL();
-  const result = await pool.request().query("SELECT * FROM [dbo].[khoa_hoc] ORDER BY updated_at DESC, ma_khoa ASC");
+  const request = new mssql.Request(pool);
+  
+  let query = "SELECT * FROM [dbo].[khoa_hoc] WHERE 1=1";
+  
+  if (filters.ten_khoa) {
+    request.input("ten_khoa", mssql.NVarChar, `%${filters.ten_khoa.trim()}%`);
+    query += " AND ten_khoa LIKE @ten_khoa";
+  }
+  
+  if (filters.ma_khoa) {
+    request.input("ma_khoa", mssql.VarChar, `%${filters.ma_khoa.trim()}%`);
+    query += " AND ma_khoa LIKE @ma_khoa";
+  }
+  
+  if (filters.code) {
+    request.input("code", mssql.VarChar, `%${filters.code.trim()}%`);
+    query += " AND code LIKE @code";
+  }
+  
+  query += " ORDER BY ngay_bat_dau DESC, created_at DESC, updated_at DESC, ma_khoa ASC";
+  
+  const result = await request.query(query);
   return result.recordset;
 }
 
@@ -508,6 +529,109 @@ async function getHocVienByKhoa(ma_khoa) {
   return result.recordset;
 }
 
+async function importXmlData(course, students, created_by = null, updated_by = null) {
+  const pool = await connectSQL();
+  const transaction = new mssql.Transaction(pool);
+
+  try {
+    await transaction.begin();
+
+    // 1. Upsert course into khoa_hoc table
+    const courseReq = new mssql.Request(transaction);
+    courseReq.input("ma_khoa", mssql.VarChar, course.ma_khoa);
+    courseReq.input("ten_khoa", mssql.NVarChar, course.ten_khoa);
+    courseReq.input("ngay_bat_dau", mssql.DateTime, course.ngay_bat_dau);
+    courseReq.input("ngay_ket_thuc", mssql.DateTime, course.ngay_ket_thuc);
+    courseReq.input("total_member", mssql.Int, course.total_member || 0);
+    courseReq.input("created_by", mssql.NVarChar, created_by);
+    courseReq.input("updated_by", mssql.NVarChar, updated_by);
+
+    await courseReq.query(`
+      IF EXISTS (SELECT 1 FROM [dbo].[khoa_hoc] WHERE ma_khoa = @ma_khoa)
+      BEGIN
+        UPDATE [dbo].[khoa_hoc]
+        SET ten_khoa = @ten_khoa,
+            ngay_bat_dau = @ngay_bat_dau,
+            ngay_ket_thuc = @ngay_ket_thuc,
+            total_member = @total_member,
+            updated_at = GETDATE(),
+            updated_by = @updated_by
+        WHERE ma_khoa = @ma_khoa
+      END
+      ELSE
+      BEGIN
+        INSERT INTO [dbo].[khoa_hoc] (ma_khoa, ten_khoa, ngay_bat_dau, ngay_ket_thuc, total_member, created_by, updated_by)
+        VALUES (@ma_khoa, @ten_khoa, @ngay_bat_dau, @ngay_ket_thuc, @total_member, @created_by, @updated_by)
+      END
+    `);
+
+    // 2. Upsert students into hoc_vien table
+    for (const student of students) {
+      const request = new mssql.Request(transaction);
+      request.input("ma_dk", mssql.VarChar, student.ma_dk);
+      request.input("ho_ten", mssql.NVarChar, student.ho_ten);
+      request.input("ho", mssql.NVarChar, student.ho || null);
+      request.input("ten", mssql.NVarChar, student.ten || null);
+      request.input("cccd", mssql.VarChar, student.cccd || null);
+      request.input("ngay_sinh", mssql.DateTime, student.ngay_sinh || null);
+      request.input("gioi_tinh", mssql.NVarChar, student.gioi_tinh || null);
+      request.input("ma_khoa", mssql.VarChar, course.ma_khoa);
+      request.input("hang_gplx", mssql.NVarChar, student.hang_gplx || null);
+      request.input("hang", mssql.NVarChar, student.hang || null);
+      request.input("dia_chi", mssql.NVarChar, student.dia_chi || null);
+      request.input("ma_csdt", mssql.NVarChar, student.ma_csdt || "30004");
+      request.input("anh", mssql.NVarChar, student.anh || null);
+      request.input("created_by", mssql.NVarChar, created_by);
+      request.input("updated_by", mssql.NVarChar, updated_by);
+
+      await request.query(`
+        IF EXISTS (SELECT 1 FROM [dbo].[hoc_vien] WHERE ma_dk = @ma_dk)
+        BEGIN
+          UPDATE [dbo].[hoc_vien]
+          SET ho_ten = @ho_ten,
+              ho = @ho,
+              ten = @ten,
+              cccd = @cccd,
+              ngay_sinh = @ngay_sinh,
+              gioi_tinh = @gioi_tinh,
+              ma_khoa = @ma_khoa,
+              hang_gplx = @hang_gplx,
+              hang = @hang,
+              dia_chi = @dia_chi,
+              ma_csdt = @ma_csdt,
+              anh = COALESCE(@anh, anh),
+              updated_at = GETDATE(),
+              updated_by = @updated_by
+          WHERE ma_dk = @ma_dk
+        END
+        ELSE
+        BEGIN
+          INSERT INTO [dbo].[hoc_vien] 
+            (ma_dk, ho_ten, ho, ten, cccd, ngay_sinh, gioi_tinh, ma_khoa, hang_gplx, hang, ma_csdt, anh, created_by, updated_by)
+          VALUES 
+            (@ma_dk, @ho_ten, @ho, @ten, @cccd, @ngay_sinh, @gioi_tinh, @ma_khoa, @hang_gplx, @hang, @ma_csdt, @anh, @created_by, @updated_by)
+        END
+
+        -- Ensure trang_thai_hoc_vien record exists
+        IF NOT EXISTS (SELECT 1 FROM [dbo].[trang_thai_hoc_vien] WHERE ma_dk = @ma_dk)
+        BEGIN
+          INSERT INTO [dbo].[trang_thai_hoc_vien] (ma_dk, updated_at)
+          VALUES (@ma_dk, GETDATE())
+        END
+      `);
+    }
+
+    await transaction.commit();
+    return {
+      success: true,
+      totalStudents: students.length
+    };
+  } catch (err) {
+    await transaction.rollback();
+    throw err;
+  }
+}
+
 module.exports = {
   upsertKhoaHoc,
   upsertHocVien,
@@ -516,5 +640,6 @@ module.exports = {
   getKhoaHocList,
   getHocVienSearch,
   getHocVienByKhoa,
-  getTienDoDaoTaoListPaginated
+  getTienDoDaoTaoListPaginated,
+  importXmlData
 };

@@ -52,7 +52,8 @@ class SyncController {
    */
   async syncCourses(req, res) {
     try {
-      const count = await syncService.syncCourses();
+      const { ten_khoa, ma_khoa, code } = { ...req.query, ...req.body };
+      const count = await syncService.syncCourses({ ten_khoa, ma_khoa, code });
       res.status(200).json({
         success: true,
         message: `Đã đồng bộ ${count} khóa học từ Lotus LMS.`,
@@ -342,7 +343,8 @@ class SyncController {
    */
   async getKhoaHocList(req, res) {
     try {
-      const list = await syncService.getKhoaHocList();
+      const { ten_khoa, ma_khoa, code } = req.query;
+      const list = await syncService.getKhoaHocList({ ten_khoa, ma_khoa, code });
       res.status(200).json({
         success: true,
         data: list,
@@ -425,6 +427,33 @@ class SyncController {
         success: false,
         message: "Lỗi kiểm tra đồng bộ cabin",
         error: err.message
+      });
+    }
+  }
+
+  async importXml(req, res) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: "Không có file." });
+      }
+
+      const { created_by, updated_by } = req.body;
+      const creator = created_by || req.user?.username || null;
+      const updater = updated_by || req.user?.username || null;
+
+      const result = await syncService.importXml(req.file.buffer, creator, updater);
+
+      return res.status(200).json({
+        success: true,
+        message: "Import file XML thành công.",
+        data: result
+      });
+    } catch (error) {
+      console.error("[SyncController] importXml error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Import file XML thất bại.",
+        error: error.message
       });
     }
   }

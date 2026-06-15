@@ -93,8 +93,8 @@ async function getTienDoDaoTaoListPaginated(filters) {
   return await SyncModel.getTienDoDaoTaoListPaginated(filters);
 }
 
-async function getKhoaHocList() {
-  return await SyncModel.getKhoaHocList();
+async function getKhoaHocList(filters = {}) {
+  return await SyncModel.getKhoaHocList(filters);
 }
 
 async function getHocVienSearch(filters) {
@@ -170,6 +170,83 @@ async function kiemTraDongBo(ma_khoa) {
   });
 }
 
+async function importXml(xmlBuffer, created_by = null, updated_by = null) {
+  const xml2js = require("xml2js");
+  const parser = new xml2js.Parser({ explicitArray: false, mergeAttrs: true });
+  const xmlStr = xmlBuffer.toString("utf-8");
+  const parsed = await parser.parseStringPromise(xmlStr);
+
+  const kh = parsed?.BAO_CAO1?.DATA?.KHOA_HOC;
+  if (!kh) {
+    throw new Error("Không tìm thấy thông tin khóa học <KHOA_HOC> trong file XML.");
+  }
+
+  const course = {
+    ma_khoa: kh.MA_KHOA_HOC,
+    ten_khoa: kh.TEN_KHOA_HOC,
+    ngay_bat_dau: kh.NGAY_KHAI_GIANG ? new Date(kh.NGAY_KHAI_GIANG) : null,
+    ngay_ket_thuc: kh.NGAY_BE_GIANG ? new Date(kh.NGAY_BE_GIANG) : null,
+    total_member: kh.SO_HOC_SINH ? parseInt(kh.SO_HOC_SINH, 10) : 0,
+    ma_csdt: kh.MA_CSDT || "30004"
+  };
+
+  let rawStudents = parsed?.BAO_CAO1?.DATA?.NGUOI_LXS?.NGUOI_LX || [];
+  if (!Array.isArray(rawStudents)) {
+    rawStudents = [rawStudents];
+  }
+
+  const parseXmlDateString = (dateStr) => {
+    if (!dateStr) return null;
+    const cleaned = String(dateStr).trim();
+    if (cleaned.length === 8) {
+      const y = cleaned.substring(0, 4);
+      const m = cleaned.substring(4, 6);
+      const d = cleaned.substring(6, 8);
+      return new Date(`${y}-${m}-${d}`);
+    }
+    const parsedDate = new Date(cleaned);
+    return isNaN(parsedDate.getTime()) ? null : parsedDate;
+  };
+
+  const { uploadBase64ToCloudinary } = require("./cloudinary.service");
+  const students = [];
+
+  for (const s of rawStudents) {
+    if (!s || !s.MA_DK) continue;
+
+    const sexRaw = String(s.GIOI_TINH || "").trim().toLowerCase();
+    const gioi_tinh = (sexRaw === "m" || sexRaw === "nam" || sexRaw === "1") ? "Nam" : "Nữ";
+
+    let imageUrl = null;
+    const base64Str = s.HO_SO?.ANH_CHAN_DUNG;
+    if (base64Str && typeof base64Str === "string" && base64Str.trim().length > 10) {
+      try {
+        const publicId = `${course.ma_khoa}_${s.MA_DK}`;
+        imageUrl = await uploadBase64ToCloudinary(base64Str, publicId);
+      } catch (err) {
+        console.error(`[importXml] Lỗi upload ảnh Cloudinary cho học viên ${s.MA_DK}:`, err.message);
+      }
+    }
+
+    students.push({
+      ma_dk: s.MA_DK,
+      ho_ten: s.HO_VA_TEN || null,
+      ho: s.HO_TEN_DEM || null,
+      ten: s.TEN || null,
+      cccd: s.SO_CMT || null,
+      ngay_sinh: parseXmlDateString(s.NGAY_SINH),
+      gioi_tinh: gioi_tinh,
+      hang_gplx: s.HO_SO?.HANG_GPLX || null,
+      hang: s.HO_SO?.HANG_DAOTAO || null,
+      dia_chi: typeof s.NOI_TT === "object" ? "" : (s.NOI_TT || ""),
+      ma_csdt: course.ma_csdt,
+      anh: imageUrl
+    });
+  }
+
+  return await SyncModel.importXmlData(course, students, created_by, updated_by);
+}
+
 module.exports = {
   syncCourses,
   syncStudents,
@@ -178,5 +255,6 @@ module.exports = {
   getTienDoDaoTaoListPaginated,
   getKhoaHocList,
   getHocVienSearch,
-  kiemTraDongBo
+  kiemTraDongBo,
+  importXml
 };
