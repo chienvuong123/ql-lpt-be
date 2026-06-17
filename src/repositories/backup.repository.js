@@ -597,12 +597,232 @@ async function initializeBackupDatabase() {
         );
       END;
 
+      IF OBJECT_ID(N'dbo.BACK_UP_HANH_TRINH', N'U') IS NULL
+      BEGIN
+        CREATE TABLE dbo.BACK_UP_HANH_TRINH (
+          ID              INT,
+          SessionId       NVARCHAR(50) NOT NULL PRIMARY KEY,
+          MaDK            NVARCHAR(100),
+          MaKhoaHoc       NVARCHAR(50),
+          KhoaHoc         NVARCHAR(50),
+          HoTen           NVARCHAR(100),
+          IDGV            NVARCHAR(20),
+          HoTenGV         NVARCHAR(100),
+          HangDaoTao      NVARCHAR(10),
+          BienSo          NVARCHAR(20),
+          Imei            NVARCHAR(50),
+          ThoiDiemDangNhap    DATETIME,
+          ThoiDiemDangXuat    DATETIME,
+          TongThoiGian        INT,
+          TongQuangDuong      FLOAT,
+          ThoiGianBanDem      INT,
+          QuangDuongBanDem    FLOAT,
+          Tile                FLOAT,
+          IsSend              BIT,
+          Bug                 INT,
+          ThoiGianTruyen      DATETIME,
+          CenterResponseMessage NVARCHAR(MAX),
+          Srcdn           NVARCHAR(500),
+          Srcdx           NVARCHAR(500),
+          StartLatitude   FLOAT,
+          StartLongitude  FLOAT,
+          EndLatitude     FLOAT,
+          EndLongitude    FLOAT,
+          NgayBackup      DATETIME DEFAULT GETDATE(),
+          MaKhoaHocKetThuc NVARCHAR(50)
+        );
+      END;
+
       USE [${process.env.DB_DATABASE || "QUAN_LY_LPT"}];
     `);
     console.log("[backupRepo] Database BACK_UP and all backup tables initialized/verified.");
   } catch (err) {
     console.error("[backupRepo] Failed to initialize BACK_UP database:", err.message);
   }
+}
+
+async function upsertBackUpHanhTrinh(sessions) {
+  if (!sessions || !sessions.length) return 0;
+  const pool = await connectSQL();
+  let successCount = 0;
+
+  for (const session of sessions) {
+    try {
+      const request = pool.request();
+      request.input("ID", mssql.Int, session.ID || null);
+      request.input("SessionId", mssql.NVarChar(50), session.SessionId || null);
+      request.input("MaDK", mssql.NVarChar(100), session.MaDK || null);
+      request.input("MaKhoaHoc", mssql.NVarChar(50), session.MaKhoaHoc || null);
+      request.input("KhoaHoc", mssql.NVarChar(50), session.KhoaHoc || null);
+      request.input("HoTen", mssql.NVarChar(100), session.HoTen || null);
+      request.input("IDGV", mssql.NVarChar(20), session.IDGV || null);
+      request.input("HoTenGV", mssql.NVarChar(100), session.HoTenGV || null);
+      request.input("HangDaoTao", mssql.NVarChar(10), session.HangDaoTao || null);
+      request.input("BienSo", mssql.NVarChar(20), session.BienSo || null);
+      request.input("Imei", mssql.NVarChar(50), session.Imei || null);
+
+      const parseDate = (val) => {
+        if (!val || val === "0001-01-01T00:00:00") return null;
+        const d = new Date(val);
+        return isNaN(d.getTime()) ? null : d;
+      };
+
+      request.input("ThoiDiemDangNhap", mssql.DateTime, parseDate(session.ThoiDiemDangNhap));
+      request.input("ThoiDiemDangXuat", mssql.DateTime, parseDate(session.ThoiDiemDangXuat));
+      request.input("TongThoiGian", mssql.Int, session.TongThoiGian !== undefined ? parseInt(session.TongThoiGian) : null);
+      request.input("TongQuangDuong", mssql.Float, session.TongQuangDuong !== undefined ? parseFloat(session.TongQuangDuong) : null);
+      request.input("ThoiGianBanDem", mssql.Int, session.ThoiGianBanDem !== undefined ? parseInt(session.ThoiGianBanDem) : null);
+      request.input("QuangDuongBanDem", mssql.Float, session.QuangDuongBanDem !== undefined ? parseFloat(session.QuangDuongBanDem) : null);
+      request.input("Tile", mssql.Float, session.Tile !== undefined ? parseFloat(session.Tile) : null);
+      request.input("IsSend", mssql.Bit, session.IsSend === true || session.IsSend === 1 ? 1 : 0);
+      request.input("Bug", mssql.Int, session.Bug !== undefined ? parseInt(session.Bug) : null);
+      request.input("ThoiGianTruyen", mssql.DateTime, parseDate(session.ThoiGianTruyen));
+      request.input("CenterResponseMessage", mssql.NVarChar(mssql.MAX), session.CenterResponseMessage || null);
+      request.input("Srcdn", mssql.NVarChar(500), session.Srcdn || null);
+      request.input("Srcdx", mssql.NVarChar(500), session.Srcdx || null);
+      request.input("StartLatitude", mssql.Float, session.StartLatitude !== undefined ? parseFloat(session.StartLatitude) : null);
+      request.input("StartLongitude", mssql.Float, session.StartLongitude !== undefined ? parseFloat(session.StartLongitude) : null);
+      request.input("EndLatitude", mssql.Float, session.EndLatitude !== undefined ? parseFloat(session.EndLatitude) : null);
+      request.input("EndLongitude", mssql.Float, session.EndLongitude !== undefined ? parseFloat(session.EndLongitude) : null);
+      request.input("MaKhoaHocKetThuc", mssql.NVarChar(50), session.MaKhoaHocKetThuc || null);
+
+      await request.query(`
+        IF EXISTS (SELECT 1 FROM [BACK_UP].[dbo].[BACK_UP_HANH_TRINH] WHERE SessionId = @SessionId)
+        BEGIN
+          UPDATE [BACK_UP].[dbo].[BACK_UP_HANH_TRINH] SET
+            ID = @ID,
+            MaDK = @MaDK,
+            MaKhoaHoc = @MaKhoaHoc,
+            KhoaHoc = @KhoaHoc,
+            HoTen = @HoTen,
+            IDGV = @IDGV,
+            HoTenGV = @HoTenGV,
+            HangDaoTao = @HangDaoTao,
+            BienSo = @BienSo,
+            Imei = @Imei,
+            ThoiDiemDangNhap = @ThoiDiemDangNhap,
+            ThoiDiemDangXuat = @ThoiDiemDangXuat,
+            TongThoiGian = @TongThoiGian,
+            TongQuangDuong = @TongQuangDuong,
+            ThoiGianBanDem = @ThoiGianBanDem,
+            QuangDuongBanDem = @QuangDuongBanDem,
+            Tile = @Tile,
+            IsSend = @IsSend,
+            Bug = @Bug,
+            ThoiGianTruyen = @ThoiGianTruyen,
+            CenterResponseMessage = @CenterResponseMessage,
+            Srcdn = @Srcdn,
+            Srcdx = @Srcdx,
+            StartLatitude = @StartLatitude,
+            StartLongitude = @StartLongitude,
+            EndLatitude = @EndLatitude,
+            EndLongitude = @EndLongitude,
+            NgayBackup = GETDATE(),
+            MaKhoaHocKetThuc = @MaKhoaHocKetThuc
+          WHERE SessionId = @SessionId;
+        END
+        ELSE
+        BEGIN
+          INSERT INTO [BACK_UP].[dbo].[BACK_UP_HANH_TRINH] (
+            ID, SessionId, MaDK, MaKhoaHoc, KhoaHoc, HoTen, IDGV, HoTenGV, HangDaoTao, BienSo, Imei,
+            ThoiDiemDangNhap, ThoiDiemDangXuat, TongThoiGian, TongQuangDuong, ThoiGianBanDem, QuangDuongBanDem, Tile,
+            IsSend, Bug, ThoiGianTruyen, CenterResponseMessage, Srcdn, Srcdx, StartLatitude, StartLongitude, EndLatitude, EndLongitude,
+            NgayBackup, MaKhoaHocKetThuc
+          ) VALUES (
+            @ID, @SessionId, @MaDK, @MaKhoaHoc, @KhoaHoc, @HoTen, @IDGV, @HoTenGV, @HangDaoTao, @BienSo, @Imei,
+            @ThoiDiemDangNhap, @ThoiDiemDangXuat, @TongThoiGian, @TongQuangDuong, @ThoiGianBanDem, @QuangDuongBanDem, @Tile,
+            @IsSend, @Bug, @ThoiGianTruyen, @CenterResponseMessage, @Srcdn, @Srcdx, @StartLatitude, @StartLongitude, @EndLatitude, @EndLongitude,
+            GETDATE(), @MaKhoaHocKetThuc
+          );
+        END
+      `);
+      successCount++;
+    } catch (err) {
+      console.error(`[backupRepo] upsertBackUpHanhTrinh single record failed for SessionId ${session.SessionId}:`, err.message);
+    }
+  }
+  return successCount;
+}
+
+async function checkOverlap({ ma_khoa, start_date, end_date, type, page = 1, limit = 20 } = {}) {
+  const pool = await connectSQL();
+  const request = pool.request();
+  
+  let joinCondition = "";
+  if (type === "xe") {
+    joinCondition = "(p1.BienSo = p2.BienSo AND p1.BienSo IS NOT NULL AND p1.BienSo <> '' AND p2.ThoiDiemDangNhap < p1.ThoiDiemDangXuat AND p2.ThoiDiemDangXuat > p1.ThoiDiemDangNhap)";
+  } else if (type === "gv") {
+    joinCondition = "(p1.IDGV = p2.IDGV AND p1.IDGV IS NOT NULL AND p1.IDGV <> '' AND p2.ThoiDiemDangNhap < p1.ThoiDiemDangXuat AND p2.ThoiDiemDangXuat > p1.ThoiDiemDangNhap)";
+  } else {
+    joinCondition = `(
+      (p1.BienSo = p2.BienSo AND p1.BienSo IS NOT NULL AND p1.BienSo <> '' AND p2.ThoiDiemDangNhap < p1.ThoiDiemDangXuat AND p2.ThoiDiemDangXuat > p1.ThoiDiemDangNhap)
+      OR
+      (p1.IDGV = p2.IDGV AND p1.IDGV IS NOT NULL AND p1.IDGV <> '' AND p2.ThoiDiemDangNhap < p1.ThoiDiemDangXuat AND p2.ThoiDiemDangXuat > p1.ThoiDiemDangNhap)
+    )`;
+  }
+
+  let whereClauses = [];
+  if (ma_khoa) {
+    let maKhoaArr = Array.isArray(ma_khoa) ? ma_khoa : String(ma_khoa).split(",").map(k => k.trim()).filter(Boolean);
+    if (maKhoaArr.length > 0) {
+      const clauses = maKhoaArr.map((mk, idx) => {
+        const paramName = `maKhoa_${idx}`;
+        request.input(paramName, mssql.NVarChar(50), mk);
+        return `p1.MaKhoaHocKetThuc = @${paramName} OR p2.MaKhoaHocKetThuc = @${paramName} OR p1.MaKhoaHoc = @${paramName} OR p2.MaKhoaHoc = @${paramName}`;
+      });
+      whereClauses.push(`(${clauses.join(" OR ")})`);
+    }
+  }
+
+  if (start_date) {
+    request.input("startDate", mssql.DateTime, new Date(start_date));
+    whereClauses.push("(p1.ThoiDiemDangNhap >= @startDate OR p2.ThoiDiemDangNhap >= @startDate)");
+  }
+  if (end_date) {
+    request.input("endDate", mssql.DateTime, new Date(end_date));
+    whereClauses.push("(p1.ThoiDiemDangNhap <= @endDate OR p2.ThoiDiemDangNhap <= @endDate)");
+  }
+
+  const whereClauseStr = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
+
+  // 1. Get total count
+  const countQuery = `
+    SELECT COUNT(*) AS total
+    FROM [BACK_UP].[dbo].[BACK_UP_HANH_TRINH] p1 WITH (NOLOCK)
+    INNER JOIN [BACK_UP].[dbo].[BACK_UP_HANH_TRINH] p2 WITH (NOLOCK)
+        ON p1.SessionId < p2.SessionId
+        AND ${joinCondition}
+    ${whereClauseStr}
+  `;
+  const countResult = await request.query(countQuery);
+  const total = countResult.recordset[0]?.total || 0;
+
+  // 2. Get paginated results
+  const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
+  request.input("offset", mssql.Int, offset);
+  request.input("limit", mssql.Int, parseInt(limit));
+
+  const dataQuery = `
+    SELECT 
+        p1.ID AS id1, p1.SessionId AS sessionId1, p1.MaDK AS maDk1, p1.HoTen AS hoTen1, p1.MaKhoaHoc AS maKhoaHoc1, p1.BienSo AS bienSo1, p1.IDGV AS idGv1, p1.HoTenGV AS hoTenGv1, p1.ThoiDiemDangNhap AS thoiDiemDangNhap1, p1.ThoiDiemDangXuat AS thoiDiemDangXuat1, p1.MaKhoaHocKetThuc AS maKhoaHocKetThuc1,
+        p2.ID AS id2, p2.SessionId AS sessionId2, p2.MaDK AS maDk2, p2.HoTen AS hoTen2, p2.MaKhoaHoc AS maKhoaHoc2, p2.BienSo AS bienSo2, p2.IDGV AS idGv2, p2.HoTenGV AS hoTenGv2, p2.ThoiDiemDangNhap AS thoiDiemDangNhap2, p2.ThoiDiemDangXuat AS thoiDiemDangXuat2, p2.MaKhoaHocKetThuc AS maKhoaHocKetThuc2
+    FROM [BACK_UP].[dbo].[BACK_UP_HANH_TRINH] p1 WITH (NOLOCK)
+    INNER JOIN [BACK_UP].[dbo].[BACK_UP_HANH_TRINH] p2 WITH (NOLOCK)
+        ON p1.SessionId < p2.SessionId
+        AND ${joinCondition}
+    ${whereClauseStr}
+    ORDER BY p1.ThoiDiemDangNhap DESC
+    OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+  `;
+
+  const dataResult = await request.query(dataQuery);
+  return {
+    total,
+    page: parseInt(page),
+    limit: parseInt(limit),
+    totalPages: Math.ceil(total / parseInt(limit)),
+    data: dataResult.recordset
+  };
 }
 
 module.exports = {
@@ -621,5 +841,7 @@ module.exports = {
   upsertScoreByRubricTable,
   upsertHocVienHocTap,
   upsertScoreByRubric,
+  upsertBackUpHanhTrinh,
+  checkOverlap,
   initializeBackupDatabase,
 };
