@@ -4,12 +4,23 @@ const bcrypt = require("bcryptjs");
 async function getAll() {
   const pool = await connectSQL();
   const result = await pool.request().query(`
-    SELECT u.id, u.username, u.email, u.ho_ten, u.role_id, r.name as role_name, u.is_active, u.created_at, u.updated_at
+    SELECT u.id, u.username, u.email, u.ho_ten, u.role_id, r.name as role_name, u.is_active, u.created_at, u.updated_at, u.permissions
     FROM users u
     LEFT JOIN roles r ON u.role_id = r.id
     ORDER BY u.created_at DESC
   `);
-  return result.recordset;
+  return result.recordset.map(user => {
+    if (user.permissions) {
+      try {
+        user.permissions = JSON.parse(user.permissions);
+      } catch (e) {
+        user.permissions = [];
+      }
+    } else {
+      user.permissions = [];
+    }
+    return user;
+  });
 }
 
 async function getById(id) {
@@ -18,12 +29,24 @@ async function getById(id) {
     .request()
     .input("id", id)
     .query(`
-      SELECT u.id, u.username, u.email, u.ho_ten, u.role_id, r.name as role_name, u.is_active, u.created_at, u.updated_at
+      SELECT u.id, u.username, u.email, u.ho_ten, u.role_id, r.name as role_name, u.is_active, u.created_at, u.updated_at, u.permissions
       FROM users u
       LEFT JOIN roles r ON u.role_id = r.id
       WHERE u.id = @id
     `);
-  return result.recordset[0] || null;
+  const user = result.recordset[0] || null;
+  if (user) {
+    if (user.permissions) {
+      try {
+        user.permissions = JSON.parse(user.permissions);
+      } catch (e) {
+        user.permissions = [];
+      }
+    } else {
+      user.permissions = [];
+    }
+  }
+  return user;
 }
 
 async function findByUsername(username) {
@@ -37,13 +60,26 @@ async function findByUsername(username) {
       LEFT JOIN roles r ON u.role_id = r.id
       WHERE u.username = @username
     `);
-  return result.recordset[0] || null;
+  const user = result.recordset[0] || null;
+  if (user) {
+    if (user.permissions) {
+      try {
+        user.permissions = JSON.parse(user.permissions);
+      } catch (e) {
+        user.permissions = [];
+      }
+    } else {
+      user.permissions = [];
+    }
+  }
+  return user;
 }
 
 async function create(userData) {
-  const { username, email, password, ho_ten, role_id } = userData;
+  const { username, email, password, ho_ten, role_id, permissions } = userData;
   const pool = await connectSQL();
   const hashedPassword = await bcrypt.hash(password, 10);
+  const permissionsStr = Array.isArray(permissions) ? JSON.stringify(permissions) : null;
 
   const result = await pool
     .request()
@@ -52,9 +88,10 @@ async function create(userData) {
     .input("password", hashedPassword)
     .input("ho_ten", ho_ten)
     .input("role_id", role_id)
+    .input("permissions", permissionsStr)
     .query(`
-      INSERT INTO users (username, email, password, ho_ten, role_id)
-      VALUES (@username, @email, @password, @ho_ten, @role_id);
+      INSERT INTO users (username, email, password, ho_ten, role_id, permissions)
+      VALUES (@username, @email, @password, @ho_ten, @role_id, @permissions);
       SELECT SCOPE_IDENTITY() AS id;
     `);
 
@@ -62,7 +99,7 @@ async function create(userData) {
 }
 
 async function update(id, userData) {
-  const { username, email, ho_ten, role_id, is_active, password } = userData;
+  const { username, email, ho_ten, role_id, is_active, password, permissions } = userData;
   const pool = await connectSQL();
   const request = pool.request();
   request.input("id", id);
@@ -93,6 +130,10 @@ async function update(id, userData) {
     const hashedPassword = await bcrypt.hash(password, 10);
     query += ", password = @password";
     request.input("password", hashedPassword);
+  }
+  if (permissions !== undefined) {
+    query += ", permissions = @permissions";
+    request.input("permissions", Array.isArray(permissions) ? JSON.stringify(permissions) : null);
   }
 
   query += " WHERE id = @id";

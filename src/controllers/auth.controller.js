@@ -43,6 +43,7 @@ async function login(req, res) {
       id: user.id,
       username: user.username,
       role: user.role_name,
+      permissions: user.permissions,
     };
 
     const token = jwt.sign(payload, process.env.JWT_SECRET, {
@@ -61,6 +62,7 @@ async function login(req, res) {
           ho_ten: user.ho_ten,
           role: user.role_name,
           role_id: user.role_id,
+          permissions: user.permissions,
         },
       },
     });

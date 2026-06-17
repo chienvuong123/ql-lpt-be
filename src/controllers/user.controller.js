@@ -38,7 +38,7 @@ async function getUserById(req, res) {
 
 async function createUser(req, res) {
   try {
-    const { username, email, password, ho_ten, role_id } = req.body;
+    const { username, email, password, ho_ten, role_id, permissions } = req.body;
     if (!username || !password || !ho_ten || !role_id) {
       return res.status(400).json({
         success: false,
@@ -80,7 +80,7 @@ async function createUser(req, res) {
       });
     }
 
-    const id = await User.create({ username, email, password, ho_ten, role_id });
+    const id = await User.create({ username, email, password, ho_ten, role_id, permissions });
     const newUser = await User.getById(id);
 
     res.status(201).json({
