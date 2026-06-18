@@ -30,6 +30,23 @@ const createTableIfNotExists = async () => {
           ALTER TABLE ds_nhan_gplx ADD ngay_thi NVARCHAR(100);
         END
       END
+
+      IF NOT EXISTS (
+        SELECT * FROM sys.columns 
+        WHERE object_id = OBJECT_ID('ds_nhan_gplx') AND name = 'ho_ten_clean'
+      )
+      BEGIN
+        ALTER TABLE ds_nhan_gplx ADD ho_ten_clean AS REPLACE(ho_ten, ' ', '') PERSISTED;
+      END
+
+      IF NOT EXISTS (
+        SELECT * FROM sys.indexes 
+        WHERE object_id = OBJECT_ID('ds_nhan_gplx') AND name = 'IX_ds_nhan_gplx_ho_ten_clean'
+      )
+      BEGIN
+        CREATE NONCLUSTERED INDEX IX_ds_nhan_gplx_ho_ten_clean 
+        ON ds_nhan_gplx (ho_ten_clean);
+      END
     `;
     await pool.request().query(query);
 };
@@ -108,7 +125,7 @@ const searchDsNhanGplxSql = async (filters = {}, rawPage, rawLimit) => {
             OUTER APPLY (
                 SELECT TOP 1 gs_inner.nguoi_tuyen_sinh, gs_inner.dia_chi
                 FROM google_sheet_data gs_inner WITH (NOLOCK)
-                WHERE REPLACE(gs_inner.ten_hoc_vien, ' ', '') = REPLACE(g.ho_ten, ' ', '') 
+                WHERE gs_inner.ten_hoc_vien_clean = g.ho_ten_clean 
                   AND (
                     -- Standard Date match
                     COALESCE(TRY_CONVERT(DATE, gs_inner.ngay_sinh, 103), TRY_CONVERT(DATE, gs_inner.ngay_sinh, 120), TRY_CONVERT(DATE, gs_inner.ngay_sinh, 105), TRY_CAST(gs_inner.ngay_sinh AS DATE))

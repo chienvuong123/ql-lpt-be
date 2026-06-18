@@ -28,9 +28,27 @@ class GoogleSheetModel {
           updated_at DATETIME DEFAULT GETDATE()
         )
       END
+
+      IF NOT EXISTS (
+        SELECT * FROM sys.columns 
+        WHERE object_id = OBJECT_ID('google_sheet_data') AND name = 'ten_hoc_vien_clean'
+      )
+      BEGIN
+        ALTER TABLE google_sheet_data ADD ten_hoc_vien_clean AS REPLACE(ten_hoc_vien, ' ', '') PERSISTED;
+      END
+
+      IF NOT EXISTS (
+        SELECT * FROM sys.indexes 
+        WHERE object_id = OBJECT_ID('google_sheet_data') AND name = 'IX_google_sheet_data_ten_hoc_vien_clean'
+      )
+      BEGIN
+        CREATE NONCLUSTERED INDEX IX_google_sheet_data_ten_hoc_vien_clean 
+        ON google_sheet_data (ten_hoc_vien_clean) 
+        INCLUDE (nguoi_tuyen_sinh, dia_chi, ngay_sinh);
+      END
     `;
     await pool.request().query(query);
-    console.log("[GoogleSheetModel] Đảm bảo bảng google_sheet_data đã tồn tại.");
+    console.log("[GoogleSheetModel] Đảm bảo bảng google_sheet_data và các chỉ mục đã tồn tại.");
   }
 
   async upsertGoogleSheetData(data) {
