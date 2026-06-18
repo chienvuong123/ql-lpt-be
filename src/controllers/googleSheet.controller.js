@@ -4,13 +4,22 @@ class GoogleSheetController {
   async getHocVienList(req, res) {
     try {
       const SPREADSHEET_ID = "1TEeB_qAGJz_aLCzjDOUxEitgrwNWohcy6VjU3k6DppU";
-      // Hỗ trợ truyền GID động qua query param (?gid=...), mặc định là "1754545655"
-      const GID = req.query.gid || "1754545655";
+      const GID = req.query.gid;
       
       // Tự động đồng bộ tất cả dữ liệu từ cả 2 Google Sheets vào SQL
       await googleSheetService.syncAllSheetsToDatabase();
       
-      const data = await googleSheetService.fetchSheetData(SPREADSHEET_ID, GID);
+      let data = [];
+      if (GID) {
+        data = await googleSheetService.fetchSheetData(SPREADSHEET_ID, GID);
+      } else {
+        // Lấy song song dữ liệu từ cả 2 Tab để tối ưu tốc độ
+        const [data1, data2] = await Promise.all([
+          googleSheetService.fetchSheetData(SPREADSHEET_ID, "1754545655"),
+          googleSheetService.fetchSheetData(SPREADSHEET_ID, "258055040")
+        ]);
+        data = data1.concat(data2);
+      }
       
       res.status(200).json({ 
         success: true, 

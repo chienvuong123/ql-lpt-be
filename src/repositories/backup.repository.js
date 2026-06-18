@@ -102,8 +102,8 @@ async function getHocVienKhoa(enrolmentPlanIid, search = "") {
       hvt.updated_at,
       hv.ho_ten,
       hv.cccd AS identification_card,
-      hv.nam_sinh AS birth_year,
-      hv.avatar_url AS avatar
+      YEAR(hv.ngay_sinh) AS birth_year,
+      hv.anh AS avatar
     FROM [BACK_UP].[dbo].[hoc_vien_hoc_tap] hvt WITH (NOLOCK)
     LEFT JOIN [QUAN_LY_LPT].[dbo].[hoc_vien] hv WITH (NOLOCK) ON hvt.ma_dk = hv.ma_dk
     WHERE hvt.enrolment_plan_iid = @enrolment_plan_iid ${searchClause}
@@ -406,8 +406,8 @@ async function getHocVienHocTap(maDk) {
       hvt.*,
       hv.ho_ten,
       hv.cccd AS identification_card,
-      hv.nam_sinh AS birth_year,
-      hv.avatar_url AS avatar
+      YEAR(hv.ngay_sinh) AS birth_year,
+      hv.anh AS avatar
     FROM [BACK_UP].[dbo].[hoc_vien_hoc_tap] hvt WITH (NOLOCK)
     LEFT JOIN [QUAN_LY_LPT].[dbo].[hoc_vien] hv WITH (NOLOCK) ON hvt.ma_dk = hv.ma_dk
     WHERE hvt.ma_dk = @ma_dk

@@ -354,7 +354,239 @@ async function checkOverlap(filters) {
   };
 }
 
+// Helper for date formatting
+const toJsDate = (ts) => {
+  if (!ts) return null;
+  const date = new Date(ts * 1000);
+  return isNaN(date.getTime()) ? null : date;
+};
+
+// Helper to sanitize strings
+const toSafeString = (str, maxLen) => {
+  if (str === null || str === undefined) return "";
+  const s = String(str).trim();
+  return maxLen ? s.substring(0, maxLen) : s;
+};
+
+async function backupHocVienTheoKhoa(enrolmentPlanIid, students) {
+  if (!enrolmentPlanIid || !Array.isArray(students)) return 0;
+  
+  const records = students.map(s => {
+    const user = s.user || {};
+    const maDk = user.admission_code || user.code || s.id || "";
+    const lp = s.learning_progress || {};
+    return {
+      enrolment_plan_iid: toSafeString(enrolmentPlanIid, 100),
+      ma_dk: toSafeString(maDk, 100),
+      total_hour_learned: lp.total_hour_learned ? parseFloat(lp.total_hour_learned) : 0,
+      progress: lp.progress ? parseFloat(lp.progress) : 0,
+      passed: lp.passed ? 1 : 0,
+      learned: lp.learned ? 1 : 0,
+      score_by_rubrik: lp.score_by_rubrik ? JSON.stringify(lp.score_by_rubrik) : null
+    };
+  }).filter(r => r.ma_dk);
+
+  if (records.length === 0) return 0;
+  return await backupRepository.upsertHocVienKhoa(records);
+}
+
+async function backupCameraSnapshots(maDk, enrolmentPlanIid, snapshots) {
+  if (!maDk || !Array.isArray(snapshots)) return 0;
+  
+  const records = snapshots.map(s => {
+    const snapshotId = s.id || s.iid || "";
+    const url = s.image_url || s.url || "";
+    return {
+      lotus_snapshot_id: toSafeString(snapshotId, 100),
+      ma_dk: toSafeString(maDk, 100),
+      enrolment_plan_iid: toSafeString(enrolmentPlanIid, 100),
+      item_iid: s.item_iid ? toSafeString(s.item_iid, 100) : null,
+      image_url: toSafeString(url, 500),
+      captured_at: s.captured_at || 0,
+      captured_at_iso: toJsDate(s.captured_at),
+      verify_status: s.verify_status ? toSafeString(s.verify_status, 50) : null
+    };
+  }).filter(r => r.image_url);
+
+  if (records.length === 0) return 0;
+  return await backupRepository.upsertCameraSnapshots(records);
+}
+
+async function backupTimeTrackingLogs(maDk, enrolmentPlanIid, logs) {
+  if (!maDk || !Array.isArray(logs)) return 0;
+  
+  const records = logs.map(l => {
+    const logId = l.id || l.log_id || "";
+    return {
+      lotus_log_id: toSafeString(logId, 100),
+      ma_dk: toSafeString(maDk, 100),
+      enrolment_plan_iid: toSafeString(enrolmentPlanIid, 100),
+      item_iid: l.item_iid ? toSafeString(l.item_iid, 100) : "",
+      item_name: l.item_name ? toSafeString(l.item_name, 255) : null,
+      start_time: l.start_time || 0,
+      start_time_iso: toJsDate(l.start_time),
+      end_time: l.end_time || null,
+      end_time_iso: toJsDate(l.end_time),
+      duration: l.duration || 0,
+      device: l.device ? toSafeString(l.device, 255) : null,
+      ip_address: l.ip_address ? toSafeString(l.ip_address, 50) : null
+    };
+  }).filter(r => r.item_iid && r.start_time);
+
+  if (records.length === 0) return 0;
+  return await backupRepository.upsertTimeTrackingLogs(records);
+}
+
+async function backupLearningTimeTracking(maDk, enrolmentPlanIid, logs) {
+  if (!maDk || !Array.isArray(logs)) return 0;
+  
+  const records = logs.map(l => {
+    const progressVal = l.progress || l.percent || 0;
+    const lastLearned = l.last_learned_at || l.date || 0;
+    return {
+      ma_dk: toSafeString(maDk, 100),
+      enrolment_plan_iid: toSafeString(enrolmentPlanIid || l.enrolment_plan_iid, 100) || "",
+      item_iid: l.item_iid ? toSafeString(l.item_iid, 100) : "",
+      item_name: l.item_name ? toSafeString(l.item_name, 255) : null,
+      total_time: l.total_time || 0,
+      progress: Number(progressVal),
+      last_learned_at: lastLearned,
+      last_learned_at_iso: toJsDate(lastLearned)
+    };
+  }).filter(r => r.item_iid);
+
+  if (records.length === 0) return 0;
+
+  // Deduplicate by (ma_dk, enrolment_plan_iid, item_iid) to avoid unique constraint violations
+  const uniqueRecordsMap = new Map();
+  records.forEach(r => {
+    if (r.ma_dk && r.enrolment_plan_iid && r.item_iid) {
+      const key = `${r.ma_dk}_${r.enrolment_plan_iid}_${r.item_iid}`;
+      uniqueRecordsMap.set(key, r);
+    }
+  });
+  const deduplicatedRecords = Array.from(uniqueRecordsMap.values());
+
+  return await backupRepository.upsertLearningTimeTracking(deduplicatedRecords);
+}
+
+async function backupStudentProgress(maDk, enrolmentPlanIid, responseData) {
+  if (!maDk) return 0;
+  
+  const result = responseData?.result || responseData || {};
+  let progress = 0;
+  let totalHourLearned = 0;
+  let passed = 0;
+  let learned = 0;
+  
+  if (Array.isArray(result)) {
+    let totalProgress = 0;
+    result.forEach(item => {
+      const prog = item?.progress || item?.learning_progress?.progress || 0;
+      totalProgress += Number(prog);
+      totalHourLearned += Number(item?.total_hour_learned || item?.learning_progress?.total_hour_learned || 0);
+      if (item?.passed || item?.learning_progress?.passed) passed = 1;
+      if (item?.learned || item?.learning_progress?.learned) learned = 1;
+    });
+    progress = result.length > 0 ? (totalProgress / result.length) : 0;
+  } else {
+    progress = result.progress || result.learning_progress?.progress || 0;
+    totalHourLearned = result.total_hour_learned || result.learning_progress?.total_hour_learned || 0;
+    passed = (result.passed || result.learning_progress?.passed) ? 1 : 0;
+    learned = (result.learned || result.learning_progress?.learned) ? 1 : 0;
+  }
+  
+  return await backupRepository.upsertHocVienHocTap({
+    ma_dk: toSafeString(maDk, 100),
+    enrolment_plan_iid: toSafeString(enrolmentPlanIid, 100),
+    progress: Number(progress),
+    total_hour_learned: Number(totalHourLearned),
+    passed: passed,
+    learned: learned
+  });
+}
+
+async function backupScoreByRubric(maDk, enrolmentPlanIid, responseData) {
+  if (!maDk) return 0;
+  
+  const scoreJson = responseData ? JSON.stringify(responseData) : null;
+  const result = responseData?.result || {};
+  const rubric = result.rubric || {};
+  const rubricIid = rubric.iid || result.iid || "";
+  const rubricName = rubric.name || "";
+  const score = result.score || 0;
+  const cp = result.cp || 0;
+  const passed = result.passed || 0;
+  const scoreByRubrik = result.score_by_rubrik ? JSON.stringify(result.score_by_rubrik) : null;
+
+  // 1. Save to the new table
+  if (rubricIid) {
+    const record = {
+      ma_dk: toSafeString(maDk, 100),
+      enrolment_plan_iid: toSafeString(enrolmentPlanIid, 100),
+      rubric_iid: toSafeString(rubricIid, 100),
+      rubric_name: toSafeString(rubricName, 255),
+      score: Number(score),
+      cp: Number(cp),
+      passed: Number(passed),
+      score_by_rubrik: scoreByRubrik,
+    };
+    await backupRepository.upsertScoreByRubricTable(record).catch(err => {
+      console.error("[backupScoreByRubric] Save to new table failed:", err.message);
+    });
+  }
+
+  // 2. Save to the legacy hoc_vien_hoc_tap table
+  return await backupRepository.upsertScoreByRubric(maDk, enrolmentPlanIid, scoreJson);
+}
+
+async function backupTienDoHoanThanh(maDk, enrolmentPlanIid, responseData) {
+  if (!maDk) return 0;
+  const list = responseData?.result || (Array.isArray(responseData) ? responseData : []);
+  if (!Array.isArray(list) || list.length === 0) return 0;
+
+  const records = list.map(item => {
+    const epIid = enrolmentPlanIid || item.enrolment_plan?.iid || (item.enrolment_plans && item.enrolment_plans[0]) || "";
+    return {
+      ma_dk: toSafeString(maDk, 100),
+      enrolment_plan_iid: toSafeString(epIid, 100),
+      course_iid: toSafeString(item.iid || item.id, 100),
+      course_name: toSafeString(item.name, 255),
+      cp: Number(item.cp || 0),
+      p: Number(item.p || 0),
+      pf: Number(item.pf || 0),
+      rubric_iid: toSafeString(item.rubric_iid, 100),
+    };
+  }).filter(r => r.course_iid);
+
+  if (records.length === 0) return 0;
+
+  // Deduplicate records to avoid unique constraint violations
+  const uniqueRecordsMap = new Map();
+  records.forEach(r => {
+    const key = `${r.ma_dk}_${r.enrolment_plan_iid}_${r.course_iid}`;
+    uniqueRecordsMap.set(key, r);
+  });
+  const deduplicatedRecords = Array.from(uniqueRecordsMap.values());
+
+  await backupRepository.upsertTienDoHoanThanh(deduplicatedRecords);
+
+  // Fallback sync to legacy hoc_vien_hoc_tap
+  await backupStudentProgress(maDk, enrolmentPlanIid, responseData).catch(err => {
+    console.error("[backupTienDoHoanThanh] legacy update to hoc_vien_hoc_tap failed:", err.message);
+  });
+
+  return deduplicatedRecords.length;
+}
+
 module.exports = {
   backupHanhTrinh,
-  checkOverlap
+  checkOverlap,
+  backupHocVienTheoKhoa,
+  backupCameraSnapshots,
+  backupTimeTrackingLogs,
+  backupLearningTimeTracking,
+  backupStudentProgress,
+  backupScoreByRubric,
+  backupTienDoHoanThanh
 };
