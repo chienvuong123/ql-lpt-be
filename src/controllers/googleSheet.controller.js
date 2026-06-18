@@ -7,6 +7,9 @@ class GoogleSheetController {
       // Hỗ trợ truyền GID động qua query param (?gid=...), mặc định là "1754545655"
       const GID = req.query.gid || "1754545655";
       
+      // Tự động đồng bộ tất cả dữ liệu từ cả 2 Google Sheets vào SQL
+      await googleSheetService.syncAllSheetsToDatabase();
+      
       const data = await googleSheetService.fetchSheetData(SPREADSHEET_ID, GID);
       
       res.status(200).json({ 

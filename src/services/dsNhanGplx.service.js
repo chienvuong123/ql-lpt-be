@@ -14,16 +14,16 @@ const searchDsNhanGplx = async (filters, page, limit) => {
 
 const importExcel = async (fileBuffer, ngay_thi) => {
     const parsedRecords = DsNhanGplxExcelParser.parseExcel(fileBuffer);
-    
+
     const pool = await connectSQL();
     let inserted = 0;
     let updated = 0;
-    
+
     for (const record of parsedRecords) {
         if (ngay_thi) {
             record.ngay_thi = ngay_thi;
         }
-        
+
         const existing = await repository.findExistingRecord(pool, record.ho_ten, record.ngay_sinh, record.so_gplx);
         if (existing) {
             await repository.updateRecord(pool, existing.id, record);

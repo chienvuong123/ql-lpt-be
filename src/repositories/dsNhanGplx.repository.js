@@ -90,14 +90,49 @@ const searchDsNhanGplxSql = async (filters = {}, rawPage, rawLimit) => {
     const queryStr = `
         ;WITH BaseData AS (
             SELECT 
-                g.*,
+                g.id,
+                g.ho_ten,
+                g.ngay_sinh,
+                g.so_gplx,
+                g.da_nhan,
+                g.ngay_nhan,
+                g.nguoi_nhan,
+                g.ky_nhan,
+                g.ghi_chu,
+                g.ngay_thi,
+                g.created_at,
+                g.updated_at,
+                COALESCE(NULLIF(gs.dia_chi, ''), g.dia_chi) AS dia_chi,
                 gs.nguoi_tuyen_sinh AS dau_moi
             FROM ds_nhan_gplx g WITH (NOLOCK)
             OUTER APPLY (
-                SELECT TOP 1 gs_inner.nguoi_tuyen_sinh
+                SELECT TOP 1 gs_inner.nguoi_tuyen_sinh, gs_inner.dia_chi
                 FROM google_sheet_data gs_inner WITH (NOLOCK)
-                WHERE gs_inner.ten_hoc_vien = g.ho_ten 
-                  AND (gs_inner.ngay_sinh = g.ngay_sinh OR (gs_inner.ngay_sinh IS NULL AND g.ngay_sinh IS NULL))
+                WHERE REPLACE(gs_inner.ten_hoc_vien, ' ', '') = REPLACE(g.ho_ten, ' ', '') 
+                  AND (
+                    -- Standard Date match
+                    COALESCE(TRY_CONVERT(DATE, gs_inner.ngay_sinh, 103), TRY_CONVERT(DATE, gs_inner.ngay_sinh, 120), TRY_CONVERT(DATE, gs_inner.ngay_sinh, 105), TRY_CAST(gs_inner.ngay_sinh AS DATE))
+                    =
+                    COALESCE(TRY_CONVERT(DATE, g.ngay_sinh, 103), TRY_CONVERT(DATE, g.ngay_sinh, 120), TRY_CONVERT(DATE, g.ngay_sinh, 105), TRY_CAST(g.ngay_sinh AS DATE))
+                    
+                    -- Swapped Day & Month match
+                    OR (
+                      DAY(COALESCE(TRY_CONVERT(DATE, gs_inner.ngay_sinh, 103), TRY_CONVERT(DATE, gs_inner.ngay_sinh, 120), TRY_CONVERT(DATE, gs_inner.ngay_sinh, 105), TRY_CAST(gs_inner.ngay_sinh AS DATE)))
+                      =
+                      MONTH(COALESCE(TRY_CONVERT(DATE, g.ngay_sinh, 103), TRY_CONVERT(DATE, g.ngay_sinh, 120), TRY_CONVERT(DATE, g.ngay_sinh, 105), TRY_CAST(g.ngay_sinh AS DATE)))
+                      AND
+                      MONTH(COALESCE(TRY_CONVERT(DATE, gs_inner.ngay_sinh, 103), TRY_CONVERT(DATE, gs_inner.ngay_sinh, 120), TRY_CONVERT(DATE, gs_inner.ngay_sinh, 105), TRY_CAST(gs_inner.ngay_sinh AS DATE)))
+                      =
+                      DAY(COALESCE(TRY_CONVERT(DATE, g.ngay_sinh, 103), TRY_CONVERT(DATE, g.ngay_sinh, 120), TRY_CONVERT(DATE, g.ngay_sinh, 105), TRY_CAST(g.ngay_sinh AS DATE)))
+                      AND
+                      YEAR(COALESCE(TRY_CONVERT(DATE, gs_inner.ngay_sinh, 103), TRY_CONVERT(DATE, gs_inner.ngay_sinh, 120), TRY_CONVERT(DATE, gs_inner.ngay_sinh, 105), TRY_CAST(gs_inner.ngay_sinh AS DATE)))
+                      =
+                      YEAR(COALESCE(TRY_CONVERT(DATE, g.ngay_sinh, 103), TRY_CONVERT(DATE, g.ngay_sinh, 120), TRY_CONVERT(DATE, g.ngay_sinh, 105), TRY_CAST(g.ngay_sinh AS DATE)))
+                    )
+
+                    OR (REPLACE(gs_inner.ngay_sinh, ' ', '') = REPLACE(g.ngay_sinh, ' ', ''))
+                    OR (gs_inner.ngay_sinh IS NULL AND g.ngay_sinh IS NULL)
+                  )
             ) gs
             ${whereClause}
         ),

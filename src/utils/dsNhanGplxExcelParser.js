@@ -138,12 +138,12 @@ class DsNhanGplxExcelParser {
           year += year < 30 ? 2000 : 1900;
         }
 
-        if (p1 > 12 && p2 <= 12) {
-          // p1 is day, p2 is month (e.g. 24/11/1997) -> already DD/MM/YYYY
-          return `${String(p1).padStart(2, '0')}/${String(p2).padStart(2, '0')}/${year}`;
-        } else {
-          // Otherwise, assume p1 is month, p2 is day (MM/DD/YYYY) -> convert to DD/MM/YYYY
+        if (p2 > 12 && p1 <= 12) {
+          // p2 is day, p1 is month (e.g. 11/24/1997) -> convert to DD/MM/YYYY
           return `${String(p2).padStart(2, '0')}/${String(p1).padStart(2, '0')}/${year}`;
+        } else {
+          // Otherwise, it is already DD/MM/YYYY (either p1 > 12, or both <= 12, e.g. 05/06/1991)
+          return `${String(p1).padStart(2, '0')}/${String(p2).padStart(2, '0')}/${year}`;
         }
       }
 

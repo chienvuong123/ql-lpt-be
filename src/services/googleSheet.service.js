@@ -2,14 +2,50 @@ const { google } = require("googleapis");
 const fs = require("fs");
 const path = require("path");
 
+let cachedAuthClient = null;
+
+function safeReadJsonSync(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return null;
+    }
+    const content = fs.readFileSync(filePath, "utf8").trim();
+    if (!content) {
+      return null;
+    }
+    return JSON.parse(content);
+  } catch (error) {
+    console.error(`[GoogleSheetService] Lỗi khi đọc/parse file JSON ${filePath}:`, error.message);
+    return null;
+  }
+}
+
+function safeWriteJsonSync(filePath, data) {
+  const tempPath = filePath + ".tmp";
+  try {
+    fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), "utf8");
+    fs.renameSync(tempPath, filePath);
+  } catch (error) {
+    console.error(`[GoogleSheetService] Lỗi khi ghi file JSON ${filePath}:`, error.message);
+    if (fs.existsSync(tempPath)) {
+      try { fs.unlinkSync(tempPath); } catch (_) {}
+    }
+  }
+}
+
 function getAuthClient() {
+  if (cachedAuthClient) {
+    return cachedAuthClient;
+  }
+
   const serviceAccountPath = path.join(process.cwd(), "service_account.json");
   if (fs.existsSync(serviceAccountPath)) {
     // Authenticate using Service Account - NO login required!
-    return new google.auth.GoogleAuth({
+    cachedAuthClient = new google.auth.GoogleAuth({
       keyFile: serviceAccountPath,
       scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
     });
+    return cachedAuthClient;
   }
 
   const credentialsPath = path.join(process.cwd(), "oauth_credentials.json");
@@ -17,7 +53,10 @@ function getAuthClient() {
     throw new Error("Không tìm thấy service_account.json hoặc oauth_credentials.json ở thư mục gốc!");
   }
   
-  const credentials = JSON.parse(fs.readFileSync(credentialsPath));
+  const credentials = safeReadJsonSync(credentialsPath);
+  if (!credentials || !credentials.installed) {
+    throw new Error("File oauth_credentials.json bị trống hoặc không đúng định dạng JSON!");
+  }
   const { client_id, client_secret, redirect_uris } = credentials.installed;
 
   const oAuth2Client = new google.auth.OAuth2(
@@ -31,21 +70,25 @@ function getAuthClient() {
     throw new Error("Chưa có token.json! Hãy chạy lệnh: node getToken.js");
   }
 
-  const token = JSON.parse(fs.readFileSync(tokenPath));
+  const token = safeReadJsonSync(tokenPath);
+  if (!token) {
+    throw new Error("File token.json bị trống hoặc không đúng định dạng JSON! Hãy chạy lại lệnh: node getToken.js");
+  }
   oAuth2Client.setCredentials(token);
 
   oAuth2Client.on("tokens", (tokens) => {
     try {
-      const currentToken = JSON.parse(fs.readFileSync(tokenPath));
+      const currentToken = safeReadJsonSync(tokenPath) || {};
       const updatedToken = { ...currentToken, ...tokens };
-      fs.writeFileSync(tokenPath, JSON.stringify(updatedToken, null, 2));
+      safeWriteJsonSync(tokenPath, updatedToken);
       console.log("[GoogleSheetService] Đã tự động gia hạn và lưu token mới vào token.json");
     } catch (err) {
       console.error("[GoogleSheetService] Lỗi khi ghi đè token mới:", err.message);
     }
   });
 
-  return oAuth2Client;
+  cachedAuthClient = oAuth2Client;
+  return cachedAuthClient;
 }
 
 const googleSheetModel = require("../models/googleSheet.model");
@@ -128,22 +171,33 @@ class GoogleSheetService {
         
         if (data && data.length > 0) {
           const mappedData = data.map(item => {
-            // Map chính xác theo tiêu đề trong ảnh screenshot của người dùng
+            // Strip leading single quote from CCCD if present
+            let cccdVal = (item["Căn cước /CMND"] || item["Căn cước/CMND"] || "").toString().trim();
+            if (cccdVal.startsWith("'")) {
+              cccdVal = cccdVal.substring(1).trim();
+            }
+
+            // Clean boolean for CCCD photo
+            const photoVal = item["CCCD Photo"] || item["CCCD photo"] || item["CCCD phô tô"] || item["Căn cước/CMND photo"] || "";
+            const isPhotoOk = photoVal === true || 
+                               photoVal === 1 || 
+                               ["ok", "đã có", "yes", "có"].includes(photoVal.toString().trim().toLowerCase());
+
             return {
-              cccd: (item["Căn cước /CMND"] || item["Căn cước/CMND"] || "").toString().trim(),
+              cccd: cccdVal,
               stt_n: item["STT Ngày"] || item["STT_N"] || null,
               thoi_gian: item["Dấu thời gian"] || item["Thời gian"] || null,
               email: item["Địa chỉ email"] || item["Email"] || null,
               co_so: item["Cơ sở tuyển sinh"] || item["Cơ sở\ntuyển\nsinh"] || item["CS"] || item["Cơ sở"] || null,
-              ten_hoc_vien: item["Họ tên học viên"] || item["Họ và tên"] || null,
-              ngay_sinh: item["Ngày sinh"] || null,
+              ten_hoc_vien: (item["Họ tên học viên"] || item["Họ và tên"] || "").toString().trim() || null,
+              ngay_sinh: (item["Ngày sinh"] || "").toString().trim() || null,
               dien_thoai: item["Số điện thoại"] || item["SĐT học viên"] || item["Điện thoại"] || null,
-              dia_chi: item["Địa chỉ"] || null,
+              dia_chi: (item["Địa chỉ"] || "").toString().trim() || null,
               loai: item["LH"] || item["Loại hình"] || item["Loại"] || null,
               hang: item["Hạng"] || null,
-              nguoi_tuyen_sinh: item["Người tuyển sinh"] || null,
+              nguoi_tuyen_sinh: (item["Người tuyển sinh"] || "").toString().trim() || null,
               ctv: item["CTV"] || null,
-              cccd_pho_to: item["CCCD Photo"] === "OK" || item["CCCD Photo"] === true || item["CCCD phô tô"] === "OK",
+              cccd_pho_to: isPhotoOk,
               dat_coc: item["Đặt cọc"] || null,
               ma_anh: item["Mã ảnh"] || null,
               ghi_chu: item["Ghi chú"] || null,
