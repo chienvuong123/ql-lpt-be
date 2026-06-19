@@ -529,7 +529,7 @@ async function getHocVienSearch(filters = {}) {
         kh.ten_khoa,
         kh.code
     FROM [dbo].[hoc_vien] hv WITH (NOLOCK)
-    INNER JOIN [dbo].[dang_ky_xe_gv] dk WITH (NOLOCK) ON dk.ma_dk = hv.ma_dk
+    LEFT JOIN [dbo].[dang_ky_xe_gv] dk WITH (NOLOCK) ON dk.ma_dk = hv.ma_dk
     LEFT JOIN [dbo].[khoa_hoc] kh WITH (NOLOCK) ON kh.ma_khoa = hv.ma_khoa
     ${whereClause}
     ORDER BY hv.ho_ten ASC
