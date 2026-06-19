@@ -8,13 +8,13 @@ const getTienDoDaoTao = async (filters = {}) => {
     return TienDoDaoTao.formatList(raw);
 };
 
-const getChiTietDaoTao = async (ma_khoa, { page = 1, limit = 10, search = "", forceSync = true } = {}) => {
+const getChiTietDaoTao = async (ma_khoa, { page = 1, limit = 10, search = "", giao_vien = "", forceSync = true } = {}) => {
     if (!ma_khoa) {
         throw new Error("Mã khóa học không được trống");
     }
 
     // 1. Fetch paginated students & theory progress
-    const { data: students, pagination } = await repository.getStudentsAndTheoryProgressSql(ma_khoa, { page, limit, search });
+    const { data: students, pagination } = await repository.getStudentsAndTheoryProgressSql(ma_khoa, { page, limit, search, giao_vien });
 
     if (students.length === 0) {
         return { data: [], pagination };
@@ -80,14 +80,6 @@ const getChiTietDaoTao = async (ma_khoa, { page = 1, limit = 10, search = "", fo
         const theoryProgress = st.theory_progress != null ? Number(st.theory_progress) : 0;
         const theoryHours = st.theory_hours != null ? Number(st.theory_hours) : 0;
         const theoryPassed = st.theory_passed === 1 || st.theory_passed === true;
-        let learning = [];
-        try {
-            if (st.theory_score_by_rubrik) {
-                learning = JSON.parse(st.theory_score_by_rubrik);
-            }
-        } catch (e) {
-            console.error(`[TienDoDaoTaoService] Lỗi parse theory_score_by_rubrik cho ${st.ma_dk}:`, e.message);
-        }
 
         // Cabin progress (lookup by normalized ma_dk)
         const normStudentMaDk = String(maDk).replace(/[^\d]/g, "");
@@ -129,8 +121,7 @@ const getChiTietDaoTao = async (ma_khoa, { page = 1, limit = 10, search = "", fo
                 ly_thuyet: {
                     ti_le: theoryProgress,
                     so_gio: theoryHours,
-                    dat: theoryPassed,
-                    learning: learning
+                    dat: theoryPassed
                 },
                 cabin: {
                     tong_phut: cabinInfo.tong_phut,

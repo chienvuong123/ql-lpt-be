@@ -54,13 +54,14 @@ const getDatExpiredYesterdaySql = async () => {
     return result.recordset.map((row) => row.ma_khoa);
 };
 
-const getStudentsAndTheoryProgressSql = async (ma_khoa, { page = 1, limit = 10, search = "" } = {}) => {
+const getStudentsAndTheoryProgressSql = async (ma_khoa, { page = 1, limit = 10, search = "", giao_vien = "" } = {}) => {
     const { offset, limit: limitVal } = parsePagination(page, limit);
     const pool = await connectSQL();
 
     let countQuery = `
       SELECT COUNT(*) as total 
       FROM [dbo].[hoc_vien] hv WITH (NOLOCK)
+      LEFT JOIN [dbo].[dang_ky_xe_gv] dg WITH (NOLOCK) ON hv.ma_dk = dg.ma_dk
       WHERE hv.ma_khoa = @ma_khoa
     `;
 
@@ -76,8 +77,7 @@ const getStudentsAndTheoryProgressSql = async (ma_khoa, { page = 1, limit = 10, 
         dg.xe_b2,
         hvt.progress AS theory_progress,
         hvt.total_hour_learned AS theory_hours,
-        hvt.passed AS theory_passed,
-        hvt.score_by_rubrik AS theory_score_by_rubrik
+        hvt.passed AS theory_passed
       FROM [dbo].[hoc_vien] hv WITH (NOLOCK)
       LEFT JOIN [dbo].[dang_ky_xe_gv] dg WITH (NOLOCK) ON hv.ma_dk = dg.ma_dk
       LEFT JOIN [BACK_UP].[dbo].[hoc_vien_hoc_tap] hvt WITH (NOLOCK) ON hv.ma_dk = hvt.ma_dk
@@ -92,6 +92,13 @@ const getStudentsAndTheoryProgressSql = async (ma_khoa, { page = 1, limit = 10, 
       request.input("search", mssql.NVarChar, searchParam);
       countQuery += ` AND (hv.ho_ten LIKE @search OR hv.cccd LIKE @search OR hv.ma_dk LIKE @search)`;
       dataQuery += ` AND (hv.ho_ten LIKE @search OR hv.cccd LIKE @search OR hv.ma_dk LIKE @search)`;
+    }
+
+    if (giao_vien) {
+      const gvParam = `%${giao_vien.trim()}%`;
+      request.input("giao_vien", mssql.NVarChar, gvParam);
+      countQuery += ` AND dg.giao_vien LIKE @giao_vien`;
+      dataQuery += ` AND dg.giao_vien LIKE @giao_vien`;
     }
 
     // Get total count

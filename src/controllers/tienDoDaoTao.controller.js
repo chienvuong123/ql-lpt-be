@@ -17,7 +17,7 @@ const getChiTietDaoTao = async (req, res, next) => {
     const message = "Lấy chi tiết tiến độ đào tạo thành công!";
     try {
         const ma_khoa = req.query.ma_khoa || req.params.ma_khoa;
-        const { page, limit, search, forceSync } = req.query;
+        const { page, limit, search, giao_vien, forceSync } = req.query;
         if (!ma_khoa) {
             return res.status(400).json({ success: false, message: "Thiếu tham số ma_khoa" });
         }
@@ -29,6 +29,7 @@ const getChiTietDaoTao = async (req, res, next) => {
             page, 
             limit, 
             search, 
+            giao_vien,
             forceSync: parsedForceSync 
         });
         return responseHelper.pagination(res, data, pagination, message);
