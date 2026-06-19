@@ -1,69 +1,88 @@
-const tienDoDaoTaoModel = require("../models/tienDoDaoTao.model");
+const service = require("../services/tienDoDaoTao.service");
+const responseHelper = require("../helpers/response.helper");
 const cronService = require("../services/cron.service");
 
-class TienDoDaoTaoController {
-  /**
-   * GET /api/tien-do-dao-tao
-   * Lấy danh sách tiến độ đào tạo
-   */
-  async getTienDoDaoTao(req, res) {
-    const { ma_khoa } = req.query;
+const getTienDoDaoTao = async (req, res, next) => {
+    const message = "Lấy danh sách tiến độ đào tạo thành công!";
     try {
-      const data = await tienDoDaoTaoModel.getAll({ ma_khoa });
-      res.status(200).json({ success: true, message: "Thành công", data });
+        const { ma_khoa } = req.query;
+        const data = await service.getTienDoDaoTao({ ma_khoa });
+        return responseHelper.success(res, data, message);
     } catch (error) {
-      console.error("[TienDoDaoTaoController] Error:", error.message);
-      res.status(500).json({ success: false, message: "Lỗi hệ thống", error: error.message });
+        next(error);
     }
-  }
+};
 
-  /**
-   * POST /api/tien-do-dao-tao/move-failed-theory-to-hoc-bu
-   * Chạy thủ công kiểm tra lý thuyết trượt
-   */
-  async moveFailedTheoryToHocBu(req, res) {
-    const { ma_khoa } = req.body;
-    if (!ma_khoa) return res.status(400).json({ success: false, message: "Thiếu ma_khoa" });
+const getChiTietDaoTao = async (req, res, next) => {
+    const message = "Lấy chi tiết tiến độ đào tạo thành công!";
     try {
-      const result = await cronService.checkAndMoveTheory(ma_khoa);
-      res.status(200).json({ success: true, message: `Chuyển ${result.movedCount} học viên`, data: result });
-    } catch (error) {
-      console.error("[moveFailedTheoryToHocBu]", error.message);
-      res.status(500).json({ success: false, message: error.message });
-    }
-  }
+        const ma_khoa = req.query.ma_khoa || req.params.ma_khoa;
+        const { page, limit, search, forceSync } = req.query;
+        if (!ma_khoa) {
+            return res.status(400).json({ success: false, message: "Thiếu tham số ma_khoa" });
+        }
+        
+        // Default forceSync to true unless explicitly requested as false
+        const parsedForceSync = forceSync === "false" ? false : true;
 
-  /**
-   * POST /api/tien-do-dao-tao/move-failed-cabin-to-hoc-bu
-   * Chạy thủ công kiểm tra cabin trượt
-   */
-  async moveFailedCabinToHocBu(req, res) {
-    const { ma_khoa } = req.body;
-    if (!ma_khoa) return res.status(400).json({ success: false, message: "Thiếu ma_khoa" });
+        const { data, pagination } = await service.getChiTietDaoTao(ma_khoa, { 
+            page, 
+            limit, 
+            search, 
+            forceSync: parsedForceSync 
+        });
+        return responseHelper.pagination(res, data, pagination, message);
+    } catch (error) {
+        next(error);
+    }
+};
+
+const moveFailedTheoryToHocBu = async (req, res, next) => {
+    const message = "Chạy kiểm tra lý thuyết trượt thành công!";
     try {
-      const result = await cronService.checkAndMoveCabin(ma_khoa);
-      res.status(200).json({ success: true, message: `Chuyển ${result.movedCount} học viên`, data: result });
+        const { ma_khoa } = req.body;
+        if (!ma_khoa) {
+            return res.status(400).json({ success: false, message: "Thiếu tham số ma_khoa" });
+        }
+        const result = await cronService.checkAndMoveTheory(ma_khoa);
+        return responseHelper.success(res, result, message);
     } catch (error) {
-      console.error("[moveFailedCabinToHocBu]", error.message);
-      res.status(500).json({ success: false, message: error.message });
+        next(error);
     }
-  }
+};
 
-  /**
-   * POST /api/tien-do-dao-tao/move-failed-dat-to-hoc-bu
-   * Chạy thủ công kiểm tra DAT trượt
-   */
-  async moveFailedDatToHocBu(req, res) {
-    const { ma_khoa } = req.body;
-    if (!ma_khoa) return res.status(400).json({ success: false, message: "Thiếu ma_khoa" });
+const moveFailedCabinToHocBu = async (req, res, next) => {
+    const message = "Chạy kiểm tra cabin trượt thành công!";
     try {
-      const result = await cronService.checkAndMoveDat(ma_khoa);
-      res.status(200).json({ success: true, message: `Chuyển ${result.movedCount} học viên`, data: result });
+        const { ma_khoa } = req.body;
+        if (!ma_khoa) {
+            return res.status(400).json({ success: false, message: "Thiếu tham số ma_khoa" });
+        }
+        const result = await cronService.checkAndMoveCabin(ma_khoa);
+        return responseHelper.success(res, result, message);
     } catch (error) {
-      console.error("[moveFailedDatToHocBu]", error.message);
-      res.status(500).json({ success: false, message: error.message });
+        next(error);
     }
-  }
-}
+};
 
-module.exports = new TienDoDaoTaoController();
+const moveFailedDatToHocBu = async (req, res, next) => {
+    const message = "Chạy kiểm tra DAT trượt thành công!";
+    try {
+        const { ma_khoa } = req.body;
+        if (!ma_khoa) {
+            return res.status(400).json({ success: false, message: "Thiếu tham số ma_khoa" });
+        }
+        const result = await cronService.checkAndMoveDat(ma_khoa);
+        return responseHelper.success(res, result, message);
+    } catch (error) {
+        next(error);
+    }
+};
+
+module.exports = {
+    getTienDoDaoTao,
+    getChiTietDaoTao,
+    moveFailedTheoryToHocBu,
+    moveFailedCabinToHocBu,
+    moveFailedDatToHocBu,
+};

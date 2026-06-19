@@ -56,6 +56,7 @@ app.use("/api/sync", syncRoute);
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/google-sheet", googleSheetRoute);
+app.use("/api/tien-do-dao-tao", require("./src/routes/tienDoDaoTao.routes"));
 app.use("/api/tien-do-dao-tao", require("./src/routes/hocbu.routes"));
 app.use("/api/student-detail", require("./src/routes/studentDetail.routes"));
 app.use("/api/check-configs", require("./src/routes/checkConfig.routes"));

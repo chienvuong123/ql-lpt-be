@@ -80,6 +80,38 @@ async function upsertHocVien(students, planInfo) {
 
   try {
     await transaction.begin();
+
+    // Ensure course exists in [dbo].[khoa_hoc] to satisfy the foreign key FK_hoc_vien_khoa_hoc
+    const courseRequest = new mssql.Request(transaction);
+    courseRequest.input("ma_khoa", mssql.VarChar, ma_khoa);
+    courseRequest.input("ten_khoa", mssql.NVarChar, planInfo.name || ma_khoa);
+    courseRequest.input("code", mssql.VarChar, String(planInfo.iid || ""));
+
+    const startDate = planInfo.start_date ? new Date(planInfo.start_date * 1000) : null;
+    const endDate = planInfo.end_date ? new Date(planInfo.end_date * 1000) : null;
+    courseRequest.input("ngay_bat_dau", mssql.DateTime, startDate);
+    courseRequest.input("ngay_ket_thuc", mssql.DateTime, endDate);
+    courseRequest.input("total_member", mssql.Int, planInfo.__expand?.learning_stats?.total_member || 0);
+
+    await courseRequest.query(`
+      IF EXISTS (SELECT 1 FROM [dbo].[khoa_hoc] WHERE ma_khoa = @ma_khoa)
+      BEGIN
+        UPDATE [dbo].[khoa_hoc]
+        SET ten_khoa = @ten_khoa,
+            code = @code,
+            ngay_bat_dau = @ngay_bat_dau,
+            ngay_ket_thuc = @ngay_ket_thuc,
+            total_member = @total_member,
+            updated_at = GETDATE()
+        WHERE ma_khoa = @ma_khoa
+      END
+      ELSE
+      BEGIN
+        INSERT INTO [dbo].[khoa_hoc] (ma_khoa, ten_khoa, code, ngay_bat_dau, ngay_ket_thuc, total_member)
+        VALUES (@ma_khoa, @ten_khoa, @code, @ngay_bat_dau, @ngay_ket_thuc, @total_member)
+      END
+    `);
+
     for (const student of students) {
       const { user } = student;
       if (!user || !user.admission_code) continue;
