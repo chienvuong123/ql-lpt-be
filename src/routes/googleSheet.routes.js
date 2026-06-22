@@ -11,6 +11,8 @@ router.post("/sync-data", googleSheetController.syncData);
 router.put("/update-hoc-vien", googleSheetController.updateHocVien);
 // Route lấy danh sách học viên chưa khai giảng/chưa xếp khóa
 router.get("/unassigned-students", googleSheetController.getUnassignedStudents);
+// Route lấy danh sách học viên chưa xếp khóa từ năm 2026 trở đi
+router.get("/unassigned-students-2026", googleSheetController.getUnassignedStudents2026);
 // Route chuyển học phí (swap học phí và cọc)
 router.post("/transfer-fee", googleSheetController.transferFee);
 module.exports = router;

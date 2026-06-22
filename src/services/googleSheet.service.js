@@ -278,6 +278,10 @@ class GoogleSheetService {
     return await googleSheetModel.getUnassignedStudents(search);
   }
 
+  async getUnassignedStudents2026(filters) {
+    return await googleSheetModel.getUnassignedStudents2026(filters);
+  }
+
   async transferFee(sourceCccd, targetCccd) {
     return await googleSheetModel.transferFee(sourceCccd, targetCccd);
   }

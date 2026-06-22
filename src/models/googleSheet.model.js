@@ -367,13 +367,13 @@ class GoogleSheetModel {
   async getUnassignedStudents(search) {
     const pool = await connectSQL();
     const request = pool.request();
-    let where = `WHERE (hv.ma_khoa IS NULL OR TRIM(hv.ma_khoa) = '')`;
+    let where = `WHERE (hv.ma_khoa IS NULL OR LTRIM(RTRIM(hv.ma_khoa)) = '')`;
     if (search) {
       request.input("search", mssql.NVarChar, `%${search.trim()}%`);
       where += ` AND (g.ten_hoc_vien LIKE @search OR g.cccd LIKE @search OR g.dien_thoai LIKE @search)`;
     }
     const query = `
-      SELECT TOP 50 g.cccd, g.ten_hoc_vien, g.dien_thoai, g.hang, g.loai, g.dat_coc, g.hoc_phi
+      SELECT TOP 50 g.cccd, g.ten_hoc_vien, g.ngay_sinh, g.dien_thoai, g.hang, g.loai, g.dat_coc, g.hoc_phi
       FROM google_sheet_data g WITH (NOLOCK)
       LEFT JOIN [dbo].[hoc_vien] hv WITH (NOLOCK) ON g.cccd = hv.cccd
       ${where}
@@ -381,6 +381,59 @@ class GoogleSheetModel {
     `;
     const result = await request.query(query);
     return result.recordset;
+  }
+
+  async getUnassignedStudents2026({ search, page = 1, limit = 50 } = {}) {
+    const pool = await connectSQL();
+    
+    let whereClauses = [
+      "(hv.ma_khoa IS NULL OR LTRIM(RTRIM(hv.ma_khoa)) = '')",
+      "g.thoi_gian_parsed >= '2026-01-01 00:00:00'"
+    ];
+    
+    const request1 = pool.request();
+    if (search) {
+      request1.input("search", mssql.NVarChar, `%${search.trim()}%`);
+      whereClauses.push("(g.ten_hoc_vien LIKE @search OR g.cccd LIKE @search OR g.dien_thoai LIKE @search)");
+    }
+    
+    const whereClauseStr = `WHERE ${whereClauses.join(" AND ")}`;
+    
+    const countQuery = `
+      SELECT COUNT(*) AS total 
+      FROM google_sheet_data g WITH (NOLOCK)
+      LEFT JOIN [dbo].[hoc_vien] hv WITH (NOLOCK) ON g.cccd = hv.cccd
+      ${whereClauseStr}
+    `;
+    const countResult = await request1.query(countQuery);
+    const total = countResult.recordset[0]?.total || 0;
+    
+    const request2 = pool.request();
+    if (search) {
+      request2.input("search", mssql.NVarChar, `%${search.trim()}%`);
+    }
+    const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
+    request2.input("offset", mssql.Int, offset);
+    request2.input("limit", mssql.Int, parseInt(limit));
+    
+    const dataQuery = `
+      SELECT g.cccd, g.ten_hoc_vien, g.ngay_sinh, g.dien_thoai, g.hang, g.loai, g.dat_coc, g.hoc_phi, g.thoi_gian, g.co_so, g.thoi_gian_parsed
+      FROM google_sheet_data g WITH (NOLOCK)
+      LEFT JOIN [dbo].[hoc_vien] hv WITH (NOLOCK) ON g.cccd = hv.cccd
+      ${whereClauseStr}
+      ORDER BY g.thoi_gian_parsed DESC
+      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+    `;
+    
+    const dataResult = await request2.query(dataQuery);
+    
+    return {
+      total,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: Math.ceil(total / parseInt(limit)),
+      data: dataResult.recordset
+    };
   }
 
   async transferFee(sourceCccd, targetCccd) {
@@ -394,7 +447,7 @@ class GoogleSheetModel {
       checkSource.input("cccd", mssql.VarChar, sourceCccd);
       const sourceRes = await checkSource.query(`
         SELECT g.ten_hoc_vien, 
-               (SELECT COUNT(*) FROM [dbo].[hoc_vien] WHERE cccd = @cccd AND ma_khoa IS NOT NULL AND TRIM(ma_khoa) <> '') AS is_assigned
+               (SELECT COUNT(*) FROM [dbo].[hoc_vien] WHERE cccd = @cccd AND ma_khoa IS NOT NULL AND LTRIM(RTRIM(ma_khoa)) <> '') AS is_assigned
         FROM google_sheet_data g WITH (NOLOCK)
         WHERE g.cccd = @cccd
       `);
@@ -410,7 +463,7 @@ class GoogleSheetModel {
       checkTarget.input("cccd", mssql.VarChar, targetCccd);
       const targetRes = await checkTarget.query(`
         SELECT g.ten_hoc_vien, 
-               (SELECT COUNT(*) FROM [dbo].[hoc_vien] WHERE cccd = @cccd AND ma_khoa IS NOT NULL AND TRIM(ma_khoa) <> '') AS is_assigned
+               (SELECT COUNT(*) FROM [dbo].[hoc_vien] WHERE cccd = @cccd AND ma_khoa IS NOT NULL AND LTRIM(RTRIM(ma_khoa)) <> '') AS is_assigned
         FROM google_sheet_data g WITH (NOLOCK)
         WHERE g.cccd = @cccd
       `);

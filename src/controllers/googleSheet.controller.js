@@ -109,6 +109,26 @@ class GoogleSheetController {
     }
   }
 
+  async getUnassignedStudents2026(req, res) {
+    try {
+      const { search, page, limit } = req.query;
+      const result = await googleSheetService.getUnassignedStudents2026({
+        search,
+        page: page ? parseInt(page) : 1,
+        limit: limit ? parseInt(limit) : 50
+      });
+      res.status(200).json({
+        success: true,
+        ...result
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
   async transferFee(req, res) {
     try {
       const { sourceCccd, targetCccd } = req.body;
