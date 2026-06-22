@@ -10,10 +10,10 @@ GO
 USE [BACK_UP];
 GO
 
--- 2. Table: BACK_UP_HANH_TRINH
-IF OBJECT_ID(N'dbo.BACK_UP_HANH_TRINH', N'U') IS NULL
+-- 2. Table: backup_hanh_trinh
+IF OBJECT_ID(N'dbo.backup_hanh_trinh', N'U') IS NULL
 BEGIN
-    CREATE TABLE dbo.BACK_UP_HANH_TRINH (
+    CREATE TABLE dbo.backup_hanh_trinh (
         ID                    INT NULL,
         SessionId             NVARCHAR(50) NOT NULL PRIMARY KEY,
         MaDK                  NVARCHAR(100) NULL,

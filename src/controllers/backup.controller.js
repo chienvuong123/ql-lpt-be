@@ -12,7 +12,14 @@ class BackupController {
       }
 
       const result = await backupService.backupHanhTrinh(ma_khoa);
-      return res.status(200).json(result);
+      if (result.failedStudents && result.failedStudents.length > 0) {
+        console.warn("[BackupController] Các học viên bị lỗi khi backup hành trình:", JSON.stringify(result.failedStudents, null, 2));
+      }
+      return res.status(200).json({
+        success: result.success,
+        message: result.message,
+        summary: result.summary
+      });
     } catch (err) {
       console.error("[BackupController] backupHanhTrinh error:", err);
       return res.status(500).json({

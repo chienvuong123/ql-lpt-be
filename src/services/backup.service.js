@@ -30,7 +30,6 @@ const getLocalEndDateStr = () => {
   return localToday.toISOString().split('T')[0] + "T23:59:00";
 };
 
-// Fetch HanhTrinh sessions for a single student (with retry and fallback logic)
 async function fetchRawHanhTrinhRecords(maDk, maKhoaHoc) {
   const trimmedMaDk = String(maDk || "").trim();
   const trimmedMaKhoa = String(maKhoaHoc || "").trim();
@@ -46,6 +45,7 @@ async function fetchRawHanhTrinhRecords(maDk, maKhoaHoc) {
   const hanhTrinhAxios = axios.create({ baseURL: "http://113.160.131.3:7782", timeout: 20000 });
 
   const fetchAttempt = async (useKhoa) => {
+    let lastError = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const resToken = await getHanhTrinhToken();
@@ -54,27 +54,32 @@ async function fetchRawHanhTrinhRecords(maDk, maKhoaHoc) {
         const response = await hanhTrinhAxios.get(`/api/HanhTrinh?${params}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        return response.data?.Data || [];
+        return { success: true, data: response.data?.Data || [] };
       } catch (err) {
+        lastError = err;
         if (err?.response?.status === 401) {
           invalidateHanhTrinhToken();
           if (attempt < 2) continue;
         }
         if (attempt < 2) {
-          await new Promise(r => setTimeout(r, 800));
+          await new Promise(r => setTimeout(r, 1000));
           continue;
         }
-        return [];
       }
     }
-    return [];
+    return { success: false, error: lastError?.message || "Failed after 3 attempts" };
   };
 
-  let data = await fetchAttempt(true);
-  if (data.length === 0 && trimmedMaKhoa) {
-    data = await fetchAttempt(false);
+  let res = await fetchAttempt(true);
+  if ((!res.success || (res.success && res.data.length === 0)) && trimmedMaKhoa) {
+    const fallbackRes = await fetchAttempt(false);
+    if (fallbackRes.success) {
+      res = fallbackRes;
+    } else if (!res.success) {
+      res.error = `${res.error} (Fallback: ${fallbackRes.error})`;
+    }
   }
-  return data;
+  return res;
 }
 
 // Check if two time intervals overlap
@@ -102,7 +107,7 @@ async function getExistingBackupSessions(minStart, maxEnd) {
   
   const result = await request.query(`
     SELECT SessionId, MaDK, BienSo, ThoiDiemDangNhap, ThoiDiemDangXuat 
-    FROM [BACK_UP].[dbo].[BACK_UP_HANH_TRINH] WITH (NOLOCK)
+    FROM [BACK_UP].[dbo].[backup_hanh_trinh] WITH (NOLOCK)
     WHERE ThoiDiemDangXuat >= @minStart AND ThoiDiemDangNhap <= @maxEnd
   `);
   return result.recordset;
@@ -143,8 +148,9 @@ async function backupHanhTrinh(maKhoaListInput) {
     return {
       success: true,
       message: "Không tìm thấy học viên nào trong các khóa học được yêu cầu.",
-      summary: { totalStudents: 0, totalFetchedSessions: 0, totalSavedSessions: 0, skippedCount: 0 },
-      skipped: []
+      summary: { totalStudents: 0, totalFetchedSessions: 0, totalSavedSessions: 0, skippedCount: 0, successFetchedStudentsCount: 0, savedStudentsCount: 0, failedStudentsCount: 0 },
+      skipped: [],
+      failedStudents: []
     };
   }
 
@@ -153,71 +159,84 @@ async function backupHanhTrinh(maKhoaListInput) {
 
   // 3. Fetch HanhTrinh sessions for all students concurrently
   const fetchResults = await mapConcurrent(uniqueStudents, 10, async (student) => {
-    const sessions = await fetchRawHanhTrinhRecords(student.ma_dk, student.ma_khoa_trigger);
-    
-    return sessions.map(s => ({
-      ...s,
-      HoTen: student.ho_ten || s.HoTen || null,
-      MaKhoaHocKetThuc: student.ma_khoa_trigger,
-      SessionId: s.SessionId || s.ID?.toString() || null,
-      MaDK: s.MaDK || student.ma_dk || null,
-      MaKhoaHoc: s.MaKhoaHoc || s.MaKhoa || null,
-      KhoaHoc: s.KhoaHoc || null
-    }));
+    const res = await fetchRawHanhTrinhRecords(student.ma_dk, student.ma_khoa_trigger);
+    if (!res.success) {
+      return { student, success: false, error: res.error };
+    }
+    return {
+      student,
+      success: true,
+      sessions: res.data.map(s => ({
+        ...s,
+        HoTen: student.ho_ten || s.HoTen || null,
+        MaKhoaHocKetThuc: student.ma_khoa_trigger,
+        SessionId: s.SessionId || s.ID?.toString() || null,
+        MaDK: s.MaDK || student.ma_dk || null,
+        MaKhoaHoc: s.MaKhoaHoc || s.MaKhoa || null,
+        KhoaHoc: s.KhoaHoc || null
+      }))
+    };
   });
 
-  const rawAllSessions = fetchResults.flat().filter(s => s && s.SessionId);
+  const successResults = fetchResults.filter(r => r.success);
+  const failedResults = fetchResults.filter(r => !r.success);
+
+  const finalSuccessResults = [...successResults];
+  const finalFailedStudents = [];
+
+  // Retry logic for failed students
+  for (const failedItem of failedResults) {
+    console.log(`[backupHanhTrinh] Retrying failed student API call: ${failedItem.student.ma_dk} (${failedItem.student.ho_ten}) due to error: ${failedItem.error}`);
+    await new Promise(r => setTimeout(r, 1000));
+    const res = await fetchRawHanhTrinhRecords(failedItem.student.ma_dk, failedItem.student.ma_khoa_trigger);
+    if (res.success) {
+      finalSuccessResults.push({
+        student: failedItem.student,
+        success: true,
+        sessions: res.data.map(s => ({
+          ...s,
+          HoTen: failedItem.student.ho_ten || s.HoTen || null,
+          MaKhoaHocKetThuc: failedItem.student.ma_khoa_trigger,
+          SessionId: s.SessionId || s.ID?.toString() || null,
+          MaDK: s.MaDK || failedItem.student.ma_dk || null,
+          MaKhoaHoc: s.MaKhoaHoc || s.MaKhoa || null,
+          KhoaHoc: s.KhoaHoc || null
+        }))
+      });
+    } else {
+      finalFailedStudents.push({
+        ma_dk: failedItem.student.ma_dk,
+        ho_ten: failedItem.student.ho_ten,
+        ma_khoa: failedItem.student.ma_khoa_trigger,
+        error: res.error
+      });
+    }
+  }
+
+  const rawAllSessions = finalSuccessResults.map(r => r.sessions).flat().filter(s => s && s.SessionId);
 
   if (!rawAllSessions.length) {
     return {
       success: true,
-      message: "Không lấy được phiên học nào từ API HanhTrinh cho các học viên.",
-      summary: { totalStudents: uniqueStudents.length, totalFetchedSessions: 0, totalSavedSessions: 0, skippedCount: 0 },
-      skipped: []
+      message: `Đã xử lý backup cho ${uniqueStudents.length} học viên. Không lấy được phiên học nào thành công hoặc không có phiên học nào từ API HanhTrinh.`,
+      summary: { 
+        totalStudents: uniqueStudents.length, 
+        totalFetchedSessions: 0, 
+        totalSavedSessions: 0, 
+        skippedCount: 0,
+        successFetchedStudentsCount: finalSuccessResults.length,
+        savedStudentsCount: 0,
+        failedStudentsCount: finalFailedStudents.length
+      },
+      skipped: [],
+      failedStudents: finalFailedStudents
     };
   }
-
-  // 4. Determine time range of all fetched sessions to pull existing db backup sessions
-  let minStart = null;
-  let maxEnd = null;
-  rawAllSessions.forEach(s => {
-    const start = new Date(s.ThoiDiemDangNhap);
-    const end = new Date(s.ThoiDiemDangXuat);
-    if (!isNaN(start.getTime()) && (!minStart || start < minStart)) {
-      minStart = start;
-    }
-    if (!isNaN(end.getTime()) && (!maxEnd || end > maxEnd)) {
-      maxEnd = end;
-    }
-  });
-
-  let existingSessions = [];
-  if (minStart && maxEnd) {
-    existingSessions = await getExistingBackupSessions(minStart, maxEnd);
-  }
-
-  // 5. Resolve conflicts and filter sessions
-  // Sort: IsSend (1 first), then TongQuangDuong (desc), then TongThoiGian (desc), then ID (asc)
-  const sortedSessions = rawAllSessions.sort((a, b) => {
-    const isSendA = a.IsSend === true || a.IsSend === 1 ? 1 : 0;
-    const isSendB = b.IsSend === true || b.IsSend === 1 ? 1 : 0;
-    if (isSendA !== isSendB) return isSendB - isSendA;
-
-    const qdA = parseFloat(a.TongQuangDuong || 0);
-    const qdB = parseFloat(b.TongQuangDuong || 0);
-    if (qdA !== qdB) return qdB - qdA;
-
-    const tgA = parseInt(a.TongThoiGian || 0);
-    const tgB = parseInt(b.TongThoiGian || 0);
-    if (tgA !== tgB) return tgB - tgA;
-
-    return (a.ID || 0) - (b.ID || 0);
-  });
 
   const acceptedSessions = [];
   const skippedSessionsReport = [];
 
-  for (const session of sortedSessions) {
+  for (const session of rawAllSessions) {
     const start = new Date(session.ThoiDiemDangNhap).getTime();
     const end = new Date(session.ThoiDiemDangXuat).getTime();
 
@@ -231,77 +250,31 @@ async function backupHanhTrinh(maKhoaListInput) {
       continue;
     }
 
-    // Check "Học bù cabin không được chạy DAT"
-    if (cabinMakeupSet.has(session.MaDK)) {
-      skippedSessionsReport.push({
-        sessionId: session.SessionId,
-        student: session.HoTen,
-        maDk: session.MaDK,
-        reason: "Học bù cabin không được chạy DAT"
-      });
-      continue;
-    }
-
-    // Check "trùng phiên học" (same student, overlapping times)
-    const isDuplicateSession = [...acceptedSessions, ...existingSessions].some(acc => {
-      if (acc.SessionId === session.SessionId) return false;
-      if (acc.MaDK !== session.MaDK) return false;
-      const accStart = new Date(acc.ThoiDiemDangNhap).getTime();
-      const accEnd = new Date(acc.ThoiDiemDangXuat).getTime();
-      return isOverlapping(start, end, accStart, accEnd);
-    });
-
-    if (isDuplicateSession) {
-      skippedSessionsReport.push({
-        sessionId: session.SessionId,
-        student: session.HoTen,
-        maDk: session.MaDK,
-        reason: "Trùng phiên học (học viên trùng lịch học khác)"
-      });
-      continue;
-    }
-
-    // Check "trùng xe" (same vehicle, overlapping times)
-    const plate = session.BienSo ? session.BienSo.replace(/[-.\s]/g, "").toUpperCase() : "";
-    const isDuplicateVehicle = [...acceptedSessions, ...existingSessions].some(acc => {
-      if (acc.SessionId === session.SessionId) return false;
-      const accPlate = acc.BienSo ? acc.BienSo.replace(/[-.\s]/g, "").toUpperCase() : "";
-      if (!plate || !accPlate || plate !== accPlate) return false;
-
-      const accStart = new Date(acc.ThoiDiemDangNhap).getTime();
-      const accEnd = new Date(acc.ThoiDiemDangXuat).getTime();
-      return isOverlapping(start, end, accStart, accEnd);
-    });
-
-    if (isDuplicateVehicle) {
-      skippedSessionsReport.push({
-        sessionId: session.SessionId,
-        student: session.HoTen,
-        maDk: session.MaDK,
-        reason: `Trùng xe (xe ${session.BienSo} đang chạy ở phiên học khác trùng giờ)`
-      });
-      continue;
-    }
-
     acceptedSessions.push(session);
   }
 
-  // 6. Save accepted sessions to the backup database
+  // 4. Save accepted sessions to the backup database
   let savedCount = 0;
   if (acceptedSessions.length > 0) {
     savedCount = await backupRepository.upsertBackUpHanhTrinh(acceptedSessions);
   }
 
+  const savedStudentMaDks = new Set(acceptedSessions.map(s => s.MaDK));
+
   return {
     success: true,
-    message: `Đã xử lý backup cho ${uniqueStudents.length} học viên. Đã lưu ${savedCount} phiên hợp lệ.`,
+    message: `Đã xử lý backup cho ${uniqueStudents.length} học viên. Đã lưu thành công ${savedCount} phiên học.`,
     summary: {
       totalStudents: uniqueStudents.length,
+      successFetchedStudentsCount: finalSuccessResults.length,
+      savedStudentsCount: savedStudentMaDks.size,
+      failedStudentsCount: finalFailedStudents.length,
       totalFetchedSessions: rawAllSessions.length,
       totalSavedSessions: savedCount,
       skippedCount: skippedSessionsReport.length
     },
     skipped: skippedSessionsReport,
+    failedStudents: finalFailedStudents,
     data: acceptedSessions
   };
 }

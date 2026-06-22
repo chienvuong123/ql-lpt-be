@@ -93,6 +93,37 @@ function getAuthClient() {
 
 const googleSheetModel = require("../models/googleSheet.model");
 
+const getMaKeToan = (hang, cccd) => {
+  if (!cccd) return "";
+  const h = (hang || "").toString().trim().toUpperCase();
+  if (h === "B2") return `B${cccd}`;
+  if (h === "C1") return `C${cccd}`;
+  return cccd;
+};
+
+const getMaTinhTien = (hang, loai) => {
+  const h = (hang || "").toString().trim().toUpperCase();
+  const l = (loai || "").toString().trim().toUpperCase();
+  if (!h || !l) return "";
+  return `${h}${l}`;
+};
+
+const getHocPhi = (hang, loai) => {
+  const h = (hang || "").toString().trim().toUpperCase();
+  const l = (loai || "").toString().trim().toUpperCase();
+  
+  if (h === "B2" || h === "B1") {
+      if (l === "TT") return 16000000;
+      if (l === "LK") return 4200000;
+      if (l === "CBNV") return 12000000;
+  } else if (h === "C1") {
+      if (l === "TT") return 18000000;
+      if (l === "LK") return 4700000;
+      if (l === "CBNV") return 14000000;
+  }
+  return null;
+};
+
 class GoogleSheetService {
   constructor() {
     this.SHEETS_TO_SYNC = [
@@ -183,6 +214,9 @@ class GoogleSheetService {
                                photoVal === 1 || 
                                ["ok", "đã có", "yes", "có"].includes(photoVal.toString().trim().toLowerCase());
 
+            const hangVal = item["Hạng"] || null;
+            const loaiVal = item["LH"] || item["Loại hình"] || item["Loại"] || null;
+
             return {
               cccd: cccdVal,
               stt_n: item["STT Ngày"] || item["STT_N"] || null,
@@ -193,14 +227,17 @@ class GoogleSheetService {
               ngay_sinh: (item["Ngày sinh"] || "").toString().trim() || null,
               dien_thoai: item["Số điện thoại"] || item["SĐT học viên"] || item["Điện thoại"] || null,
               dia_chi: (item["Địa chỉ"] || "").toString().trim() || null,
-              loai: item["LH"] || item["Loại hình"] || item["Loại"] || null,
-              hang: item["Hạng"] || null,
+              loai: loaiVal,
+              hang: hangVal,
               nguoi_tuyen_sinh: (item["Người tuyển sinh"] || "").toString().trim() || null,
               ctv: item["CTV"] || null,
               cccd_pho_to: isPhotoOk,
               dat_coc: item["Đặt cọc"] || null,
               ma_anh: item["Mã ảnh"] || null,
               ghi_chu: item["Ghi chú"] || null,
+              ma_ke_toan: getMaKeToan(hangVal, cccdVal),
+              ma_tinh_tien: getMaTinhTien(hangVal, loaiVal),
+              hoc_phi: getHocPhi(hangVal, loaiVal),
             };
           }).filter(item => item.cccd); // Chỉ lấy những dòng có CCCD
 
@@ -227,6 +264,22 @@ class GoogleSheetService {
       console.error("[GoogleSheetService] Lỗi đồng bộ:", error.message);
       throw error;
     }
+  }
+
+  async getDataFromDatabase(filters) {
+    return await googleSheetModel.getAllData(filters);
+  }
+
+  async updateHocVien(oldCccd, data) {
+    return await googleSheetModel.updateHocVien(oldCccd, data);
+  }
+
+  async getUnassignedStudents(search) {
+    return await googleSheetModel.getUnassignedStudents(search);
+  }
+
+  async transferFee(sourceCccd, targetCccd) {
+    return await googleSheetModel.transferFee(sourceCccd, targetCccd);
   }
 }
 

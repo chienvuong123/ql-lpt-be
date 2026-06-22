@@ -81,13 +81,13 @@ async function getHocVienKhoa(enrolmentPlanIid, search = "") {
   const pool = await connectSQL();
   const request = pool.request();
   request.input("enrolment_plan_iid", mssql.VarChar, enrolmentPlanIid);
-  
+
   let searchClause = "";
   if (search?.trim()) {
     request.input("search", mssql.NVarChar, `%${search.trim()}%`);
     searchClause = " AND (hv.ho_ten LIKE @search OR hvt.ma_dk LIKE @search OR hv.cccd LIKE @search)";
   }
-  
+
   // Left join to get detailed student info directly from QUAN_LY_LPT database
   const result = await request.query(`
     SELECT 
@@ -116,7 +116,7 @@ async function getCameraSnapshots(filters = {}) {
   const pool = await connectSQL();
   const request = pool.request();
   let where = "WHERE 1=1";
-  
+
   if (filters.ma_dk) {
     request.input("ma_dk", mssql.VarChar, filters.ma_dk);
     where += " AND ma_dk = @ma_dk";
@@ -125,7 +125,7 @@ async function getCameraSnapshots(filters = {}) {
     request.input("enrolment_plan_iid", mssql.VarChar, filters.enrolment_plan_iid);
     where += " AND enrolment_plan_iid = @enrolment_plan_iid";
   }
-  
+
   const limitClause = filters.limit ? `TOP ${parseInt(filters.limit)}` : "";
   const result = await request.query(`
     SELECT ${limitClause} * FROM [BACK_UP].[dbo].[backup_camera_snapshot] WITH (NOLOCK)
@@ -139,7 +139,7 @@ async function getTimeTrackingLogs(filters = {}) {
   const pool = await connectSQL();
   const request = pool.request();
   let where = "WHERE 1=1";
-  
+
   if (filters.ma_dk) {
     request.input("ma_dk", mssql.VarChar, filters.ma_dk);
     where += " AND ma_dk = @ma_dk";
@@ -148,7 +148,7 @@ async function getTimeTrackingLogs(filters = {}) {
     request.input("enrolment_plan_iid", mssql.VarChar, filters.enrolment_plan_iid);
     where += " AND enrolment_plan_iid = @enrolment_plan_iid";
   }
-  
+
   const limitClause = filters.limit ? `TOP ${parseInt(filters.limit)}` : "";
   const result = await request.query(`
     SELECT ${limitClause} * FROM [BACK_UP].[dbo].[backup_time_tracking] WITH (NOLOCK)
@@ -162,7 +162,7 @@ async function getLearningTimeTracking(filters = {}) {
   const pool = await connectSQL();
   const request = pool.request();
   let where = "WHERE 1=1";
-  
+
   if (filters.ma_dk) {
     request.input("ma_dk", mssql.VarChar, filters.ma_dk);
     where += " AND ma_dk = @ma_dk";
@@ -171,7 +171,7 @@ async function getLearningTimeTracking(filters = {}) {
     request.input("enrolment_plan_iid", mssql.VarChar, filters.enrolment_plan_iid);
     where += " AND enrolment_plan_iid = @enrolment_plan_iid";
   }
-  
+
   const result = await request.query(`
     SELECT * FROM [BACK_UP].[dbo].[backup_learning_time] WITH (NOLOCK)
     ${where}
@@ -184,7 +184,7 @@ async function getTienDoHoanThanh(filters = {}) {
   const pool = await connectSQL();
   const request = pool.request();
   let where = "WHERE 1=1";
-  
+
   if (filters.ma_dk) {
     request.input("ma_dk", mssql.VarChar, filters.ma_dk);
     where += " AND ma_dk = @ma_dk";
@@ -193,7 +193,7 @@ async function getTienDoHoanThanh(filters = {}) {
     request.input("enrolment_plan_iid", mssql.VarChar, filters.enrolment_plan_iid);
     where += " AND enrolment_plan_iid = @enrolment_plan_iid";
   }
-  
+
   const result = await request.query(`
     SELECT * FROM [BACK_UP].[dbo].[backup_tien_do_hoan_thanh] WITH (NOLOCK)
     ${where}
@@ -206,7 +206,7 @@ async function getScoreByRubric(filters = {}) {
   const pool = await connectSQL();
   const request = pool.request();
   let where = "WHERE 1=1";
-  
+
   if (filters.ma_dk) {
     request.input("ma_dk", mssql.VarChar, filters.ma_dk);
     where += " AND ma_dk = @ma_dk";
@@ -215,7 +215,7 @@ async function getScoreByRubric(filters = {}) {
     request.input("enrolment_plan_iid", mssql.VarChar, filters.enrolment_plan_iid);
     where += " AND enrolment_plan_iid = @enrolment_plan_iid";
   }
-  
+
   const result = await request.query(`
     SELECT * FROM [BACK_UP].[dbo].[backup_score_by_rubric] WITH (NOLOCK)
     ${where}
@@ -333,7 +333,7 @@ async function upsertHocVienKhoa(records) {
   const pool = await connectSQL();
   for (const record of records) {
     if (!record.enrolment_plan_iid || !record.ma_dk) continue;
-    await upsertHocVienKhoaItem(pool, record).catch(err => 
+    await upsertHocVienKhoaItem(pool, record).catch(err =>
       console.error("[backupRepo] upsertHocVienKhoa single record failed:", err.message)
     );
   }
@@ -345,7 +345,7 @@ async function upsertCameraSnapshots(records) {
   const pool = await connectSQL();
   for (const record of records) {
     if (!record.ma_dk || !record.captured_at || !record.image_url) continue;
-    await upsertCameraSnapshotItem(pool, record).catch(err => 
+    await upsertCameraSnapshotItem(pool, record).catch(err =>
       console.error("[backupRepo] upsertCameraSnapshots single record failed:", err.message)
     );
   }
@@ -357,7 +357,7 @@ async function upsertTimeTrackingLogs(records) {
   const pool = await connectSQL();
   for (const record of records) {
     if (!record.ma_dk || !record.start_time || !record.item_iid) continue;
-    await upsertTimeTrackingItem(pool, record).catch(err => 
+    await upsertTimeTrackingItem(pool, record).catch(err =>
       console.error("[backupRepo] upsertTimeTrackingLogs single record failed:", err.message)
     );
   }
@@ -369,7 +369,7 @@ async function upsertLearningTimeTracking(records) {
   const pool = await connectSQL();
   for (const record of records) {
     if (!record.ma_dk || !record.enrolment_plan_iid || !record.item_iid) continue;
-    await upsertLearningTimeItem(pool, record).catch(err => 
+    await upsertLearningTimeItem(pool, record).catch(err =>
       console.error("[backupRepo] upsertLearningTimeTracking single record failed:", err.message)
     );
   }
@@ -381,7 +381,7 @@ async function upsertTienDoHoanThanh(records) {
   const pool = await connectSQL();
   for (const record of records) {
     if (!record.ma_dk || !record.enrolment_plan_iid || !record.course_iid) continue;
-    await upsertTienDoHoanThanhItem(pool, record).catch(err => 
+    await upsertTienDoHoanThanhItem(pool, record).catch(err =>
       console.error("[backupRepo] upsertTienDoHoanThanh single record failed:", err.message)
     );
   }
@@ -391,7 +391,7 @@ async function upsertTienDoHoanThanh(records) {
 async function upsertScoreByRubricTable(record) {
   if (!record || !record.ma_dk || !record.enrolment_plan_iid || !record.rubric_iid) return 0;
   const pool = await connectSQL();
-  await upsertScoreByRubricTableItem(pool, record).catch(err => 
+  await upsertScoreByRubricTableItem(pool, record).catch(err =>
     console.error("[backupRepo] upsertScoreByRubricTable single record failed:", err.message)
   );
   return 1;
@@ -488,7 +488,7 @@ async function initializeBackupDatabase() {
         CREATE DATABASE [BACK_UP];
       END
     `);
-    
+
     // 2. Create tables inside BACK_UP
     await request.query(`
       USE [BACK_UP];
@@ -597,9 +597,9 @@ async function initializeBackupDatabase() {
         );
       END;
 
-      IF OBJECT_ID(N'dbo.BACK_UP_HANH_TRINH', N'U') IS NULL
+      IF OBJECT_ID(N'dbo.backup_hanh_trinh', N'U') IS NULL
       BEGIN
-        CREATE TABLE dbo.BACK_UP_HANH_TRINH (
+        CREATE TABLE dbo.backup_hanh_trinh (
           ID              INT,
           SessionId       NVARCHAR(50) NOT NULL PRIMARY KEY,
           MaDK            NVARCHAR(100),
@@ -687,9 +687,9 @@ async function upsertBackUpHanhTrinh(sessions) {
       request.input("MaKhoaHocKetThuc", mssql.NVarChar(50), session.MaKhoaHocKetThuc || null);
 
       await request.query(`
-        IF EXISTS (SELECT 1 FROM [BACK_UP].[dbo].[BACK_UP_HANH_TRINH] WHERE SessionId = @SessionId)
+        IF EXISTS (SELECT 1 FROM [BACK_UP].[dbo].[backup_hanh_trinh] WHERE SessionId = @SessionId)
         BEGIN
-          UPDATE [BACK_UP].[dbo].[BACK_UP_HANH_TRINH] SET
+          UPDATE [BACK_UP].[dbo].[backup_hanh_trinh] SET
             ID = @ID,
             MaDK = @MaDK,
             MaKhoaHoc = @MaKhoaHoc,
@@ -723,7 +723,7 @@ async function upsertBackUpHanhTrinh(sessions) {
         END
         ELSE
         BEGIN
-          INSERT INTO [BACK_UP].[dbo].[BACK_UP_HANH_TRINH] (
+          INSERT INTO [BACK_UP].[dbo].[backup_hanh_trinh] (
             ID, SessionId, MaDK, MaKhoaHoc, KhoaHoc, HoTen, IDGV, HoTenGV, HangDaoTao, BienSo, Imei,
             ThoiDiemDangNhap, ThoiDiemDangXuat, TongThoiGian, TongQuangDuong, ThoiGianBanDem, QuangDuongBanDem, Tile,
             IsSend, Bug, ThoiGianTruyen, CenterResponseMessage, Srcdn, Srcdx, StartLatitude, StartLongitude, EndLatitude, EndLongitude,
@@ -747,19 +747,7 @@ async function upsertBackUpHanhTrinh(sessions) {
 async function checkOverlap({ ma_khoa, start_date, end_date, type, page = 1, limit = 20 } = {}) {
   const pool = await connectSQL();
   const request = pool.request();
-  
-  let joinCondition = "";
-  if (type === "xe") {
-    joinCondition = "(p1.BienSo = p2.BienSo AND p1.BienSo IS NOT NULL AND p1.BienSo <> '' AND p2.ThoiDiemDangNhap < p1.ThoiDiemDangXuat AND p2.ThoiDiemDangXuat > p1.ThoiDiemDangNhap)";
-  } else if (type === "gv") {
-    joinCondition = "(p1.IDGV = p2.IDGV AND p1.IDGV IS NOT NULL AND p1.IDGV <> '' AND p2.ThoiDiemDangNhap < p1.ThoiDiemDangXuat AND p2.ThoiDiemDangXuat > p1.ThoiDiemDangNhap)";
-  } else {
-    joinCondition = `(
-      (p1.BienSo = p2.BienSo AND p1.BienSo IS NOT NULL AND p1.BienSo <> '' AND p2.ThoiDiemDangNhap < p1.ThoiDiemDangXuat AND p2.ThoiDiemDangXuat > p1.ThoiDiemDangNhap)
-      OR
-      (p1.IDGV = p2.IDGV AND p1.IDGV IS NOT NULL AND p1.IDGV <> '' AND p2.ThoiDiemDangNhap < p1.ThoiDiemDangXuat AND p2.ThoiDiemDangXuat > p1.ThoiDiemDangNhap)
-    )`;
-  }
+  request.timeout = 300000; // 5 minutes request timeout to prevent tedious timeout errors
 
   let whereClauses = [];
   if (ma_khoa) {
@@ -785,43 +773,88 @@ async function checkOverlap({ ma_khoa, start_date, end_date, type, page = 1, lim
 
   const whereClauseStr = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
-  // 1. Get total count
-  const countQuery = `
-    SELECT COUNT(*) AS total
-    FROM [BACK_UP].[dbo].[BACK_UP_HANH_TRINH] p1 WITH (NOLOCK)
-    INNER JOIN [BACK_UP].[dbo].[BACK_UP_HANH_TRINH] p2 WITH (NOLOCK)
-        ON p1.SessionId < p2.SessionId
-        AND ${joinCondition}
-    ${whereClauseStr}
-  `;
-  const countResult = await request.query(countQuery);
-  const total = countResult.recordset[0]?.total || 0;
+  // 1. Fetch Xe overlaps if requested or if checking both
+  let listXe = [];
+  if (!type || type === "xe") {
+    const queryXe = `
+      SELECT 
+          p1.ID AS id1, p1.SessionId AS sessionId1, p1.MaDK AS maDk1, p1.HoTen AS hoTen1, p1.MaKhoaHoc AS maKhoaHoc1, p1.BienSo AS bienSo1, p1.IDGV AS idGv1, p1.HoTenGV AS hoTenGv1, p1.ThoiDiemDangNhap AS thoiDiemDangNhap1, p1.ThoiDiemDangXuat AS thoiDiemDangXuat1, p1.MaKhoaHocKetThuc AS maKhoaHocKetThuc1,
+          p2.ID AS id2, p2.SessionId AS sessionId2, p2.MaDK AS maDk2, p2.HoTen AS hoTen2, p2.MaKhoaHoc AS maKhoaHoc2, p2.BienSo AS bienSo2, p2.IDGV AS idGv2, p2.HoTenGV AS hoTenGv2, p2.ThoiDiemDangNhap AS thoiDiemDangNhap2, p2.ThoiDiemDangXuat AS thoiDiemDangXuat2, p2.MaKhoaHocKetThuc AS maKhoaHocKetThuc2
+      FROM [BACK_UP].[dbo].[backup_hanh_trinh] p1 WITH (NOLOCK)
+      INNER JOIN [BACK_UP].[dbo].[backup_hanh_trinh] p2 WITH (NOLOCK)
+          ON p1.SessionId < p2.SessionId
+          AND p1.BienSo = p2.BienSo 
+          AND p1.BienSo IS NOT NULL 
+          AND p1.BienSo <> '' 
+          AND p2.ThoiDiemDangNhap < p1.ThoiDiemDangXuat 
+          AND p2.ThoiDiemDangXuat > p1.ThoiDiemDangNhap
+      ${whereClauseStr}
+    `;
+    const resXe = await request.query(queryXe);
+    listXe = resXe.recordset || [];
+  }
 
-  // 2. Get paginated results
-  const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
-  request.input("offset", mssql.Int, offset);
-  request.input("limit", mssql.Int, parseInt(limit));
+  // 2. Fetch GV overlaps if requested or if checking both
+  let listGv = [];
+  if (!type || type === "gv") {
+    const queryGv = `
+      SELECT 
+          p1.ID AS id1, p1.SessionId AS sessionId1, p1.MaDK AS maDk1, p1.HoTen AS hoTen1, p1.MaKhoaHoc AS maKhoaHoc1, p1.BienSo AS bienSo1, p1.IDGV AS idGv1, p1.HoTenGV AS hoTenGv1, p1.ThoiDiemDangNhap AS thoiDiemDangNhap1, p1.ThoiDiemDangXuat AS thoiDiemDangXuat1, p1.MaKhoaHocKetThuc AS maKhoaHocKetThuc1,
+          p2.ID AS id2, p2.SessionId AS sessionId2, p2.MaDK AS maDk2, p2.HoTen AS hoTen2, p2.MaKhoaHoc AS maKhoaHoc2, p2.BienSo AS bienSo2, p2.IDGV AS idGv2, p2.HoTenGV AS hoTenGv2, p2.ThoiDiemDangNhap AS thoiDiemDangNhap2, p2.ThoiDiemDangXuat AS thoiDiemDangXuat2, p2.MaKhoaHocKetThuc AS maKhoaHocKetThuc2
+      FROM [BACK_UP].[dbo].[backup_hanh_trinh] p1 WITH (NOLOCK)
+      INNER JOIN [BACK_UP].[dbo].[backup_hanh_trinh] p2 WITH (NOLOCK)
+          ON p1.SessionId < p2.SessionId
+          AND p1.IDGV = p2.IDGV 
+          AND p1.IDGV IS NOT NULL 
+          AND p1.IDGV <> '' 
+          AND p2.ThoiDiemDangNhap < p1.ThoiDiemDangXuat 
+          AND p2.ThoiDiemDangXuat > p1.ThoiDiemDangNhap
+      ${whereClauseStr}
+    `;
+    const resGv = await request.query(queryGv);
+    listGv = resGv.recordset || [];
+  }
 
-  const dataQuery = `
-    SELECT 
-        p1.ID AS id1, p1.SessionId AS sessionId1, p1.MaDK AS maDk1, p1.HoTen AS hoTen1, p1.MaKhoaHoc AS maKhoaHoc1, p1.BienSo AS bienSo1, p1.IDGV AS idGv1, p1.HoTenGV AS hoTenGv1, p1.ThoiDiemDangNhap AS thoiDiemDangNhap1, p1.ThoiDiemDangXuat AS thoiDiemDangXuat1, p1.MaKhoaHocKetThuc AS maKhoaHocKetThuc1,
-        p2.ID AS id2, p2.SessionId AS sessionId2, p2.MaDK AS maDk2, p2.HoTen AS hoTen2, p2.MaKhoaHoc AS maKhoaHoc2, p2.BienSo AS bienSo2, p2.IDGV AS idGv2, p2.HoTenGV AS hoTenGv2, p2.ThoiDiemDangNhap AS thoiDiemDangNhap2, p2.ThoiDiemDangXuat AS thoiDiemDangXuat2, p2.MaKhoaHocKetThuc AS maKhoaHocKetThuc2
-    FROM [BACK_UP].[dbo].[BACK_UP_HANH_TRINH] p1 WITH (NOLOCK)
-    INNER JOIN [BACK_UP].[dbo].[BACK_UP_HANH_TRINH] p2 WITH (NOLOCK)
-        ON p1.SessionId < p2.SessionId
-        AND ${joinCondition}
-    ${whereClauseStr}
-    ORDER BY p1.ThoiDiemDangNhap DESC
-    OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
-  `;
+  // 3. Combine and Deduplicate
+  const combined = [];
+  const seenKeys = new Set();
 
-  const dataResult = await request.query(dataQuery);
+  for (const row of listXe) {
+    const key = `${row.sessionId1}_${row.sessionId2}`;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      combined.push(row);
+    }
+  }
+
+  for (const row of listGv) {
+    const key = `${row.sessionId1}_${row.sessionId2}`;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      combined.push(row);
+    }
+  }
+
+  // 4. Sort by ThoiDiemDangNhap1 DESC
+  combined.sort((a, b) => {
+    const t1 = a.thoiDiemDangNhap1 ? new Date(a.thoiDiemDangNhap1).getTime() : 0;
+    const t2 = b.thoiDiemDangNhap1 ? new Date(b.thoiDiemDangNhap1).getTime() : 0;
+    return t2 - t1;
+  });
+
+  // 5. Paginate in memory
+  const total = combined.length;
+  const parsedLimit = parseInt(limit);
+  const parsedPage = Math.max(1, parseInt(page));
+  const offset = (parsedPage - 1) * parsedLimit;
+  const paginatedData = combined.slice(offset, offset + parsedLimit);
+
   return {
     total,
-    page: parseInt(page),
-    limit: parseInt(limit),
-    totalPages: Math.ceil(total / parseInt(limit)),
-    data: dataResult.recordset
+    page: parsedPage,
+    limit: parsedLimit,
+    totalPages: Math.ceil(total / parsedLimit),
+    data: paginatedData
   };
 }
 
