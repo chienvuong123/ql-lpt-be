@@ -28,31 +28,6 @@ class GoogleSheetModel {
           updated_at DATETIME DEFAULT GETDATE()
         )
       END
-
-      IF NOT EXISTS (
-        SELECT * FROM sys.columns 
-        WHERE object_id = OBJECT_ID('google_sheet_data') AND name = 'ma_ke_toan'
-      )
-      BEGIN
-        ALTER TABLE google_sheet_data ADD ma_ke_toan NVARCHAR(100);
-      END
-
-      IF NOT EXISTS (
-        SELECT * FROM sys.columns 
-        WHERE object_id = OBJECT_ID('google_sheet_data') AND name = 'ma_tinh_tien'
-      )
-      BEGIN
-        ALTER TABLE google_sheet_data ADD ma_tinh_tien NVARCHAR(100);
-      END
-
-      IF NOT EXISTS (
-        SELECT * FROM sys.columns 
-        WHERE object_id = OBJECT_ID('google_sheet_data') AND name = 'hoc_phi'
-      )
-      BEGIN
-        ALTER TABLE google_sheet_data ADD hoc_phi INT;
-      END
-
       IF NOT EXISTS (
         SELECT * FROM sys.columns 
         WHERE object_id = OBJECT_ID('google_sheet_data') AND name = 'ten_hoc_vien_clean'
@@ -127,9 +102,6 @@ class GoogleSheetModel {
       table.columns.add('dat_coc', mssql.NVarChar(255), { nullable: true });
       table.columns.add('ma_anh', mssql.NVarChar(255), { nullable: true });
       table.columns.add('ghi_chu', mssql.NVarChar(mssql.MAX), { nullable: true });
-      table.columns.add('ma_ke_toan', mssql.NVarChar(100), { nullable: true });
-      table.columns.add('ma_tinh_tien', mssql.NVarChar(100), { nullable: true });
-      table.columns.add('hoc_phi', mssql.Int, { nullable: true });
  
       for (const item of data) {
         table.rows.add(
@@ -149,10 +121,7 @@ class GoogleSheetModel {
           item.cccd_pho_to ? 1 : 0,
           item.dat_coc || null,
           item.ma_anh || null,
-          item.ghi_chu || null,
-          item.ma_ke_toan || null,
-          item.ma_tinh_tien || null,
-          item.hoc_phi || null
+          item.ghi_chu || null
         );
       }
  
@@ -181,9 +150,6 @@ class GoogleSheetModel {
           target.dat_coc = source.dat_coc,
           target.ma_anh = source.ma_anh,
           target.ghi_chu = source.ghi_chu,
-          target.ma_ke_toan = source.ma_ke_toan,
-          target.ma_tinh_tien = source.ma_tinh_tien,
-          target.hoc_phi = source.hoc_phi,
           target.updated_at = GETDATE()
         FROM google_sheet_data target
         INNER JOIN #temp_stage source ON target.cccd = source.cccd
@@ -203,10 +169,7 @@ class GoogleSheetModel {
           ISNULL(target.cccd_pho_to, 0) <> ISNULL(source.cccd_pho_to, 0) OR
           ISNULL(target.dat_coc, '') <> ISNULL(source.dat_coc, '') OR
           ISNULL(target.ma_anh, '') <> ISNULL(source.ma_anh, '') OR
-          ISNULL(target.ghi_chu, '') <> ISNULL(source.ghi_chu, '') OR
-          ISNULL(target.ma_ke_toan, '') <> ISNULL(source.ma_ke_toan, '') OR
-          ISNULL(target.ma_tinh_tien, '') <> ISNULL(source.ma_tinh_tien, '') OR
-          ISNULL(target.hoc_phi, 0) <> ISNULL(source.hoc_phi, 0)
+          ISNULL(target.ghi_chu, '') <> ISNULL(source.ghi_chu, '')
       `);
  
       // 4. Insert new records
@@ -215,12 +178,12 @@ class GoogleSheetModel {
         INSERT INTO google_sheet_data (
           cccd, stt_n, thoi_gian, email, co_so, ten_hoc_vien, ngay_sinh, 
           dien_thoai, dia_chi, loai, hang, nguoi_tuyen_sinh, ctv, 
-          cccd_pho_to, dat_coc, ma_anh, ghi_chu, ma_ke_toan, ma_tinh_tien, hoc_phi, updated_at
+          cccd_pho_to, dat_coc, ma_anh, ghi_chu, updated_at
         )
         SELECT 
           source.cccd, source.stt_n, source.thoi_gian, source.email, source.co_so, source.ten_hoc_vien, source.ngay_sinh, 
           source.dien_thoai, source.dia_chi, source.loai, source.hang, source.nguoi_tuyen_sinh, source.ctv, 
-          source.cccd_pho_to, source.dat_coc, source.ma_anh, source.ghi_chu, source.ma_ke_toan, source.ma_tinh_tien, source.hoc_phi, GETDATE()
+          source.cccd_pho_to, source.dat_coc, source.ma_anh, source.ghi_chu, GETDATE()
         FROM #temp_stage source
         LEFT JOIN google_sheet_data target WITH (NOLOCK) ON target.cccd = source.cccd
         WHERE target.cccd IS NULL
@@ -304,7 +267,33 @@ class GoogleSheetModel {
     request2.input("limit", mssql.Int, parseInt(limit));
 
     const dataQuery = `
-      SELECT * FROM google_sheet_data WITH (NOLOCK)
+      SELECT *,
+             CASE WHEN UPPER(LTRIM(RTRIM(hang))) = 'B2' THEN 'B' + cccd
+                  WHEN UPPER(LTRIM(RTRIM(hang))) = 'C1' THEN 'C' + cccd
+                  ELSE cccd
+             END AS ma_ke_toan,
+             CASE WHEN hang IS NOT NULL AND loai IS NOT NULL 
+                  THEN UPPER(LTRIM(RTRIM(hang))) + UPPER(LTRIM(RTRIM(loai)))
+                  ELSE ''
+             END AS ma_tinh_tien,
+             CASE 
+                 WHEN UPPER(LTRIM(RTRIM(hang))) IN ('B2', 'B1') THEN
+                     CASE 
+                         WHEN UPPER(LTRIM(RTRIM(loai))) = 'TT' THEN 16000000
+                         WHEN UPPER(LTRIM(RTRIM(loai))) = 'LK' THEN 4200000
+                         WHEN UPPER(LTRIM(RTRIM(loai))) = 'CBNV' THEN 12000000
+                         ELSE NULL
+                     END
+                 WHEN UPPER(LTRIM(RTRIM(hang))) = 'C1' THEN
+                     CASE 
+                         WHEN UPPER(LTRIM(RTRIM(loai))) = 'TT' THEN 18000000
+                         WHEN UPPER(LTRIM(RTRIM(loai))) = 'LK' THEN 4700000
+                         WHEN UPPER(LTRIM(RTRIM(loai))) = 'CBNV' THEN 14000000
+                         ELSE NULL
+                     END
+                 ELSE NULL
+             END AS hoc_phi
+      FROM google_sheet_data WITH (NOLOCK)
       ${whereClauseStr2}
       ORDER BY thoi_gian_parsed DESC
       OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
@@ -319,191 +308,6 @@ class GoogleSheetModel {
       totalPages: Math.ceil(total / parseInt(limit)),
       data: dataResult.recordset
     };
-  }
-
-  async updateHocVien(oldCccd, data) {
-    const pool = await connectSQL();
-    const request = pool.request();
-    
-    request.input("oldCccd", mssql.VarChar, oldCccd);
-    request.input("cccd", mssql.VarChar, data.cccd);
-    request.input("ten_hoc_vien", mssql.NVarChar, data.ten_hoc_vien || null);
-    request.input("ngay_sinh", mssql.NVarChar, data.ngay_sinh || null);
-    request.input("dien_thoai", mssql.NVarChar, data.dien_thoai || null);
-    request.input("co_so", mssql.NVarChar, data.co_so || null);
-    request.input("hang", mssql.NVarChar, data.hang || null);
-    request.input("loai", mssql.NVarChar, data.loai || null);
-    request.input("dat_coc", mssql.NVarChar, data.dat_coc || null);
-    request.input("nguoi_tuyen_sinh", mssql.NVarChar, data.nguoi_tuyen_sinh || null);
-    request.input("ghi_chu", mssql.NVarChar, data.ghi_chu || null);
-    request.input("ma_ke_toan", mssql.NVarChar, data.ma_ke_toan || null);
-    request.input("ma_tinh_tien", mssql.NVarChar, data.ma_tinh_tien || null);
-    request.input("hoc_phi", mssql.Int, data.hoc_phi !== undefined && data.hoc_phi !== null ? parseInt(data.hoc_phi) : null);
-
-    const query = `
-      UPDATE google_sheet_data
-      SET 
-        cccd = @cccd,
-        ten_hoc_vien = @ten_hoc_vien,
-        ngay_sinh = @ngay_sinh,
-        dien_thoai = @dien_thoai,
-        co_so = @co_so,
-        hang = @hang,
-        loai = @loai,
-        dat_coc = @dat_coc,
-        nguoi_tuyen_sinh = @nguoi_tuyen_sinh,
-        ghi_chu = @ghi_chu,
-        ma_ke_toan = @ma_ke_toan,
-        ma_tinh_tien = @ma_tinh_tien,
-        hoc_phi = @hoc_phi,
-        updated_at = GETDATE()
-      WHERE cccd = @oldCccd
-    `;
-    
-    await request.query(query);
-    return true;
-  }
-
-  async getUnassignedStudents(search) {
-    const pool = await connectSQL();
-    const request = pool.request();
-    let where = `WHERE (hv.ma_khoa IS NULL OR LTRIM(RTRIM(hv.ma_khoa)) = '')`;
-    if (search) {
-      request.input("search", mssql.NVarChar, `%${search.trim()}%`);
-      where += ` AND (g.ten_hoc_vien LIKE @search OR g.cccd LIKE @search OR g.dien_thoai LIKE @search)`;
-    }
-    const query = `
-      SELECT TOP 50 g.cccd, g.ten_hoc_vien, g.ngay_sinh, g.dien_thoai, g.hang, g.loai, g.dat_coc, g.hoc_phi
-      FROM google_sheet_data g WITH (NOLOCK)
-      LEFT JOIN [dbo].[hoc_vien] hv WITH (NOLOCK) ON g.cccd = hv.cccd
-      ${where}
-      ORDER BY g.ten_hoc_vien ASC
-    `;
-    const result = await request.query(query);
-    return result.recordset;
-  }
-
-  async getUnassignedStudents2026({ search, page = 1, limit = 50 } = {}) {
-    const pool = await connectSQL();
-    
-    let whereClauses = [
-      "(hv.ma_khoa IS NULL OR LTRIM(RTRIM(hv.ma_khoa)) = '')",
-      "g.thoi_gian_parsed >= '2026-01-01 00:00:00'"
-    ];
-    
-    const request1 = pool.request();
-    if (search) {
-      request1.input("search", mssql.NVarChar, `%${search.trim()}%`);
-      whereClauses.push("(g.ten_hoc_vien LIKE @search OR g.cccd LIKE @search OR g.dien_thoai LIKE @search)");
-    }
-    
-    const whereClauseStr = `WHERE ${whereClauses.join(" AND ")}`;
-    
-    const countQuery = `
-      SELECT COUNT(*) AS total 
-      FROM google_sheet_data g WITH (NOLOCK)
-      LEFT JOIN [dbo].[hoc_vien] hv WITH (NOLOCK) ON g.cccd = hv.cccd
-      ${whereClauseStr}
-    `;
-    const countResult = await request1.query(countQuery);
-    const total = countResult.recordset[0]?.total || 0;
-    
-    const request2 = pool.request();
-    if (search) {
-      request2.input("search", mssql.NVarChar, `%${search.trim()}%`);
-    }
-    const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
-    request2.input("offset", mssql.Int, offset);
-    request2.input("limit", mssql.Int, parseInt(limit));
-    
-    const dataQuery = `
-      SELECT g.cccd, g.ten_hoc_vien, g.ngay_sinh, g.dien_thoai, g.hang, g.loai, g.dat_coc, g.hoc_phi, g.thoi_gian, g.co_so, g.thoi_gian_parsed
-      FROM google_sheet_data g WITH (NOLOCK)
-      LEFT JOIN [dbo].[hoc_vien] hv WITH (NOLOCK) ON g.cccd = hv.cccd
-      ${whereClauseStr}
-      ORDER BY g.thoi_gian_parsed DESC
-      OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
-    `;
-    
-    const dataResult = await request2.query(dataQuery);
-    
-    return {
-      total,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(total / parseInt(limit)),
-      data: dataResult.recordset
-    };
-  }
-
-  async transferFee(sourceCccd, targetCccd) {
-    const pool = await connectSQL();
-    const transaction = new mssql.Transaction(pool);
-    try {
-      await transaction.begin();
-
-      // Verify source student is not assigned
-      const checkSource = new mssql.Request(transaction);
-      checkSource.input("cccd", mssql.VarChar, sourceCccd);
-      const sourceRes = await checkSource.query(`
-        SELECT g.ten_hoc_vien, 
-               (SELECT COUNT(*) FROM [dbo].[hoc_vien] WHERE cccd = @cccd AND ma_khoa IS NOT NULL AND LTRIM(RTRIM(ma_khoa)) <> '') AS is_assigned
-        FROM google_sheet_data g WITH (NOLOCK)
-        WHERE g.cccd = @cccd
-      `);
-      if (sourceRes.recordset.length === 0) {
-        throw new Error("Không tìm thấy học viên nguồn.");
-      }
-      if (sourceRes.recordset[0].is_assigned > 0) {
-        throw new Error(`Học viên ${sourceRes.recordset[0].ten_hoc_vien} đã được xếp khóa/lớp, không thể chuyển học phí.`);
-      }
-
-      // Verify target student is not assigned
-      const checkTarget = new mssql.Request(transaction);
-      checkTarget.input("cccd", mssql.VarChar, targetCccd);
-      const targetRes = await checkTarget.query(`
-        SELECT g.ten_hoc_vien, 
-               (SELECT COUNT(*) FROM [dbo].[hoc_vien] WHERE cccd = @cccd AND ma_khoa IS NOT NULL AND LTRIM(RTRIM(ma_khoa)) <> '') AS is_assigned
-        FROM google_sheet_data g WITH (NOLOCK)
-        WHERE g.cccd = @cccd
-      `);
-      if (targetRes.recordset.length === 0) {
-        throw new Error("Không tìm thấy học viên nhận.");
-      }
-      if (targetRes.recordset[0].is_assigned > 0) {
-        throw new Error(`Học viên nhận ${targetRes.recordset[0].ten_hoc_vien} đã được xếp khóa/lớp, không thể nhận học phí.`);
-      }
-
-      // Perform the swap of dat_coc and hoc_phi
-      const swapReq = new mssql.Request(transaction);
-      swapReq.input("sourceCccd", mssql.VarChar, sourceCccd);
-      swapReq.input("targetCccd", mssql.VarChar, targetCccd);
-      
-      await swapReq.query(`
-        DECLARE @sourceDatCoc NVARCHAR(255), @sourceHocPhi INT
-        DECLARE @targetDatCoc NVARCHAR(255), @targetHocPhi INT
-
-        SELECT @sourceDatCoc = dat_coc, @sourceHocPhi = hoc_phi 
-        FROM google_sheet_data WHERE cccd = @sourceCccd
-
-        SELECT @targetDatCoc = dat_coc, @targetHocPhi = hoc_phi 
-        FROM google_sheet_data WHERE cccd = @targetCccd
-
-        UPDATE google_sheet_data
-        SET dat_coc = @targetDatCoc, hoc_phi = @targetHocPhi, updated_at = GETDATE()
-        WHERE cccd = @sourceCccd
-
-        UPDATE google_sheet_data
-        SET dat_coc = @sourceDatCoc, hoc_phi = @sourceHocPhi, updated_at = GETDATE()
-        WHERE cccd = @targetCccd
-      `);
-
-      await transaction.commit();
-      return true;
-    } catch (error) {
-      await transaction.rollback();
-      throw error;
-    }
   }
 }
 

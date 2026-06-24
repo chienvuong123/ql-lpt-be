@@ -235,9 +235,6 @@ class GoogleSheetService {
               dat_coc: item["Đặt cọc"] || null,
               ma_anh: item["Mã ảnh"] || null,
               ghi_chu: item["Ghi chú"] || null,
-              ma_ke_toan: getMaKeToan(hangVal, cccdVal),
-              ma_tinh_tien: getMaTinhTien(hangVal, loaiVal),
-              hoc_phi: getHocPhi(hangVal, loaiVal),
             };
           }).filter(item => item.cccd); // Chỉ lấy những dòng có CCCD
 
@@ -269,22 +266,10 @@ class GoogleSheetService {
   async getDataFromDatabase(filters) {
     return await googleSheetModel.getAllData(filters);
   }
-
-  async updateHocVien(oldCccd, data) {
-    return await googleSheetModel.updateHocVien(oldCccd, data);
-  }
-
-  async getUnassignedStudents(search) {
-    return await googleSheetModel.getUnassignedStudents(search);
-  }
-
-  async getUnassignedStudents2026(filters) {
-    return await googleSheetModel.getUnassignedStudents2026(filters);
-  }
-
-  async transferFee(sourceCccd, targetCccd) {
-    return await googleSheetModel.transferFee(sourceCccd, targetCccd);
-  }
 }
 
-module.exports = new GoogleSheetService();
+const instance = new GoogleSheetService();
+instance.getMaKeToan = getMaKeToan;
+instance.getMaTinhTien = getMaTinhTien;
+instance.getHocPhi = getHocPhi;
+module.exports = instance;
