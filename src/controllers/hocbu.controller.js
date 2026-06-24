@@ -49,7 +49,22 @@ const getChoDuyetHocBuList = async (req, res) => {
         const trang_thai = trangThaiMap[loai] ?? TRANG_THAI_GROUPS.CHO_DUYET_ALL;
         const { page, limit } = req.query;
 
-        const data = await svc.list({ ma_khoa: req.query.ma_khoa, loai, trang_thai, search: req.query.search || req.query.text, page, limit });
+        const rawMaDk = pickArrayQuery(req.query, "ma_dk");
+        let ma_dk_list = undefined;
+        if (rawMaDk) {
+            const rawArr = Array.isArray(rawMaDk) ? rawMaDk : String(rawMaDk).split(",");
+            ma_dk_list = [...new Set(rawArr.map(String).map(s => s.trim()).filter(Boolean))];
+        }
+
+        const data = await svc.list({ 
+            ma_khoa: req.query.ma_khoa, 
+            loai, 
+            trang_thai, 
+            search: req.query.search || req.query.text, 
+            ma_dk_list,
+            page, 
+            limit 
+        });
         withPaging(res, data, page, limit);
     } catch (e) { err(res, e); }
 };
