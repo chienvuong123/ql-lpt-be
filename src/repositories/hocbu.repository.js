@@ -176,28 +176,34 @@ const list = async (filters = {}) => {
 
     let sql = `${BASE_SELECT.replace("h.*", `h.*${countCol}`)} WHERE 1=1`;
 
-    if (isValidFilter(filters.ma_khoa)) {
-        req.input("ma_khoa", mssql.NVarChar, String(filters.ma_khoa));
-        sql += " AND h.ma_khoa=@ma_khoa";
-    }
-    sql += buildLoaiFilter(req, filters.loai);
-    if (filters.trang_thai) sql += buildStatusFilter(filters.trang_thai);
-
-    const simpleFilters = {
-        loai_thuc_hanh: "h.loai_thuc_hanh",
-        khoa_bu_ly_thuyet: "h.khoa_bu_ly_thuyet",
-        khoa_bu_thuc_hanh: "h.khoa_bu_thuc_hanh",
-    };
-    Object.entries(simpleFilters).forEach(([key, col]) => {
-        if (isValidFilter(filters[key])) {
-            req.input(key, mssql.NVarChar, String(filters[key]));
-            sql += ` AND ${col}=@${key}`;
+    if (Array.isArray(filters.ma_dk_list) && filters.ma_dk_list.length > 0) {
+        const paramNames = filters.ma_dk_list.map((_, i) => `@madk_${i}`);
+        filters.ma_dk_list.forEach((val, i) => req.input(`madk_${i}`, mssql.NVarChar, String(val).trim()));
+        sql += ` AND h.ma_dk IN (${paramNames.join(",")})`;
+    } else {
+        if (isValidFilter(filters.ma_khoa)) {
+            req.input("ma_khoa", mssql.NVarChar, String(filters.ma_khoa));
+            sql += " AND h.ma_khoa=@ma_khoa";
         }
-    });
+        sql += buildLoaiFilter(req, filters.loai);
+        if (filters.trang_thai) sql += buildStatusFilter(filters.trang_thai);
 
-    if (filters.search) {
-        req.input("search", mssql.NVarChar, `%${filters.search}%`);
-        sql += " AND (h.ma_dk LIKE @search OR hv.ho_ten LIKE @search OR hv.cccd LIKE @search)";
+        const simpleFilters = {
+            loai_thuc_hanh: "h.loai_thuc_hanh",
+            khoa_bu_ly_thuyet: "h.khoa_bu_ly_thuyet",
+            khoa_bu_thuc_hanh: "h.khoa_bu_thuc_hanh",
+        };
+        Object.entries(simpleFilters).forEach(([key, col]) => {
+            if (isValidFilter(filters[key])) {
+                req.input(key, mssql.NVarChar, String(filters[key]));
+                sql += ` AND ${col}=@${key}`;
+            }
+        });
+
+        if (filters.search) {
+            req.input("search", mssql.NVarChar, `%${filters.search}%`);
+            sql += " AND (h.ma_dk LIKE @search OR hv.ho_ten LIKE @search OR hv.cccd LIKE @search)";
+        }
     }
 
     sql += " ORDER BY h.created_at DESC";

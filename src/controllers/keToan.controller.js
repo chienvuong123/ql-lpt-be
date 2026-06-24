@@ -28,7 +28,7 @@ class KeToanController {
 
   async duyetThanhToan(req, res) {
     try {
-      const { cccd, so_tien_da_nop, phuong_thuc, ngay_nop, ghi_chu_ke_toan, nguoi_duyet: body_nguoi_duyet } = req.body;
+      const { cccd, so_tien_da_nop, ngay_nop, ghi_chu_ke_toan, nguoi_duyet: body_nguoi_duyet } = req.body;
       const nguoi_duyet = body_nguoi_duyet || req.user?.username || "he_thong"; // Extract from body or token verification
 
       if (!cccd) {
@@ -56,7 +56,6 @@ class KeToanController {
       const result = await keToanModel.duyetThanhToan({
         cccd,
         so_tien_da_nop: amount,
-        phuong_thuc,
         ngay_nop,
         ghi_chu_ke_toan,
         nguoi_duyet
