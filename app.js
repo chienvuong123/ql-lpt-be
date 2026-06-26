@@ -127,4 +127,4 @@ async function startServer() {
   }
 }
 
-startServer();
+startServer(); // Reloaded to apply .env changes
