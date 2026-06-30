@@ -309,6 +309,37 @@ class GoogleSheetModel {
       data: dataResult.recordset
     };
   }
+
+  async getRankStats({ year } = {}) {
+    const pool = await connectSQL();
+    const request = pool.request();
+    
+    let query = `
+      SELECT 
+        UPPER(LTRIM(RTRIM(hang))) AS hang,
+        COUNT(*) AS total
+      FROM google_sheet_data WITH (NOLOCK)
+      WHERE UPPER(LTRIM(RTRIM(hang))) IN ('B1', 'B2', 'C1')
+    `;
+
+    if (year) {
+      request.input("year", mssql.Int, parseInt(year));
+      query += ` AND YEAR(thoi_gian_parsed) = @year`;
+    }
+
+    query += ` GROUP BY UPPER(LTRIM(RTRIM(hang)))`;
+
+    const result = await request.query(query);
+    
+    const stats = { B1: 0, B2: 0, C1: 0 };
+    result.recordset.forEach(row => {
+      if (row.hang && stats[row.hang] !== undefined) {
+        stats[row.hang] = row.total;
+      }
+    });
+    
+    return stats;
+  }
 }
 
 module.exports = new GoogleSheetModel();

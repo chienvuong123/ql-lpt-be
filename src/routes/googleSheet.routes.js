@@ -7,4 +7,6 @@ router.get("/hoc-vien-list", googleSheetController.getHocVienList);
 router.get("/hoc-vien-list-sql", googleSheetController.getHocVienListFromDb);
 // Route đồng bộ dữ liệu Sheet vào SQL
 router.post("/sync-data", googleSheetController.syncData);
+// Route lấy thống kê số lượng học viên theo hạng B1, B2, C1
+router.get("/rank-stats", googleSheetController.getRankStats);
 module.exports = router;

@@ -70,6 +70,23 @@ class GoogleSheetController {
       });
     }
   }
+
+  async getRankStats(req, res) {
+    try {
+      const { year } = req.query;
+      const result = await googleSheetService.getRankStats({ year });
+      res.status(200).json({
+        success: true,
+        year: year ? parseInt(year) : null,
+        data: result
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
 }
 
 module.exports = new GoogleSheetController();

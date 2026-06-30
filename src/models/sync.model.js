@@ -138,10 +138,41 @@ async function upsertHocVien(students, planInfo) {
 
       // Upsert hoc_vien
       await request.query(`
-        IF EXISTS (SELECT 1 FROM [dbo].[hoc_vien] WHERE ma_dk = @ma_dk)
+        DECLARE @existing_id INT = NULL;
+        DECLARE @old_ma_dk VARCHAR(100) = NULL;
+
+        -- 1. Try to find the student by cccd in the same course
+        IF @cccd IS NOT NULL AND @cccd <> ''
+        BEGIN
+          SELECT TOP 1 @existing_id = id, @old_ma_dk = ma_dk 
+          FROM [dbo].[hoc_vien] 
+          WHERE cccd = @cccd AND ma_khoa = @ma_khoa;
+        END
+
+        -- 2. Fallback to search by ma_dk
+        IF @existing_id IS NULL
+        BEGIN
+          SELECT TOP 1 @existing_id = id, @old_ma_dk = ma_dk 
+          FROM [dbo].[hoc_vien] 
+          WHERE ma_dk = @ma_dk;
+        END
+
+        -- 3. If we found them by cccd, but another row has the target @ma_dk, clean it up to prevent UNIQUE constraint violation
+        IF @existing_id IS NOT NULL AND EXISTS (SELECT 1 FROM [dbo].[hoc_vien] WHERE ma_dk = @ma_dk AND id <> @existing_id)
+        BEGIN
+          DECLARE @duplicate_id INT;
+          SELECT TOP 1 @duplicate_id = id FROM [dbo].[hoc_vien] WHERE ma_dk = @ma_dk AND id <> @existing_id;
+          
+          DELETE FROM [dbo].[dang_ky_xe_gv] WHERE ma_dk = @ma_dk;
+          DELETE FROM [dbo].[trang_thai_hoc_vien] WHERE ma_dk = @ma_dk;
+          DELETE FROM [dbo].[hoc_vien] WHERE id = @duplicate_id;
+        END
+
+        IF @existing_id IS NOT NULL
         BEGIN
           UPDATE [dbo].[hoc_vien]
-          SET ho_ten = @ho_ten,
+          SET ma_dk = @ma_dk,
+              ho_ten = @ho_ten,
               ho = @ho,
               ten = @ten,
               cccd = @cccd,
@@ -153,21 +184,49 @@ async function upsertHocVien(students, planInfo) {
               hang = @hang,
               ma_csdt = @ma_csdt,
               updated_at = GETDATE()
-          WHERE ma_dk = @ma_dk
+          WHERE id = @existing_id;
+
+          -- Propagate ma_dk updates to child tables if it changed
+          IF @old_ma_dk IS NOT NULL AND @old_ma_dk <> @ma_dk
+          BEGIN
+            -- Update or delete for dang_ky_xe_gv
+            IF EXISTS (SELECT 1 FROM [dbo].[dang_ky_xe_gv] WHERE ma_dk = @ma_dk)
+            BEGIN
+              DELETE FROM [dbo].[dang_ky_xe_gv] WHERE ma_dk = @old_ma_dk;
+            END
+            ELSE
+            BEGIN
+              UPDATE [dbo].[dang_ky_xe_gv] SET ma_dk = @ma_dk WHERE ma_dk = @old_ma_dk;
+            END
+
+            -- Update or delete for trang_thai_hoc_vien
+            IF EXISTS (SELECT 1 FROM [dbo].[trang_thai_hoc_vien] WHERE ma_dk = @ma_dk)
+            BEGIN
+              DELETE FROM [dbo].[trang_thai_hoc_vien] WHERE ma_dk = @old_ma_dk;
+            END
+            ELSE
+            BEGIN
+              UPDATE [dbo].[trang_thai_hoc_vien] SET ma_dk = @ma_dk WHERE ma_dk = @old_ma_dk;
+            END
+          END
         END
         ELSE
         BEGIN
+          -- Clean up potential child table duplicates before inserting
+          DELETE FROM [dbo].[dang_ky_xe_gv] WHERE ma_dk = @ma_dk;
+          DELETE FROM [dbo].[trang_thai_hoc_vien] WHERE ma_dk = @ma_dk;
+
           INSERT INTO [dbo].[hoc_vien] 
             (ma_dk, ho_ten, ho, ten, cccd, ngay_sinh, gioi_tinh, anh, ma_khoa, hang_gplx, hang, ma_csdt)
           VALUES 
-            (@ma_dk, @ho_ten, @ho, @ten, @cccd, @ngay_sinh, @gioi_tinh, @anh, @ma_khoa, @hang_gplx, @hang, @ma_csdt)
+            (@ma_dk, @ho_ten, @ho, @ten, @cccd, @ngay_sinh, @gioi_tinh, @anh, @ma_khoa, @hang_gplx, @hang, @ma_csdt);
         END
 
         -- Ensure trang_thai_hoc_vien record exists
         IF NOT EXISTS (SELECT 1 FROM [dbo].[trang_thai_hoc_vien] WHERE ma_dk = @ma_dk)
         BEGIN
           INSERT INTO [dbo].[trang_thai_hoc_vien] (ma_dk, updated_at)
-          VALUES (@ma_dk, GETDATE())
+          VALUES (@ma_dk, GETDATE());
         END
       `);
     }

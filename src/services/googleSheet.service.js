@@ -266,6 +266,10 @@ class GoogleSheetService {
   async getDataFromDatabase(filters) {
     return await googleSheetModel.getAllData(filters);
   }
+
+  async getRankStats(filters) {
+    return await googleSheetModel.getRankStats(filters);
+  }
 }
 
 const instance = new GoogleSheetService();
