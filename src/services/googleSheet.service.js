@@ -243,7 +243,29 @@ class GoogleSheetService {
       }
 
       if (allSyncedData.length > 0) {
-        // Loại bỏ trùng lặp CCCD trong danh sách mới (ưu tiên bản ghi cuối cùng)
+        // Hàm helper parse ngày dạng dd/mm/yyyy hh:mm:ss hoặc dd/mm/yyyy thành timestamp
+        const parseSheetDate = (dateStr) => {
+          if (!dateStr) return 0;
+          const parts = dateStr.trim().split(/\s+/);
+          const dateParts = parts[0].split("/");
+          if (dateParts.length < 3) return 0;
+          const day = parseInt(dateParts[0], 10);
+          const month = parseInt(dateParts[1], 10) - 1;
+          const year = parseInt(dateParts[2], 10);
+          let hour = 0, minute = 0, second = 0;
+          if (parts[1]) {
+            const timeParts = parts[1].split(":");
+            hour = parseInt(timeParts[0], 10) || 0;
+            minute = parseInt(timeParts[1], 10) || 0;
+            second = parseInt(timeParts[2], 10) || 0;
+          }
+          return new Date(year, month, day, hour, minute, second).getTime();
+        };
+
+        // Sắp xếp tăng dần theo thời gian để bản ghi mới nhất được xử lý sau cùng và ghi đè bản ghi cũ
+        allSyncedData.sort((a, b) => parseSheetDate(a.thoi_gian) - parseSheetDate(b.thoi_gian));
+
+        // Loại bỏ trùng lặp CCCD trong danh sách mới (bản ghi mới nhất theo thời gian sẽ được ưu tiên giữ lại)
         const uniqueDataMap = {};
         allSyncedData.forEach(item => {
           uniqueDataMap[item.cccd] = item;

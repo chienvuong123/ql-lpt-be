@@ -140,7 +140,7 @@ const checkAttendanceAndNotify = async ({ dateStr, caHoc }) => {
     const attendedCount = students.filter((s) => s.attended).length;
     if (students.length > 0 && attendedCount === 0) {
       teacherAlerts.push(
-        `- Giáo viên: <b>${teacherName}</b> (Có ${students.length} cabin được xếp nhưng không học viên nào đến học)`
+        `- Giáo viên: <b>${teacherName}</b>`
       );
     }
   });
@@ -170,18 +170,12 @@ const checkAttendanceAndNotify = async ({ dateStr, caHoc }) => {
 
   // 6. Gửi cảnh báo lên Telegram nếu phát hiện vi phạm điều kiện
   let alertsSent = false;
-  if (teacherAlerts.length > 0 || studentAlerts.length > 0) {
-    let message = `⚠️ <b>CẢNH BÁO CHUYÊN CẦN CABIN - CA ${caHoc}</b>\n`;
+  if (teacherAlerts.length > 0) {
+    let message = `⚠️ <b>CA ${caHoc} không có học viên học</b>\n`;
     message += `📅 Ngày: <b>${dateStr}</b> (Thời gian ca: ${window.startStr} - ${window.endStr})\n\n`;
 
     if (teacherAlerts.length > 0) {
-      message += `🚫 <b>GIÁO VIÊN KHÔNG CÓ HỌC VIÊN ĐẾN HỌC:</b>\n`;
       message += `${teacherAlerts.join("\n")}\n\n`;
-    }
-
-    if (studentAlerts.length > 0) {
-      message += `👤 <b>HỌC VIÊN CHƯA ĐẠT CABIN VẮNG MẶT:</b>\n`;
-      message += `${studentAlerts.join("\n")}`;
     }
 
     alertsSent = await telegramService.sendTelegramMessage(message);
