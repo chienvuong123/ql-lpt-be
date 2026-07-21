@@ -67,6 +67,7 @@ app.use("/api/xe", require("./src/routes/xe.routes"));
 app.use("/api/uy-quyen", require("./src/routes/uyquyen.routes"));
 app.use("/api/hoc-vien", require("./src/routes/hocvien.routes"));
 app.use("/api/ds-nhan-gplx", require("./src/routes/dsNhanGplx.routes"));
+app.use("/api/gplx-hoan", require("./src/routes/gplxHoan.routes"));
 app.use("/api/backup", require("./src/routes/backup.routes"));
 
 // ─── Danh sách API ───────────────────────────────────────────
