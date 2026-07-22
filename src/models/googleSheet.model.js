@@ -56,11 +56,19 @@ class GoogleSheetModel {
       END
 
       IF NOT EXISTS (
-        SELECT * FROM sys.columns 
+        SELECT * FROM sys.columns
         WHERE object_id = OBJECT_ID('google_sheet_data') AND name = 'thoi_gian_parsed'
       )
       BEGIN
         ALTER TABLE google_sheet_data ADD thoi_gian_parsed AS TRY_CONVERT(DATETIME, thoi_gian, 103) PERSISTED;
+      END
+
+      IF NOT EXISTS (
+        SELECT * FROM sys.columns
+        WHERE object_id = OBJECT_ID('google_sheet_data') AND name = 'dau_moi'
+      )
+      BEGIN
+        ALTER TABLE google_sheet_data ADD dau_moi AS nguoi_tuyen_sinh PERSISTED;
       END
 
       IF NOT EXISTS (
