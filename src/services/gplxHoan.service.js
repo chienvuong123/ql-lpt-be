@@ -1,7 +1,17 @@
 const repository = require("../repositories/gplxHoan.repository");
+const googleSheetA1Repository = require("../repositories/googleSheetA1.repository");
 const GplxHoan = require("../models/gplxHoan.model");
 const GplxHoanExcelParser = require("../utils/gplxHoanExcelParser");
 const connectSQL = require("../configs/sql");
+
+// Ưu tiên lấy đầu mối của học viên bên ô tô (google_sheet_data) trước; nếu người này không có
+// trong danh sách ô tô thì mới lấy đầu mối bên xe máy A1 (google_sheet_a1) — vì cùng 1 người có thể
+// vừa học ô tô vừa học A1, và đầu mối tuyển sinh ô tô được ưu tiên theo yêu cầu nghiệp vụ.
+const findDauMoiUuTien = async (pool, hoTen, ngaySinh) => {
+    const dauMoiOto = await repository.findDauMoiByHoTenNgaySinh(pool, hoTen, ngaySinh);
+    if (dauMoiOto) return dauMoiOto;
+    return googleSheetA1Repository.findDauMoiByHoTenNgaySinh(pool, hoTen, ngaySinh);
+};
 
 const searchGplxHoan = async (filters, page, limit) => {
     const { data, pagination } = await repository.searchGplxHoanSql(filters, page, limit);
@@ -20,7 +30,7 @@ const importExcel = async (fileBuffer, ngayNhanBuuDien) => {
     let updated = 0;
 
     for (const record of records) {
-        const dauMoi = await repository.findDauMoiByHoTenNgaySinh(pool, record.ho_ten, record.ngay_sinh);
+        const dauMoi = await findDauMoiUuTien(pool, record.ho_ten, record.ngay_sinh);
         const existing = await repository.findBySoGplx(pool, record.so_gplx);
         if (existing) {
             await repository.updateRecord(pool, existing.id, record, ngayNhanBuuDien, dauMoi);
