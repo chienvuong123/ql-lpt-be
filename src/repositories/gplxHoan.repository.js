@@ -159,6 +159,11 @@ const searchGplxHoanSql = async (filters = {}, rawPage, rawLimit) => {
         conditions.push("ngay_nhan_buu_dien = @ngayNhanBuuDienFilter");
     }
 
+    if (filters.ngay_cap && filters.ngay_cap.trim() !== "") {
+        req.input("ngayCapFilter", mssql.NVarChar, filters.ngay_cap.trim());
+        conditions.push("ngay_cap = @ngayCapFilter");
+    }
+
     if (filters.trang_thai) {
         req.input("trangThaiFilter", mssql.NVarChar, filters.trang_thai);
         conditions.push("trang_thai = @trangThaiFilter");
@@ -273,6 +278,21 @@ const getDistinctNgayNhanBuuDien = async (pool) => {
     return result.recordset;
 };
 
+// ngay_cap là chữ dạng "dd/mm/yyyy" (không phải cột DATE thật) nên phải TRY_CONVERT để sắp
+// đúng theo thời gian thay vì sắp theo alphabet.
+const getDistinctNgayCap = async (pool) => {
+    await createTableIfNotExists();
+    const req = pool.request();
+    const result = await req.query(`
+        SELECT ngay_cap, COUNT(*) AS so_luong
+        FROM gplx_hoan
+        WHERE ngay_cap IS NOT NULL AND ngay_cap <> ''
+        GROUP BY ngay_cap
+        ORDER BY TRY_CONVERT(DATE, ngay_cap, 103) DESC, ngay_cap DESC
+    `);
+    return result.recordset;
+};
+
 const updateTrangThai = async (pool, id, trangThaiMoi, timestampColumn) => {
     const req = pool.request();
     req.input("id", mssql.Int, id).input("trang_thai", mssql.NVarChar, trangThaiMoi);
@@ -317,6 +337,7 @@ module.exports = {
     insertRecord,
     updateRecord,
     getDistinctNgayNhanBuuDien,
+    getDistinctNgayCap,
     updateTrangThai,
     setTrangThai,
 };

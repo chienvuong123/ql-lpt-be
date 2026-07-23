@@ -4,7 +4,7 @@ const responseHelper = require("../helpers/response.helper");
 const listGplxHoan = async (req, res, next) => {
     const message = "Lấy danh sách GPLX hoàn trả bưu điện thành công!";
     try {
-        const { search, ho_ten, hoTen, so_gplx, soGplx, hang, dau_moi, ngay_nhan_buu_dien, trang_thai, page, limit } = req.query;
+        const { search, ho_ten, hoTen, so_gplx, soGplx, hang, dau_moi, ngay_nhan_buu_dien, ngay_cap, trang_thai, page, limit } = req.query;
 
         const filters = {
             search,
@@ -13,6 +13,7 @@ const listGplxHoan = async (req, res, next) => {
             hang,
             dau_moi,
             ngay_nhan_buu_dien,
+            ngay_cap,
             trang_thai,
         };
 
@@ -48,6 +49,16 @@ const getNgayNhanBuuDien = async (req, res, next) => {
     const message = "Lấy danh sách ngày nhận bưu điện thành công!";
     try {
         const data = await service.getNgayNhanBuuDienOptions();
+        return responseHelper.success(res, data, message);
+    } catch (error) {
+        next(error);
+    }
+};
+
+const getNgayCap = async (req, res, next) => {
+    const message = "Lấy danh sách ngày cấp thành công!";
+    try {
+        const data = await service.getNgayCapOptions();
         return responseHelper.success(res, data, message);
     } catch (error) {
         next(error);
@@ -90,6 +101,7 @@ module.exports = {
     listGplxHoan,
     importExcel,
     getNgayNhanBuuDien,
+    getNgayCap,
     scanGplx,
     updateTrangThai,
 };

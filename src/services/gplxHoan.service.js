@@ -54,6 +54,11 @@ const getNgayNhanBuuDienOptions = async () => {
     return repository.getDistinctNgayNhanBuuDien(pool);
 };
 
+const getNgayCapOptions = async () => {
+    const pool = await connectSQL();
+    return repository.getDistinctNgayCap(pool);
+};
+
 const STATUS_TRANSITIONS = {
     cho_nhap_kho: { next: "da_nhap_kho", timestampColumn: "ngay_nhap_kho", message: "Nhập kho thành công" },
     da_nhap_kho: { next: "da_xuat_kho", timestampColumn: "ngay_xuat_kho", message: "Xuất kho thành công" },
@@ -156,6 +161,7 @@ module.exports = {
     searchGplxHoan,
     importExcel,
     getNgayNhanBuuDienOptions,
+    getNgayCapOptions,
     scanGplx,
     updateTrangThaiManual,
 };
