@@ -131,10 +131,27 @@ const searchGplxHoanSql = async (filters = {}, rawPage, rawLimit) => {
         conditions.push("so_gplx LIKE @soGplxFilter");
     }
 
-    if (filters.hang && filters.hang.trim() !== "") {
-        const trimmed = filters.hang.trim();
-        req.input("hangFilter", mssql.NVarChar, `%${trimmed}%`);
-        conditions.push("hang LIKE @hangFilter");
+    if (filters.hang) {
+        // hang có thể là chuỗi 1 hạng (vd "A1") hoặc nhiều hạng cách nhau dấu phẩy (vd "A1,B,C"),
+        // và giá trị lưu trong DB cũng có thể là nhiều hạng gộp (vd "A1, B"). So khớp theo từng
+        // "token" chính xác (bọc dấu phẩy 2 đầu) để "A" không bị khớp nhầm vào "A1".
+        const hangList = (Array.isArray(filters.hang) ? filters.hang : String(filters.hang).split(","))
+            .map((h) => h.trim())
+            .filter(Boolean);
+
+        if (hangList.length > 0) {
+            const hangConditions = hangList.map((h, i) => {
+                req.input(`hangFilter${i}`, mssql.NVarChar, `%,${h.toUpperCase()},%`);
+                return `(',' + UPPER(REPLACE(hang, ' ', '')) + ',') LIKE @hangFilter${i}`;
+            });
+            conditions.push(`(${hangConditions.join(" OR ")})`);
+        }
+    }
+
+    if (filters.dau_moi && filters.dau_moi.trim() !== "") {
+        const trimmed = filters.dau_moi.trim();
+        req.input("dauMoiFilter", mssql.NVarChar, `%${trimmed}%`);
+        conditions.push("dau_moi LIKE @dauMoiFilter");
     }
 
     if (filters.ngay_nhan_buu_dien) {
@@ -156,7 +173,12 @@ const searchGplxHoanSql = async (filters = {}, rawPage, rawLimit) => {
     const queryStr = `
         ;WITH OrderedData AS (
             SELECT *,
-                ROW_NUMBER() OVER (ORDER BY ho_ten ASC) AS row_num,
+                ROW_NUMBER() OVER (
+                    ORDER BY
+                        CASE WHEN dau_moi IS NULL OR dau_moi = '' THEN 1 ELSE 0 END,
+                        dau_moi ASC,
+                        ho_ten ASC
+                ) AS row_num,
                 COUNT(*) OVER() AS total_count
             FROM gplx_hoan WITH (NOLOCK)
             ${whereClause}

@@ -4,13 +4,14 @@ const responseHelper = require("../helpers/response.helper");
 const listGplxHoan = async (req, res, next) => {
     const message = "Lấy danh sách GPLX hoàn trả bưu điện thành công!";
     try {
-        const { search, ho_ten, hoTen, so_gplx, soGplx, hang, ngay_nhan_buu_dien, trang_thai, page, limit } = req.query;
+        const { search, ho_ten, hoTen, so_gplx, soGplx, hang, dau_moi, ngay_nhan_buu_dien, trang_thai, page, limit } = req.query;
 
         const filters = {
             search,
             ho_ten: ho_ten || hoTen,
             so_gplx: so_gplx || soGplx,
             hang,
+            dau_moi,
             ngay_nhan_buu_dien,
             trang_thai,
         };
