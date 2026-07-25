@@ -92,6 +92,71 @@ function getAuthClient() {
 }
 
 const googleSheetModel = require("../models/googleSheet.model");
+const { normalizeCccd } = require("../utils/cccd.util");
+
+// Ánh xạ 1 dòng dữ liệu thô (object theo tên cột) thành bản ghi google_sheet_data — dùng chung
+// cho cả đồng bộ Google Sheets API và import Excel thủ công, để tránh lệch logic giữa 2 nguồn.
+const mapRowToRecord = (item) => {
+  const cccdVal = normalizeCccd(item["Căn cước /CMND"] || item["Căn cước/CMND"] || "");
+
+  const photoVal = item["CCCD Photo"] || item["CCCD photo"] || item["CCCD phô tô"] || item["Căn cước/CMND photo"] || "";
+  const isPhotoOk = photoVal === true ||
+                     photoVal === 1 ||
+                     ["ok", "đã có", "yes", "có"].includes(photoVal.toString().trim().toLowerCase());
+
+  const hangVal = item["Hạng"] || null;
+  const loaiVal = item["LH"] || item["Loại hình"] || item["Loại"] || null;
+
+  return {
+    cccd: cccdVal,
+    stt_n: item["STT Ngày"] || item["STT_N"] || null,
+    thoi_gian: item["Dấu thời gian"] || item["Thời gian"] || null,
+    email: item["Địa chỉ email"] || item["Email"] || null,
+    co_so: item["Cơ sở tuyển sinh"] || item["Cơ sở\ntuyển\nsinh"] || item["CS"] || item["Cơ sở"] || null,
+    ten_hoc_vien: (item["Họ tên học viên"] || item["Họ và tên"] || "").toString().trim() || null,
+    ngay_sinh: (item["Ngày sinh"] || "").toString().trim() || null,
+    dien_thoai: item["Số điện thoại"] || item["SĐT học viên"] || item["Điện thoại"] || null,
+    dia_chi: (item["Địa chỉ"] || "").toString().trim() || null,
+    loai: loaiVal,
+    hang: hangVal,
+    nguoi_tuyen_sinh: (item["Người tuyển sinh"] || "").toString().trim() || null,
+    ctv: item["CTV"] || null,
+    cccd_pho_to: isPhotoOk,
+    dat_coc: item["Đặt cọc"] || null,
+    ma_anh: item["Mã ảnh"] || null,
+    ghi_chu: item["Ghi chú"] || null,
+  };
+};
+
+// Nhiều dòng có thể trùng CCCD (import lại/đồng bộ nhiều sheet) — giữ lại bản ghi có
+// "Dấu thời gian" mới nhất cho mỗi CCCD.
+const resolveLatestByCccd = (records) => {
+  const parseSheetDate = (dateStr) => {
+    if (!dateStr) return 0;
+    const parts = dateStr.trim().split(/\s+/);
+    const dateParts = parts[0].split("/");
+    if (dateParts.length < 3) return 0;
+    const day = parseInt(dateParts[0], 10);
+    const month = parseInt(dateParts[1], 10) - 1;
+    const year = parseInt(dateParts[2], 10);
+    let hour = 0, minute = 0, second = 0;
+    if (parts[1]) {
+      const timeParts = parts[1].split(":");
+      hour = parseInt(timeParts[0], 10) || 0;
+      minute = parseInt(timeParts[1], 10) || 0;
+      second = parseInt(timeParts[2], 10) || 0;
+    }
+    return new Date(year, month, day, hour, minute, second).getTime();
+  };
+
+  const sorted = [...records].sort((a, b) => parseSheetDate(a.thoi_gian) - parseSheetDate(b.thoi_gian));
+
+  const uniqueDataMap = {};
+  sorted.forEach((item) => {
+    uniqueDataMap[item.cccd] = item;
+  });
+  return Object.values(uniqueDataMap);
+};
 
 const getMaKeToan = (hang, cccd) => {
   if (!cccd) return "";
@@ -199,78 +264,15 @@ class GoogleSheetService {
       for (const sheet of sheetsToSync) {
         console.log(`[GoogleSheetService] Đang lấy dữ liệu từ GID: ${sheet.gid}...`);
         const data = await this.fetchSheetData(sheet.spreadsheetId, sheet.gid);
-        
+
         if (data && data.length > 0) {
-          const mappedData = data.map(item => {
-            // Strip leading single quote from CCCD if present
-            let cccdVal = (item["Căn cước /CMND"] || item["Căn cước/CMND"] || "").toString().trim();
-            if (cccdVal.startsWith("'")) {
-              cccdVal = cccdVal.substring(1).trim();
-            }
-
-            // Clean boolean for CCCD photo
-            const photoVal = item["CCCD Photo"] || item["CCCD photo"] || item["CCCD phô tô"] || item["Căn cước/CMND photo"] || "";
-            const isPhotoOk = photoVal === true || 
-                               photoVal === 1 || 
-                               ["ok", "đã có", "yes", "có"].includes(photoVal.toString().trim().toLowerCase());
-
-            const hangVal = item["Hạng"] || null;
-            const loaiVal = item["LH"] || item["Loại hình"] || item["Loại"] || null;
-
-            return {
-              cccd: cccdVal,
-              stt_n: item["STT Ngày"] || item["STT_N"] || null,
-              thoi_gian: item["Dấu thời gian"] || item["Thời gian"] || null,
-              email: item["Địa chỉ email"] || item["Email"] || null,
-              co_so: item["Cơ sở tuyển sinh"] || item["Cơ sở\ntuyển\nsinh"] || item["CS"] || item["Cơ sở"] || null,
-              ten_hoc_vien: (item["Họ tên học viên"] || item["Họ và tên"] || "").toString().trim() || null,
-              ngay_sinh: (item["Ngày sinh"] || "").toString().trim() || null,
-              dien_thoai: item["Số điện thoại"] || item["SĐT học viên"] || item["Điện thoại"] || null,
-              dia_chi: (item["Địa chỉ"] || "").toString().trim() || null,
-              loai: loaiVal,
-              hang: hangVal,
-              nguoi_tuyen_sinh: (item["Người tuyển sinh"] || "").toString().trim() || null,
-              ctv: item["CTV"] || null,
-              cccd_pho_to: isPhotoOk,
-              dat_coc: item["Đặt cọc"] || null,
-              ma_anh: item["Mã ảnh"] || null,
-              ghi_chu: item["Ghi chú"] || null,
-            };
-          }).filter(item => item.cccd); // Chỉ lấy những dòng có CCCD
-
+          const mappedData = data.map(mapRowToRecord).filter((item) => item.cccd);
           allSyncedData = allSyncedData.concat(mappedData);
         }
       }
 
       if (allSyncedData.length > 0) {
-        // Hàm helper parse ngày dạng dd/mm/yyyy hh:mm:ss hoặc dd/mm/yyyy thành timestamp
-        const parseSheetDate = (dateStr) => {
-          if (!dateStr) return 0;
-          const parts = dateStr.trim().split(/\s+/);
-          const dateParts = parts[0].split("/");
-          if (dateParts.length < 3) return 0;
-          const day = parseInt(dateParts[0], 10);
-          const month = parseInt(dateParts[1], 10) - 1;
-          const year = parseInt(dateParts[2], 10);
-          let hour = 0, minute = 0, second = 0;
-          if (parts[1]) {
-            const timeParts = parts[1].split(":");
-            hour = parseInt(timeParts[0], 10) || 0;
-            minute = parseInt(timeParts[1], 10) || 0;
-            second = parseInt(timeParts[2], 10) || 0;
-          }
-          return new Date(year, month, day, hour, minute, second).getTime();
-        };
-
-        // Sắp xếp tăng dần theo thời gian để bản ghi mới nhất được xử lý sau cùng và ghi đè bản ghi cũ
-        allSyncedData.sort((a, b) => parseSheetDate(a.thoi_gian) - parseSheetDate(b.thoi_gian));
-
-        // Loại bỏ trùng lặp CCCD trong danh sách mới (bản ghi mới nhất theo thời gian sẽ được ưu tiên giữ lại)
-        const uniqueDataMap = {};
-        allSyncedData.forEach(item => {
-          uniqueDataMap[item.cccd] = item;
-        });
-        const finalData = Object.values(uniqueDataMap);
+        const finalData = resolveLatestByCccd(allSyncedData);
 
         await googleSheetModel.upsertGoogleSheetData(finalData);
         console.log(`[GoogleSheetService] Đồng bộ thành công ${finalData.length} bản ghi.`);
@@ -283,6 +285,63 @@ class GoogleSheetService {
       console.error("[GoogleSheetService] Lỗi đồng bộ:", error.message);
       throw error;
     }
+  }
+
+  // Import thủ công từ file Excel (.xlsx/.xls) có cùng cấu trúc cột với Google Sheet nguồn —
+  // dùng chung logic map cột + gộp trùng CCCD với đường đồng bộ qua Google Sheets API.
+  //
+  // Sheet nguồn có dòng 1 là dòng gộp/tổng (không phải header thật) và header thật nằm ở
+  // dòng 2 (giống hệt fetchSheetData ở trên phải đọc range A2:R để bỏ qua dòng 1) — nên phải
+  // tự dò đúng dòng chứa tên cột thay vì mặc định dòng đầu tiên là header.
+  async importExcelToDatabase(fileBuffer) {
+    const XLSX = require("xlsx");
+    const workbook = XLSX.read(fileBuffer, { type: "buffer" });
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+
+    const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "", blankrows: false, raw: false });
+    if (rawRows.length === 0) {
+      throw new Error("File Excel không hợp lệ hoặc rỗng");
+    }
+
+    const headerIndex = this.findHeaderRowIndex(rawRows);
+    const headerRow = rawRows[headerIndex].map((v) => (v ? v.toString().trim() : ""));
+    const dataRows = rawRows.slice(headerIndex + 1);
+
+    const rows = dataRows
+      .filter((row) => row.length > 0 && (row[0] || row[5]))
+      .map((row) =>
+        headerRow.reduce((obj, key, i) => {
+          const cleanKey = key || `Column_${i}`;
+          obj[cleanKey] = row[i] !== undefined ? row[i] : null;
+          return obj;
+        }, {})
+      );
+
+    const mappedData = rows.map(mapRowToRecord).filter((item) => item.cccd);
+
+    if (mappedData.length === 0) {
+      return { success: true, count: 0 };
+    }
+
+    await googleSheetModel.createTableIfNotExists();
+    const finalData = resolveLatestByCccd(mappedData);
+    await googleSheetModel.upsertGoogleSheetData(finalData);
+
+    return { success: true, count: finalData.length };
+  }
+
+  // Tìm dòng chứa tên cột thật (vd "Họ tên học viên", "Ngày sinh") trong vài dòng đầu tiên,
+  // vì dòng 1 của sheet nguồn thường chỉ là dòng gộp/tổng, không phải header.
+  findHeaderRowIndex(rawRows) {
+    for (let i = 0; i < Math.min(rawRows.length, 5); i++) {
+      const row = rawRows[i].map((v) => (v ? v.toString().trim().toLowerCase() : ""));
+      const looksLikeHeader =
+        row.some((c) => c.includes("họ tên học viên") || c.includes("họ và tên")) &&
+        row.some((c) => c.includes("ngày sinh"));
+      if (looksLikeHeader) return i;
+    }
+    return 0;
   }
 
   async getDataFromDatabase(filters) {

@@ -1,4 +1,5 @@
 const XLSX = require("xlsx");
+const { normalizeCccd } = require("./cccd.util");
 
 // File Excel export từ Google Form đăng ký học A1, dạng bảng có hàng tiêu đề, các cột:
 // Dấu thời gian | Địa chỉ email | Mã phiếu | Họ và tên | Năm sinh | CMT/CCCD | Điện thoại |
@@ -104,12 +105,7 @@ class GoogleSheetA1ExcelParser {
   // (vd "001234567890" -> 1234567890). CCCD 12 số nên nếu sau khi đọc chỉ toàn chữ số và
   // ngắn hơn 12 ký tự thì đệm lại số 0 ở đầu cho đủ 12 số; giữ nguyên nếu đã có chữ (không phải số).
   static parseCccd(value) {
-    let text = String(value || "").trim();
-    if (text.startsWith("'")) text = text.substring(1).trim();
-    if (/^\d+$/.test(text) && text.length > 0 && text.length < 12) {
-      return text.padStart(12, "0");
-    }
-    return text;
+    return normalizeCccd(value);
   }
 
   static getCell(row, index) {
