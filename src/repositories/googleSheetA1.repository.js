@@ -102,6 +102,17 @@ const findByMaPhieu = async (pool, maPhieu) => {
     return result.recordset[0] || null;
 };
 
+// CCCD đáng tin cậy hơn mã phiếu để đối chiếu trùng lặp — file nguồn nhiều khi bị lệch cột
+// khiến mã phiếu đọc nhầm thành giá trị khác (vd email) giống nhau ở rất nhiều dòng, còn CCCD
+// (khi có) luôn là duy nhất cho từng người.
+const findByCccd = async (pool, cccd) => {
+    if (!cccd) return null;
+    const req = pool.request();
+    req.input("cccd", mssql.VarChar, cccd);
+    const result = await req.query("SELECT * FROM google_sheet_a1 WHERE cccd = @cccd");
+    return result.recordset[0] || null;
+};
+
 const insertRecord = async (pool, record) => {
     const req = pool.request();
     req.input("ma_phieu", mssql.NVarChar, record.ma_phieu || null)
@@ -193,6 +204,7 @@ module.exports = {
     createTableIfNotExists,
     searchGoogleSheetA1Sql,
     findByMaPhieu,
+    findByCccd,
     insertRecord,
     updateRecord,
     findDauMoiByHoTenNgaySinh,

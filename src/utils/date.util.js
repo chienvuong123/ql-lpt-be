@@ -51,4 +51,17 @@ const normalizeVietnameseDate = (value) => {
   return valStr;
 };
 
-module.exports = { normalizeVietnameseDate };
+// Lấy năm (4 chữ số, 2000-2099) từ 1 chuỗi timestamp/ngày bất kỳ định dạng — dùng để lọc
+// import theo năm khi 1 sheet gộp chung dữ liệu nhiều năm.
+const extractYearFromTimestamp = (value) => {
+  if (!value) return null;
+  const matches = String(value).match(/\d{4}/g);
+  if (!matches) return null;
+  const validYear = matches.find((y) => {
+    const n = parseInt(y, 10);
+    return n >= 2000 && n <= 2099;
+  });
+  return validYear ? parseInt(validYear, 10) : null;
+};
+
+module.exports = { normalizeVietnameseDate, extractYearFromTimestamp };

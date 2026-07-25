@@ -38,7 +38,8 @@ class GoogleSheetController {
         return res.status(400).json({ success: false, message: "Vui lòng chọn file Excel để import!" });
       }
 
-      const result = await googleSheetService.importExcelToDatabase(req.file.buffer);
+      const { sheetName, year } = req.body;
+      const result = await googleSheetService.importExcelToDatabase(req.file.buffer, { sheetName, year });
       res.status(200).json({
         success: true,
         message: "Import file Excel thành công",

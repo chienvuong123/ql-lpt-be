@@ -93,7 +93,16 @@ function getAuthClient() {
 
 const googleSheetModel = require("../models/googleSheet.model");
 const { normalizeCccd } = require("../utils/cccd.util");
-const { normalizeVietnameseDate } = require("../utils/date.util");
+const { normalizeVietnameseDate, extractYearFromTimestamp } = require("../utils/date.util");
+
+// Cắt bớt chuỗi cho vừa giới hạn cột NVARCHAR/VARCHAR trong DB — 1 ô dữ liệu rác/dán nhầm dài
+// bất thường (vd copy cả 1 đoạn văn bản vào ô) có thể làm hỏng cả transaction bulk insert của
+// TOÀN BỘ lượt import nếu không cắt trước.
+const truncate = (value, maxLength) => {
+  if (value === null || value === undefined) return value;
+  const str = String(value);
+  return str.length > maxLength ? str.slice(0, maxLength) : str;
+};
 
 // Ánh xạ 1 dòng dữ liệu thô (object theo tên cột) thành bản ghi google_sheet_data — dùng chung
 // cho cả đồng bộ Google Sheets API và import Excel thủ công, để tránh lệch logic giữa 2 nguồn.
@@ -109,22 +118,22 @@ const mapRowToRecord = (item) => {
   const loaiVal = item["LH"] || item["Loại hình"] || item["Loại"] || null;
 
   return {
-    cccd: cccdVal,
-    stt_n: item["STT Ngày"] || item["STT_N"] || null,
-    thoi_gian: item["Dấu thời gian"] || item["Thời gian"] || null,
-    email: item["Địa chỉ email"] || item["Email"] || null,
-    co_so: item["Cơ sở tuyển sinh"] || item["Cơ sở\ntuyển\nsinh"] || item["CS"] || item["Cơ sở"] || null,
-    ten_hoc_vien: (item["Họ tên học viên"] || item["Họ và tên"] || "").toString().trim() || null,
-    ngay_sinh: normalizeVietnameseDate(item["Ngày sinh"]) || null,
-    dien_thoai: item["Số điện thoại"] || item["SĐT học viên"] || item["Điện thoại"] || null,
+    cccd: truncate(cccdVal, 50),
+    stt_n: truncate(item["STT Ngày"] || item["STT_N"] || null, 50),
+    thoi_gian: truncate(item["Dấu thời gian"] || item["Thời gian"] || null, 100),
+    email: truncate(item["Địa chỉ email"] || item["Email"] || null, 255),
+    co_so: truncate(item["Cơ sở tuyển sinh"] || item["Cơ sở\ntuyển\nsinh"] || item["CS"] || item["Cơ sở"] || null, 255),
+    ten_hoc_vien: truncate((item["Họ tên học viên"] || item["Họ và tên"] || "").toString().trim() || null, 255),
+    ngay_sinh: truncate(normalizeVietnameseDate(item["Ngày sinh"]) || null, 100),
+    dien_thoai: truncate(item["Số điện thoại"] || item["SĐT học viên"] || item["Điện thoại"] || null, 50),
     dia_chi: (item["Địa chỉ"] || "").toString().trim() || null,
-    loai: loaiVal,
-    hang: hangVal,
-    nguoi_tuyen_sinh: (item["Người tuyển sinh"] || "").toString().trim() || null,
-    ctv: item["CTV"] || null,
+    loai: truncate(loaiVal, 100),
+    hang: truncate(hangVal, 50),
+    nguoi_tuyen_sinh: truncate((item["Người tuyển sinh"] || "").toString().trim() || null, 255),
+    ctv: truncate(item["CTV"] || null, 255),
     cccd_pho_to: isPhotoOk,
-    dat_coc: item["Đặt cọc"] || null,
-    ma_anh: item["Mã ảnh"] || null,
+    dat_coc: truncate(item["Đặt cọc"] || null, 255),
+    ma_anh: truncate(item["Mã ảnh"] || null, 255),
     ghi_chu: item["Ghi chú"] || null,
   };
 };
@@ -291,35 +300,71 @@ class GoogleSheetService {
   // Import thủ công từ file Excel (.xlsx/.xls) có cùng cấu trúc cột với Google Sheet nguồn —
   // dùng chung logic map cột + gộp trùng CCCD với đường đồng bộ qua Google Sheets API.
   //
-  // Sheet nguồn có dòng 1 là dòng gộp/tổng (không phải header thật) và header thật nằm ở
-  // dòng 2 (giống hệt fetchSheetData ở trên phải đọc range A2:R để bỏ qua dòng 1) — nên phải
-  // tự dò đúng dòng chứa tên cột thay vì mặc định dòng đầu tiên là header.
-  async importExcelToDatabase(fileBuffer) {
+  // Đọc TẤT CẢ sheet trong file (không chỉ sheet đầu) — file tổng hợp nhiều năm thường tách
+  // mỗi năm 1 sheet, và có cả sheet không phải dữ liệu tuyển sinh (báo cáo, bảng giá...) nên
+  // chỉ nhận sheet nào thực sự dò được header "Họ tên học viên/Ngày sinh".
+  //
+  // Mỗi sheet có dòng 1 là dòng gộp/tổng (không phải header thật) và header thật nằm ở dòng 2
+  // (giống hệt fetchSheetData ở trên phải đọc range A2:R để bỏ qua dòng 1) — nên phải tự dò
+  // đúng dòng chứa tên cột thay vì mặc định dòng đầu tiên là header.
+  //
+  // options.sheetName: chỉ đọc đúng 1 sheet này thay vì tất cả (nếu có).
+  // options.year: chỉ giữ lại các dòng có "Dấu thời gian" thuộc đúng năm này (dùng khi 1 sheet
+  // gộp chung nhiều năm, vd sheet báo cáo A1 gộp cả 2023 và 2024).
+  async importExcelToDatabase(fileBuffer, options = {}) {
     const XLSX = require("xlsx");
     const workbook = XLSX.read(fileBuffer, { type: "buffer" });
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
 
-    const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "", blankrows: false, raw: false });
-    if (rawRows.length === 0) {
-      throw new Error("File Excel không hợp lệ hoặc rỗng");
+    if (options.sheetName && !workbook.Sheets[options.sheetName]) {
+      throw new Error(
+        `Không tìm thấy sheet "${options.sheetName}" trong file này. Các sheet có trong file: ${workbook.SheetNames.join(", ")}`
+      );
     }
 
-    const headerIndex = this.findHeaderRowIndex(rawRows);
-    const headerRow = rawRows[headerIndex].map((v) => (v ? v.toString().trim() : ""));
-    const dataRows = rawRows.slice(headerIndex + 1);
+    const sheetNames = options.sheetName ? [options.sheetName] : workbook.SheetNames;
 
-    const rows = dataRows
-      .filter((row) => row.length > 0 && (row[0] || row[5]))
-      .map((row) =>
-        headerRow.reduce((obj, key, i) => {
-          const cleanKey = key || `Column_${i}`;
-          obj[cleanKey] = row[i] !== undefined ? row[i] : null;
-          return obj;
-        }, {})
-      );
+    let mappedData = [];
+    let sheetsWithData = 0;
 
-    const mappedData = rows.map(mapRowToRecord).filter((item) => item.cccd);
+    for (const sheetName of sheetNames) {
+      const worksheet = workbook.Sheets[sheetName];
+      if (!worksheet) continue;
+
+      const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "", blankrows: false, raw: false });
+      if (rawRows.length === 0) continue;
+
+      const headerIndex = this.findHeaderRowIndex(rawRows);
+      const headerRow = rawRows[headerIndex].map((v) => (v ? v.toString().trim() : ""));
+
+      // Sheet không có cột họ tên/ngày sinh thì không phải sheet dữ liệu tuyển sinh -> bỏ qua
+      const hasHoTen = headerRow.some((c) => c.toLowerCase().includes("họ tên học viên") || c.toLowerCase().includes("họ và tên"));
+      const hasNgaySinh = headerRow.some((c) => c.toLowerCase().includes("ngày sinh"));
+      if (!hasHoTen || !hasNgaySinh) continue;
+
+      const dataRows = rawRows.slice(headerIndex + 1);
+      const rows = dataRows
+        .filter((row) => row.length > 0 && (row[0] || row[5]))
+        .map((row) =>
+          headerRow.reduce((obj, key, i) => {
+            const cleanKey = key || `Column_${i}`;
+            obj[cleanKey] = row[i] !== undefined ? row[i] : null;
+            return obj;
+          }, {})
+        );
+
+      let sheetRecords = rows.map(mapRowToRecord).filter((item) => item.cccd);
+
+      if (options.year) {
+        sheetRecords = sheetRecords.filter((item) => extractYearFromTimestamp(item.thoi_gian) === Number(options.year));
+      }
+
+      mappedData = mappedData.concat(sheetRecords);
+      sheetsWithData++;
+    }
+
+    if (sheetsWithData === 0) {
+      throw new Error("Không tìm thấy sheet dữ liệu tuyển sinh hợp lệ trong file (thiếu cột Họ tên học viên/Ngày sinh)");
+    }
 
     if (mappedData.length === 0) {
       return { success: true, count: 0 };

@@ -22,7 +22,8 @@ const importExcel = async (req, res, next) => {
             return res.status(400).json({ success: false, message: "Vui lòng chọn file Excel để import!" });
         }
 
-        const result = await service.importExcel(req.file.buffer);
+        const { sheetName, year } = req.body;
+        const result = await service.importExcel(req.file.buffer, { sheetName, year });
 
         return responseHelper.success(res, result, message);
     } catch (error) {
