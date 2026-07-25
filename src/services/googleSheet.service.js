@@ -93,6 +93,7 @@ function getAuthClient() {
 
 const googleSheetModel = require("../models/googleSheet.model");
 const { normalizeCccd } = require("../utils/cccd.util");
+const { normalizeVietnameseDate } = require("../utils/date.util");
 
 // Ánh xạ 1 dòng dữ liệu thô (object theo tên cột) thành bản ghi google_sheet_data — dùng chung
 // cho cả đồng bộ Google Sheets API và import Excel thủ công, để tránh lệch logic giữa 2 nguồn.
@@ -114,7 +115,7 @@ const mapRowToRecord = (item) => {
     email: item["Địa chỉ email"] || item["Email"] || null,
     co_so: item["Cơ sở tuyển sinh"] || item["Cơ sở\ntuyển\nsinh"] || item["CS"] || item["Cơ sở"] || null,
     ten_hoc_vien: (item["Họ tên học viên"] || item["Họ và tên"] || "").toString().trim() || null,
-    ngay_sinh: (item["Ngày sinh"] || "").toString().trim() || null,
+    ngay_sinh: normalizeVietnameseDate(item["Ngày sinh"]) || null,
     dien_thoai: item["Số điện thoại"] || item["SĐT học viên"] || item["Điện thoại"] || null,
     dia_chi: (item["Địa chỉ"] || "").toString().trim() || null,
     loai: loaiVal,
