@@ -247,18 +247,51 @@ const updateRecord = async (pool, id, record, ngayNhanBuuDien, dauMoi) => {
         .input("ngay_nhan_buu_dien", mssql.Date, ngayNhanBuuDien || null)
         .input("dau_moi", mssql.NVarChar, dauMoi || null);
 
+    // Một số định dạng import (vd file bưu điện) không có đủ mọi trường (thiếu hạng xe, thời hạn...)
+    // -> dùng COALESCE để giữ nguyên giá trị cũ trong DB khi lượt import này không có thông tin đó,
+    // thay vì ghi đè thành NULL. Tương tự với dau_moi: nếu lượt này không tra ra đầu mối thì giữ
+    // nguyên đầu mối đã có trước đó thay vì xoá mất.
     await req.query(`
         UPDATE gplx_hoan
         SET ho_ten = @ho_ten,
+            ngay_sinh = COALESCE(@ngay_sinh, ngay_sinh),
+            hang = COALESCE(@hang, hang),
+            ngay_cap = COALESCE(@ngay_cap, ngay_cap),
+            thoi_han = COALESCE(@thoi_han, thoi_han),
+            dia_chi = COALESCE(@dia_chi, dia_chi),
+            ngay_nhan_buu_dien = @ngay_nhan_buu_dien,
+            trang_thai = 'cho_nhap_kho',
+            ngay_nhap_kho = NULL,
+            ngay_xuat_kho = NULL,
+            dau_moi = COALESCE(@dau_moi, dau_moi),
+            updated_at = GETDATE()
+        WHERE id = @id
+    `);
+};
+
+// Sửa trực tiếp 1 bản ghi từ UI (khác updateRecord dùng cho import: không đụng tới
+// trang_thai/ngay_nhan_buu_dien/ngay_nhap_kho/ngay_xuat_kho — chỉ sửa thông tin cơ bản).
+const updateRecordManual = async (pool, id, fields) => {
+    const req = pool.request();
+    req.input("id", mssql.Int, id)
+        .input("so_gplx", mssql.NVarChar, fields.so_gplx)
+        .input("ho_ten", mssql.NVarChar, fields.ho_ten)
+        .input("ngay_sinh", mssql.NVarChar, fields.ngay_sinh || null)
+        .input("hang", mssql.NVarChar, fields.hang || null)
+        .input("ngay_cap", mssql.NVarChar, fields.ngay_cap || null)
+        .input("thoi_han", mssql.NVarChar, fields.thoi_han || null)
+        .input("dia_chi", mssql.NVarChar, fields.dia_chi || null)
+        .input("dau_moi", mssql.NVarChar, fields.dau_moi || null);
+
+    await req.query(`
+        UPDATE gplx_hoan
+        SET so_gplx = @so_gplx,
+            ho_ten = @ho_ten,
             ngay_sinh = @ngay_sinh,
             hang = @hang,
             ngay_cap = @ngay_cap,
             thoi_han = @thoi_han,
             dia_chi = @dia_chi,
-            ngay_nhan_buu_dien = @ngay_nhan_buu_dien,
-            trang_thai = 'cho_nhap_kho',
-            ngay_nhap_kho = NULL,
-            ngay_xuat_kho = NULL,
             dau_moi = @dau_moi,
             updated_at = GETDATE()
         WHERE id = @id
@@ -336,6 +369,7 @@ module.exports = {
     findDauMoiByHoTenNgaySinh,
     insertRecord,
     updateRecord,
+    updateRecordManual,
     getDistinctNgayNhanBuuDien,
     getDistinctNgayCap,
     updateTrangThai,

@@ -158,12 +158,12 @@ const importExcel = async (req, res, next) => {
             return res.status(400).json({ success: false, message: "Vui lòng chọn file Excel để import!" });
         }
 
-        const { ngay_nhan_buu_dien } = req.body;
+        const { ngay_nhan_buu_dien, format } = req.body;
         if (!ngay_nhan_buu_dien) {
             return res.status(400).json({ success: false, message: "Vui lòng chọn ngày nhận bưu điện!" });
         }
 
-        const result = await service.importExcel(req.file.buffer, ngay_nhan_buu_dien);
+        const result = await service.importExcel(req.file.buffer, ngay_nhan_buu_dien, format);
 
         return responseHelper.success(res, result, message);
     } catch (error) {
@@ -223,6 +223,33 @@ const updateTrangThai = async (req, res, next) => {
     }
 };
 
+const updateGplxHoan = async (req, res, next) => {
+    const message = "Cập nhật bản ghi GPLX hoàn trả thành công!";
+    try {
+        const { id } = req.params;
+        const { so_gplx, ho_ten, ngay_sinh, hang, ngay_cap, thoi_han, dia_chi, dau_moi } = req.body;
+
+        const result = await service.updateGplxHoanRecord(id, {
+            so_gplx,
+            ho_ten,
+            ngay_sinh,
+            hang,
+            ngay_cap,
+            thoi_han,
+            dia_chi,
+            dau_moi,
+        });
+
+        if (!result.success) {
+            return res.status(400).json({ success: false, message: result.message });
+        }
+
+        return responseHelper.success(res, result, message);
+    } catch (error) {
+        next(error);
+    }
+};
+
 module.exports = {
     listGplxHoan,
     importExcel,
@@ -231,4 +258,5 @@ module.exports = {
     getNgayCap,
     scanGplx,
     updateTrangThai,
+    updateGplxHoan,
 };

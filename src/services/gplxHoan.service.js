@@ -2,7 +2,15 @@ const repository = require("../repositories/gplxHoan.repository");
 const googleSheetA1Repository = require("../repositories/googleSheetA1.repository");
 const GplxHoan = require("../models/gplxHoan.model");
 const GplxHoanExcelParser = require("../utils/gplxHoanExcelParser");
+const GplxHoanBuuDienExcelParser = require("../utils/gplxHoanBuuDienExcelParser");
 const connectSQL = require("../configs/sql");
+
+// "scan": file dạng dòng quét mã QR (so_gplx;ho_ten;ngay_sinh;hang;ngay_cap;thoi_han;dia_chi).
+// "buu_dien": file tra cứu kết quả trả GPLX qua bưu điện (không có cột hạng xe/thời hạn).
+const IMPORT_PARSERS = {
+    scan: GplxHoanExcelParser,
+    buu_dien: GplxHoanBuuDienExcelParser,
+};
 
 // Ưu tiên lấy đầu mối của học viên bên ô tô (google_sheet_data) trước; nếu người này không có
 // trong danh sách ô tô thì mới lấy đầu mối bên xe máy A1 (google_sheet_a1) — vì cùng 1 người có thể
@@ -22,8 +30,9 @@ const searchGplxHoan = async (filters, page, limit) => {
     };
 };
 
-const importExcel = async (fileBuffer, ngayNhanBuuDien) => {
-    const { records, skipped } = GplxHoanExcelParser.parseExcel(fileBuffer);
+const importExcel = async (fileBuffer, ngayNhanBuuDien, format = "scan") => {
+    const Parser = IMPORT_PARSERS[format] || GplxHoanExcelParser;
+    const { records, skipped } = Parser.parseExcel(fileBuffer);
 
     const pool = await connectSQL();
     let inserted = 0;
@@ -133,6 +142,42 @@ const scanGplx = async ({ scanned_text, ngay_nhan_buu_dien, from_trang_thai }) =
     };
 };
 
+// Sửa trực tiếp 1 bản ghi từ UI (họ tên, ngày sinh, hạng, ngày cấp, thời hạn, địa chỉ, đầu mối,
+// số GPLX) — không đụng tới trạng thái kho, để không làm gián đoạn luồng nhập/xuất kho đang chạy.
+const updateGplxHoanRecord = async (id, fields) => {
+    const pool = await connectSQL();
+    const existing = await repository.findById(pool, id);
+    if (!existing) {
+        return { success: false, message: "Không tìm thấy bản ghi" };
+    }
+
+    const soGplx = (fields.so_gplx || "").trim();
+    const hoTen = (fields.ho_ten || "").trim();
+    if (!soGplx) return { success: false, message: "Số GPLX không được để trống" };
+    if (!hoTen) return { success: false, message: "Họ tên không được để trống" };
+
+    if (soGplx !== existing.so_gplx) {
+        const conflict = await repository.findBySoGplx(pool, soGplx);
+        if (conflict && conflict.id !== existing.id) {
+            return { success: false, message: `Số GPLX ${soGplx} đã tồn tại ở bản ghi khác` };
+        }
+    }
+
+    await repository.updateRecordManual(pool, id, {
+        so_gplx: soGplx,
+        ho_ten: hoTen,
+        ngay_sinh: fields.ngay_sinh,
+        hang: fields.hang,
+        ngay_cap: fields.ngay_cap,
+        thoi_han: fields.thoi_han,
+        dia_chi: fields.dia_chi,
+        dau_moi: fields.dau_moi,
+    });
+
+    const updated = await repository.findById(pool, id);
+    return { success: true, message: "Cập nhật bản ghi thành công", record: GplxHoan.formatOne(updated) };
+};
+
 const VALID_TRANG_THAI = ["cho_nhap_kho", "da_nhap_kho", "da_xuat_kho"];
 
 // Chuyển trạng thái thủ công bằng nút bấm trên UI (khác với scanGplx: cho phép cả lùi lại,
@@ -164,4 +209,5 @@ module.exports = {
     getNgayCapOptions,
     scanGplx,
     updateTrangThaiManual,
+    updateGplxHoanRecord,
 };
