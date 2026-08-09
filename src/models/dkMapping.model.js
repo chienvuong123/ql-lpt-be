@@ -47,10 +47,22 @@ async function getHocVienForCourses(tenKhoaList) {
   return result.recordset;
 }
 
+// Cache tên bảng thực tế có trong DB đang kết nối — vì schema có thể khác nhau giữa các server
+// (VD server khác có thể chưa có bảng hocvien_checks). Chỉ cascade update vào bảng thực sự tồn tại.
+let existingTablesCache = null;
+
+async function getExistingTables(pool) {
+  if (existingTablesCache) return existingTablesCache;
+  const result = await pool.request().query("SELECT name FROM sys.tables");
+  existingTablesCache = new Set(result.recordset.map((r) => r.name));
+  return existingTablesCache;
+}
+
 // Đổi ma_dk cũ -> ma_dk mới cho 1 học viên, cascade toàn bộ CASCADE_TARGETS trong 1 transaction.
 // Đồng thời ghi log vào dk_mapping để có lịch sử đối chiếu.
 async function applyMaDkChange({ hoc_vien_id, ma_khoa, ma_dk_cu, ma_dk_moi }) {
   const pool = await connectSQL();
+  const existingTables = await getExistingTables(pool);
   const transaction = new sql.Transaction(pool);
 
   try {
@@ -67,6 +79,8 @@ async function applyMaDkChange({ hoc_vien_id, ma_khoa, ma_dk_cu, ma_dk_moi }) {
     `);
 
     for (const { table, column } of CASCADE_TARGETS) {
+      if (!existingTables.has(table)) continue; // bảng không tồn tại trên server này -> bỏ qua
+
       const req = new sql.Request(transaction);
       req.input("ma_dk_moi", sql.NVarChar, ma_dk_moi);
       req.input("ma_dk_cu", sql.NVarChar, ma_dk_cu);
