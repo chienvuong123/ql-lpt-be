@@ -70,6 +70,8 @@ app.use("/api/ds-nhan-gplx", require("./src/routes/dsNhanGplx.routes"));
 app.use("/api/gplx-hoan", require("./src/routes/gplxHoan.routes"));
 app.use("/api/google-sheet-a1", require("./src/routes/googleSheetA1.routes"));
 app.use("/api/backup", require("./src/routes/backup.routes"));
+app.use("/api/hoc-vien-th", require("./src/routes/hocVienTH.routes"));
+app.use("/api/dk-mapping", require("./src/routes/dkMapping.routes"));
 
 // ─── Danh sách API ───────────────────────────────────────────
 app.get("/", (req, res) => {
