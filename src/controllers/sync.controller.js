@@ -257,6 +257,35 @@ class SyncController {
     }
   }
   /**
+   * DELETE /api/sync/tien-do
+   * Delete a training progress record
+   */
+  async deleteTienDoDaoTao(req, res) {
+    const data = req.body;
+
+    if (!data.ma_khoa) {
+      return res.status(400).json({
+        success: false,
+        message: "Thiếu ma_khoa",
+      });
+    }
+
+    try {
+      await syncService.deleteTienDoDaoTao(data);
+      res.status(200).json({
+        success: true,
+        message: "Xóa tiến độ đào tạo thành công",
+      });
+    } catch (err) {
+      console.error("[SyncController] deleteTienDoDaoTao error:", err);
+      res.status(500).json({
+        success: false,
+        message: "Lỗi xóa tiến độ đào tạo",
+        error: err.message,
+      });
+    }
+  }
+  /**
    * GET /api/sync/tien-do
    * Get list of training progress with filters
    */

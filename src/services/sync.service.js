@@ -85,6 +85,10 @@ async function upsertTienDoDaoTao(data) {
   return await SyncModel.upsertTienDoDaoTao(data);
 }
 
+async function deleteTienDoDaoTao(data) {
+  return await SyncModel.deleteTienDoDaoTao(data);
+}
+
 async function getTienDoDaoTaoList(filters) {
   return await SyncModel.getTienDoDaoTaoList(filters);
 }
@@ -251,6 +255,7 @@ module.exports = {
   syncCourses,
   syncStudents,
   upsertTienDoDaoTao,
+  deleteTienDoDaoTao,
   getTienDoDaoTaoList,
   getTienDoDaoTaoListPaginated,
   getKhoaHocList,

@@ -335,8 +335,27 @@ async function upsertTienDoDaoTao(data) {
 }
 
 /**
+ * Delete training progress from tien_do_dao_tao table
+ * @param {Object} data
+ */
+async function deleteTienDoDaoTao(data) {
+  const pool = await connectSQL();
+  const request = new mssql.Request(pool);
+
+  request.input("ma_khoa", mssql.NVarChar, data.ma_khoa);
+  const loaiValue = (data.loai === null || data.loai === undefined || data.loai === 0 || data.loai === "0") ? 0 : Number(data.loai);
+  request.input("loai", mssql.Int, loaiValue);
+
+  await request.query(`
+    DELETE FROM [dbo].[tien_do_dao_tao]
+    WHERE ma_khoa = @ma_khoa AND (loai = @loai OR (loai IS NULL AND @loai = 0))
+  `);
+  return true;
+}
+
+/**
  * Get list of training progress with filters
- * @param {Object} filters 
+ * @param {Object} filters
  */
 async function getTienDoDaoTaoList(filters = {}) {
   const pool = await connectSQL();
@@ -463,7 +482,7 @@ async function getTienDoDaoTaoListPaginated(filters = {}) {
   const countResult = await request.query(countQuery);
   const total = countResult.recordset[0].total;
 
-  let query = `SELECT t.*, k.ten_khoa ${fromWhereClause} ORDER BY t.ma_khoa DESC`;
+  let query = `SELECT t.*, k.ten_khoa ${fromWhereClause} ORDER BY CASE WHEN t.ngay_khai_giang IS NULL THEN 1 ELSE 0 END, t.ngay_khai_giang ASC`;
 
   const page = parseInt(filters.page) || 1;
   const limit = parseInt(filters.limit) || 10;
@@ -728,6 +747,7 @@ module.exports = {
   upsertKhoaHoc,
   upsertHocVien,
   upsertTienDoDaoTao,
+  deleteTienDoDaoTao,
   getTienDoDaoTaoList,
   getKhoaHocList,
   getHocVienSearch,
