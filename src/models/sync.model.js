@@ -482,7 +482,7 @@ async function getTienDoDaoTaoListPaginated(filters = {}) {
   const countResult = await request.query(countQuery);
   const total = countResult.recordset[0].total;
 
-  let query = `SELECT t.*, k.ten_khoa ${fromWhereClause} ORDER BY CASE WHEN t.ngay_khai_giang IS NULL THEN 1 ELSE 0 END, t.ngay_khai_giang ASC`;
+  let query = `SELECT t.*, k.ten_khoa ${fromWhereClause} ORDER BY CASE WHEN t.ngay_khai_giang IS NULL THEN 1 ELSE 0 END, t.ngay_khai_giang DESC`;
 
   const page = parseInt(filters.page) || 1;
   const limit = parseInt(filters.limit) || 10;
