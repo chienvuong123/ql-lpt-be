@@ -235,42 +235,9 @@ const insertRecord = async (pool, record, ngayNhanBuuDien, dauMoi) => {
     `);
 };
 
-const updateRecord = async (pool, id, record, ngayNhanBuuDien, dauMoi) => {
-    const req = pool.request();
-    req.input("id", mssql.Int, id)
-        .input("ho_ten", mssql.NVarChar, record.ho_ten)
-        .input("ngay_sinh", mssql.NVarChar, record.ngay_sinh || null)
-        .input("hang", mssql.NVarChar, record.hang || null)
-        .input("ngay_cap", mssql.NVarChar, record.ngay_cap || null)
-        .input("thoi_han", mssql.NVarChar, record.thoi_han || null)
-        .input("dia_chi", mssql.NVarChar, record.dia_chi || null)
-        .input("ngay_nhan_buu_dien", mssql.Date, ngayNhanBuuDien || null)
-        .input("dau_moi", mssql.NVarChar, dauMoi || null);
-
-    // Một số định dạng import (vd file bưu điện) không có đủ mọi trường (thiếu hạng xe, thời hạn...)
-    // -> dùng COALESCE để giữ nguyên giá trị cũ trong DB khi lượt import này không có thông tin đó,
-    // thay vì ghi đè thành NULL. Tương tự với dau_moi: nếu lượt này không tra ra đầu mối thì giữ
-    // nguyên đầu mối đã có trước đó thay vì xoá mất.
-    await req.query(`
-        UPDATE gplx_hoan
-        SET ho_ten = @ho_ten,
-            ngay_sinh = COALESCE(@ngay_sinh, ngay_sinh),
-            hang = COALESCE(@hang, hang),
-            ngay_cap = COALESCE(@ngay_cap, ngay_cap),
-            thoi_han = COALESCE(@thoi_han, thoi_han),
-            dia_chi = COALESCE(@dia_chi, dia_chi),
-            ngay_nhan_buu_dien = @ngay_nhan_buu_dien,
-            trang_thai = 'cho_nhap_kho',
-            ngay_nhap_kho = NULL,
-            ngay_xuat_kho = NULL,
-            dau_moi = COALESCE(@dau_moi, dau_moi),
-            updated_at = GETDATE()
-        WHERE id = @id
-    `);
-};
-
-// Sửa trực tiếp 1 bản ghi từ UI (khác updateRecord dùng cho import: không đụng tới
-// trang_thai/ngay_nhan_buu_dien/ngay_nhap_kho/ngay_xuat_kho — chỉ sửa thông tin cơ bản).
+// Sửa trực tiếp 1 bản ghi từ UI — không đụng tới trang_thai/ngay_nhan_buu_dien/ngay_nhap_kho/
+// ngay_xuat_kho, chỉ sửa thông tin cơ bản (import không còn tự động update bản ghi trùng nữa,
+// nên đây là cách duy nhất để sửa thông tin 1 bản ghi đã tồn tại).
 const updateRecordManual = async (pool, id, fields) => {
     const req = pool.request();
     req.input("id", mssql.Int, id)
@@ -368,7 +335,6 @@ module.exports = {
     findById,
     findDauMoiByHoTenNgaySinh,
     insertRecord,
-    updateRecord,
     updateRecordManual,
     getDistinctNgayNhanBuuDien,
     getDistinctNgayCap,

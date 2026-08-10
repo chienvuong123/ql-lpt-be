@@ -36,24 +36,27 @@ const importExcel = async (fileBuffer, ngayNhanBuuDien, format = "scan") => {
 
     const pool = await connectSQL();
     let inserted = 0;
-    let updated = 0;
+    let duplicated = 0;
 
     for (const record of records) {
-        const dauMoi = await findDauMoiUuTien(pool, record.ho_ten, record.ngay_sinh);
         const existing = await repository.findBySoGplx(pool, record.so_gplx);
         if (existing) {
-            await repository.updateRecord(pool, existing.id, record, ngayNhanBuuDien, dauMoi);
-            updated++;
-        } else {
-            await repository.insertRecord(pool, record, ngayNhanBuuDien, dauMoi);
-            inserted++;
+            // Số GPLX đã có sẵn trong hệ thống -> bỏ qua hoàn toàn, không đụng gì tới bản ghi
+            // cũ. Trước đây import trùng sẽ ghi đè và reset trạng thái nhập/xuất kho về
+            // "chờ nhập kho", gây loạn trạng thái kho khi lỡ import 1 file bị trùng dữ liệu.
+            duplicated++;
+            continue;
         }
+
+        const dauMoi = await findDauMoiUuTien(pool, record.ho_ten, record.ngay_sinh);
+        await repository.insertRecord(pool, record, ngayNhanBuuDien, dauMoi);
+        inserted++;
     }
 
     return {
         total: records.length,
         inserted,
-        updated,
+        duplicated,
         skipped,
     };
 };
