@@ -27,9 +27,9 @@ const HOST = process.env.HOST || "0.0.0.0";
 
 // ─── Middleware ───────────────────────────────────────────────
 app.use(cors());
-// Bypass body parser for GET/DELETE requests that mistakenly include a Content-Type header with an empty body
+// Bypass body parser for GET requests that mistakenly include a Content-Type header with an empty body
 app.use((req, res, next) => {
-  if (req.method === "GET" || req.method === "DELETE") {
+  if (req.method === "GET") {
     delete req.headers["content-type"];
   }
   next();
