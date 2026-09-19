@@ -259,14 +259,16 @@ const updateDaNhan = async (ids, status) => {
     `);
 };
 
+// ngay_thi là chữ dạng "dd/mm/yyyy" (không phải cột DATE thật) nên phải TRY_CONVERT để sắp
+// đúng theo thời gian thay vì sắp theo alphabet (vd "31/12/2025" sẽ đứng trước "01/01/2026" nếu sắp theo chuỗi).
 const getDistinctDatesSql = async () => {
     await createTableIfNotExists();
     const pool = await connectSQL();
     const result = await pool.request().query(`
-        SELECT DISTINCT ngay_thi 
-        FROM ds_nhan_gplx WITH (NOLOCK) 
-        WHERE ngay_thi IS NOT NULL AND ngay_thi <> '' 
-        ORDER BY ngay_thi DESC
+        SELECT DISTINCT ngay_thi
+        FROM ds_nhan_gplx WITH (NOLOCK)
+        WHERE ngay_thi IS NOT NULL AND ngay_thi <> ''
+        ORDER BY TRY_CONVERT(DATE, ngay_thi, 103) DESC, ngay_thi DESC
     `);
     return result.recordset.map(row => row.ngay_thi);
 };
