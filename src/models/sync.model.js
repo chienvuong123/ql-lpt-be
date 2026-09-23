@@ -2,17 +2,20 @@ const mssql = require("mssql");
 const connectSQL = require("../configs/sql");
 
 // Khóa chuyển sang tenant mới đổi tiền tố 30004 -> 31011 (VD 31011K26B0118 <-> 30004K26B0118),
-// học viên trong DB có thể vẫn nằm ở mã cũ -> trả về mọi mã khóa tương đương để lọc.
+// khóa đổi tên bên Lotus mang thêm hậu tố "_old" (VD 31011K260003 <-> 31011K260003_old).
+// Học viên trong DB có thể nằm ở bất kỳ mã nào -> trả về mọi mã khóa tương đương để lọc.
 const MA_CSDT_PREFIXES = ["30004", "31011"];
+const OLD_SUFFIX = "_old";
 function getMaKhoaCandidates(ma_khoa) {
   const mk = String(ma_khoa || "").trim();
   if (!mk) return [];
-  const prefix = MA_CSDT_PREFIXES.find((p) => mk.startsWith(p));
-  if (prefix) {
-    const suffix = mk.slice(prefix.length);
-    return [mk, ...MA_CSDT_PREFIXES.filter((p) => p !== prefix).map((p) => p + suffix)];
-  }
-  return ["30004" + mk, mk];
+  const base = mk.toLowerCase().endsWith(OLD_SUFFIX) ? mk.slice(0, -OLD_SUFFIX.length) : mk;
+  const prefix = MA_CSDT_PREFIXES.find((p) => base.startsWith(p));
+  const bases = prefix
+    ? [base, ...MA_CSDT_PREFIXES.filter((p) => p !== prefix).map((p) => p + base.slice(prefix.length))]
+    : ["30004" + base, base];
+  const all = [mk, ...bases.flatMap((b) => [b, b + OLD_SUFFIX])];
+  return [...new Set(all)];
 }
 
 /**
