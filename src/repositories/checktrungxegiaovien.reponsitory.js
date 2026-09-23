@@ -12,7 +12,7 @@ const countXeGiaoVien = async (pool, khoa, search) => {
         FROM dang_ky_xe_gv dkxgv
         LEFT JOIN hoc_vien hv ON dkxgv.ma_dk = hv.ma_dk
         WHERE (dkxgv.khoa LIKE @khoa OR dkxgv.giao_vien LIKE @khoa)
-        AND (dkxgv.ma_dk LIKE @search OR dkxgv.ho_ten LIKE @search OR hv.cccd LIKE @search)
+        AND (dkxgv.ma_dk LIKE @search OR dkxgv.ho_ten LIKE @search OR hv.cccd LIKE @search OR dkxgv.cccd LIKE @search)
     `);
     return result.recordset[0].total;
 }
@@ -35,7 +35,7 @@ const getListXeVaGiaoVienSql = async (khoa, search, rawPage, rawLimit) => {
         FROM [dbo].[dang_ky_xe_gv] dkxgv
         LEFT JOIN [dbo].[hoc_vien] hv ON dkxgv.ma_dk = hv.ma_dk
         WHERE (dkxgv.khoa LIKE @khoa OR dkxgv.giao_vien LIKE @khoa)
-        AND (dkxgv.ma_dk LIKE @search OR dkxgv.ho_ten LIKE @search OR hv.cccd LIKE @search)
+        AND (dkxgv.ma_dk LIKE @search OR dkxgv.ho_ten LIKE @search OR hv.cccd LIKE @search OR dkxgv.cccd LIKE @search)
         ORDER BY dkxgv.ma_dk
         OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
     `);
