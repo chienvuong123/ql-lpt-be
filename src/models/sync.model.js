@@ -1,6 +1,20 @@
 const mssql = require("mssql");
 const connectSQL = require("../configs/sql");
 
+// Khóa chuyển sang tenant mới đổi tiền tố 30004 -> 31011 (VD 31011K26B0118 <-> 30004K26B0118),
+// học viên trong DB có thể vẫn nằm ở mã cũ -> trả về mọi mã khóa tương đương để lọc.
+const MA_CSDT_PREFIXES = ["30004", "31011"];
+function getMaKhoaCandidates(ma_khoa) {
+  const mk = String(ma_khoa || "").trim();
+  if (!mk) return [];
+  const prefix = MA_CSDT_PREFIXES.find((p) => mk.startsWith(p));
+  if (prefix) {
+    const suffix = mk.slice(prefix.length);
+    return [mk, ...MA_CSDT_PREFIXES.filter((p) => p !== prefix).map((p) => p + suffix)];
+  }
+  return ["30004" + mk, mk];
+}
+
 /**
  * Upsert list of courses (enrolment plans) into khoa_hoc table
  * @param {Array} courses 
@@ -564,13 +578,13 @@ async function getHocVienSearch(filters = {}) {
     whereClause += ` AND hv.ma_dk = @ma_dk`;
   }
 
-  // 3. Lọc theo Mã Khóa — chuẩn hóa 1 giá trị, dùng = thay vì OR
+  // 3. Lọc theo Mã Khóa — gồm cả mã tương đương 30004/31011
   if (filters.ma_khoa) {
-    const normalizedMk = filters.ma_khoa.trim().startsWith("30004")
-      ? filters.ma_khoa.trim()
-      : "30004" + filters.ma_khoa.trim();
-    request.input("ma_khoa", mssql.NVarChar, normalizedMk);
-    whereClause += ` AND hv.ma_khoa = @ma_khoa`;
+    const params = getMaKhoaCandidates(filters.ma_khoa).map((mk, i) => {
+      request.input(`ma_khoa${i}`, mssql.NVarChar, mk);
+      return `@ma_khoa${i}`;
+    });
+    whereClause += ` AND hv.ma_khoa IN (${params.join(", ")})`;
   }
 
   // 4. Lọc theo giáo viên (nếu có)
@@ -623,15 +637,16 @@ async function getHocVienByKhoa(ma_khoa) {
   const pool = await connectSQL();
   const request = new mssql.Request(pool);
 
-  const prefixedMk = ma_khoa.startsWith("30004") ? ma_khoa : "30004" + ma_khoa;
-  request.input("ma_khoa", mssql.VarChar, ma_khoa);
-  request.input("prefixed_ma_khoa", mssql.VarChar, prefixedMk);
+  const params = getMaKhoaCandidates(ma_khoa).map((mk, i) => {
+    request.input(`ma_khoa${i}`, mssql.VarChar, mk);
+    return `@ma_khoa${i}`;
+  });
 
   const query = `
     SELECT hv.ma_dk, hv.ho_ten, hv.cccd, dk.giao_vien, dk.xe_b1, dk.xe_b2
     FROM [dbo].[hoc_vien] hv WITH (NOLOCK)
     LEFT JOIN [dbo].[dang_ky_xe_gv] dk WITH (NOLOCK) ON hv.ma_dk = dk.ma_dk
-    WHERE hv.ma_khoa = @ma_khoa OR hv.ma_khoa = @prefixed_ma_khoa
+    WHERE hv.ma_khoa IN (${params.join(", ")})
     ORDER BY hv.ho_ten ASC
     OPTION (RECOMPILE); -- Tránh parameter sniffing khi lọc theo khóa học có số lượng học viên biến động lớn
   `;
@@ -751,6 +766,7 @@ module.exports = {
   getTienDoDaoTaoList,
   getKhoaHocList,
   getHocVienSearch,
+  getMaKhoaCandidates,
   getHocVienByKhoa,
   getTienDoDaoTaoListPaginated,
   importXmlData

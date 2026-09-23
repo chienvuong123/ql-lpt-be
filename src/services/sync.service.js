@@ -116,24 +116,17 @@ async function kiemTraDongBo(ma_khoa) {
     return [];
   }
 
-  // 2. Fetch session data for the course code from external Cabin API
-  let clean = String(ma_khoa).trim();
-  if (!clean.startsWith("30004")) {
-    clean = "30004" + clean;
-  }
-
+  // 2. Fetch session data from external Cabin API — thử lần lượt các mã khóa tương đương
+  // (30004/31011) cho tới khi có phiên học
   let list = [];
-  try {
-    let response = await cabinApiService.getDanhSachKetQuaCabin({ khoa: clean });
-    list = response?.data || [];
-
-    // Fallback: if 30004 prefix yields 0 sessions, try raw course code
-    if (list.length === 0 && clean !== ma_khoa) {
-      response = await cabinApiService.getDanhSachKetQuaCabin({ khoa: ma_khoa });
+  for (const khoa of SyncModel.getMaKhoaCandidates(ma_khoa)) {
+    try {
+      const response = await cabinApiService.getDanhSachKetQuaCabin({ khoa });
       list = response?.data || [];
+    } catch (err) {
+      console.error(`[SyncService] Lỗi lấy kết quả Cabin cho khoa ${khoa}:`, err.message);
     }
-  } catch (err) {
-    console.error(`[SyncService] Lỗi lấy kết quả Cabin cho khoa ${ma_khoa}:`, err.message);
+    if (list.length > 0) break;
   }
 
   const map = cabinApiService.buildCabinMap(list);
