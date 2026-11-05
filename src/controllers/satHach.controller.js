@@ -58,7 +58,7 @@ const getLichSu = async (req, res, next) => {
 
 const getAnh = async (req, res, next) => {
   try {
-    const anh = await service.getAnh(req.params.maKySh, req.params.maDk);
+    const anh = await service.getAnh(req.params.maKySh, req.params.id);
     if (!anh) return res.status(404).end();
     res.set("Content-Type", anh.contentType);
     res.set("Cache-Control", "private, max-age=86400");

@@ -18,6 +18,7 @@ router.get("/ky", controller.getKyList);
 router.get("/ky/:maKySh", controller.getKetQuaKy);
 router.get("/thong-ke-cac-ky", controller.getThongKeCacKy);
 router.get("/lich-su", controller.getLichSu);
-router.get("/anh/:maKySh/:maDk", controller.getAnh);
+// id: CCCD của học viên (mã đăng ký nếu không có CCCD)
+router.get("/anh/:maKySh/:id", controller.getAnh);
 
 module.exports = router;

@@ -12,6 +12,7 @@ const TRANG_THAI = {
   CHUA_THI: "CHUA_THI", // phần phải thi nhưng chưa có điểm / vắng (-1)
   DUNG_THI: "DUNG_THI", // phần chưa thi vì đã trượt phần khác
   KHONG_THI: "KHONG_THI", // phần không nằm trong nội dung sát hạch của thí sinh
+  BAO_LUU: "BAO_LUU", // phần không phải thi vì đã đạt ở kỳ trước (cùng CCCD)
   CHUA_HOAN_THANH: "CHUA_HOAN_THANH", // kết quả chung: chưa trượt phần nào nhưng còn phần chưa thi
 };
 
@@ -93,6 +94,39 @@ const danhGiaThiSinh = (row) => {
   };
 };
 
+const PHAN_KEYS = ["ly_thuyet", "mo_phong", "sa_hinh", "duong_truong"];
+
+/**
+ * Thi lại: phần không phải thi ở kỳ này nhưng đã đạt ở kỳ trước (cùng CCCD) → bảo lưu, kèm kỳ đã đạt.
+ * lichSuTheoCmt: Map CCCD → các lần thi đã đánh giá, kỳ mới nhất trước.
+ */
+const ganBaoLuu = (row, ngaySh, lichSuTheoCmt) => {
+  const lichSu = (lichSuTheoCmt.get(row.so_cmt) || []).filter((h) => h.ma_ky_sh !== row.ma_ky_sh && h.ngay_sh < ngaySh);
+  if (lichSu.length === 0) return row;
+  const kq = { ...row };
+  for (const key of PHAN_KEYS) {
+    if (kq[key].trang_thai !== TRANG_THAI.KHONG_THI) continue;
+    const truoc = lichSu.find((h) => h[key].trang_thai === TRANG_THAI.DAT);
+    if (!truoc) continue;
+    kq[key] = {
+      ...kq[key],
+      trang_thai: TRANG_THAI.BAO_LUU,
+      dat_truoc: { ma_ky_sh: truoc.ma_ky_sh, ten_ky_sh: truoc.ten_ky_sh, ngay_sh: truoc.ngay_sh, diem: truoc[key].diem },
+    };
+  }
+  return kq;
+};
+
+const nhomTheoCmt = (rows) => {
+  const map = new Map();
+  for (const r of rows) {
+    if (!r.so_cmt) continue;
+    if (!map.has(r.so_cmt)) map.set(r.so_cmt, []);
+    map.get(r.so_cmt).push(r);
+  }
+  return map;
+};
+
 const thongKe = (rows) => {
   const tk = {
     tong: rows.length,
@@ -102,7 +136,7 @@ const thongKe = (rows) => {
     phan: {},
     theo_hang: {},
   };
-  for (const key of ["ly_thuyet", "mo_phong", "sa_hinh", "duong_truong"]) {
+  for (const key of PHAN_KEYS) {
     tk.phan[key] = { tong: 0, dat: 0, truot: 0, chua_thi: 0, ty_le_dat: null };
   }
 
@@ -120,7 +154,7 @@ const thongKe = (rows) => {
 
     for (const key of Object.keys(tk.phan)) {
       const p = r[key];
-      if (p.trang_thai === TRANG_THAI.KHONG_THI || p.trang_thai === TRANG_THAI.DUNG_THI) continue;
+      if ([TRANG_THAI.KHONG_THI, TRANG_THAI.DUNG_THI, TRANG_THAI.BAO_LUU].includes(p.trang_thai)) continue;
       const s = tk.phan[key];
       s.tong++;
       if (p.trang_thai === TRANG_THAI.DAT) s.dat++;
@@ -217,7 +251,10 @@ const getKetQuaKy = async (maKySh) => {
   await repository.createTableIfNotExists();
   const ky = await repository.getKy(maKySh);
   if (!ky) return null;
-  const rows = (await repository.getThiSinhByKy([maKySh])).map(danhGiaThiSinh);
+  const lichSuTheoCmt = nhomTheoCmt((await repository.getLichSuTruocKy(maKySh)).map(danhGiaThiSinh));
+  const rows = (await repository.getThiSinhByKy([maKySh]))
+    .map(danhGiaThiSinh)
+    .map((r) => ganBaoLuu(r, ky.ngay_sh, lichSuTheoCmt));
   return { ky, rows, thong_ke: thongKe(rows) };
 };
 
@@ -250,13 +287,14 @@ const getThongKeCacKy = async (limit = 5, denKy = null) => {
 
 const getLichSu = async ({ soCmt, maDk }) => {
   await repository.createTableIfNotExists();
-  const rows = await repository.getLichSu({ soCmt, maDk });
-  return rows.map(danhGiaThiSinh);
+  const rows = (await repository.getLichSu({ soCmt, maDk })).map(danhGiaThiSinh);
+  const lichSuTheoCmt = nhomTheoCmt(rows);
+  return rows.map((r) => ganBaoLuu(r, r.ngay_sh, lichSuTheoCmt));
 };
 
 // Trả ảnh JPEG; lần đầu chuyển từ JPEG 2000 rồi lưu lại để lần sau khỏi giải mã
-const getAnh = async (maKySh, maDk) => {
-  const row = await repository.getAnh(maKySh, maDk);
+const getAnh = async (maKySh, id) => {
+  const row = await repository.getAnh(maKySh, id);
   if (!row) return null;
   if (row.anh_jpeg) return { buffer: row.anh_jpeg, contentType: "image/jpeg" };
   if (!row.anh_jp2) return null;

@@ -74,6 +74,18 @@ const createTableIfNotExists = async () => {
       CREATE UNIQUE NONCLUSTERED INDEX UX_sat_hach_thi_sinh_ky_dk ON sat_hach_thi_sinh (ma_ky_sh, ma_dk);
       CREATE NONCLUSTERED INDEX IX_sat_hach_thi_sinh_so_cmt ON sat_hach_thi_sinh (so_cmt);
     END
+
+    -- CCCD là định danh học viên: mỗi kỳ 1 CCCD chỉ có 1 dòng
+    -- (bỏ qua nếu dữ liệu cũ đang trùng CCCD trong cùng kỳ)
+    IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'UX_sat_hach_thi_sinh_ky_cmt')
+    BEGIN
+      BEGIN TRY
+        CREATE UNIQUE NONCLUSTERED INDEX UX_sat_hach_thi_sinh_ky_cmt ON sat_hach_thi_sinh (ma_ky_sh, so_cmt) WHERE so_cmt IS NOT NULL;
+      END TRY
+      BEGIN CATCH
+        PRINT ERROR_MESSAGE();
+      END CATCH
+    END
   `);
 };
 
@@ -163,15 +175,18 @@ const upsertThiSinh = async (tx, rec, { overwriteBase, parts }) => {
     diemCols.push(col.diem, col.chuan);
   }
   const setDiem = diemCols.map((c) => `${c} = @${c}`);
+  const setMaDk = overwriteBase ? ["ma_dk = @ma_dk"] : [];
 
   const insertCols = ["ma_ky_sh", "ma_dk", ...baseCols, "anh_jp2", ...diemCols];
 
+  // Khớp thí sinh theo CCCD; chỉ dùng mã đăng ký khi file không có CCCD
   const result = await req.query(`
     MERGE sat_hach_thi_sinh AS t
-    USING (SELECT @ma_ky_sh AS ma_ky_sh, @ma_dk AS ma_dk) AS s
-      ON t.ma_ky_sh = s.ma_ky_sh AND t.ma_dk = s.ma_dk
+    USING (SELECT @ma_ky_sh AS ma_ky_sh) AS s
+      ON t.ma_ky_sh = s.ma_ky_sh
+     AND ((@so_cmt IS NOT NULL AND t.so_cmt = @so_cmt) OR (@so_cmt IS NULL AND t.ma_dk = @ma_dk))
     WHEN MATCHED THEN UPDATE SET
-      ${[...setBase, ...setAnh, ...setDiem, "updated_at = SYSDATETIME()"].join(",\n      ")}
+      ${[...setMaDk, ...setBase, ...setAnh, ...setDiem, "updated_at = SYSDATETIME()"].join(",\n      ")}
     WHEN NOT MATCHED THEN INSERT (${insertCols.join(", ")})
       VALUES (${insertCols.map((c) => `@${c}`).join(", ")})
     OUTPUT $action AS action;
@@ -217,7 +232,7 @@ const getThiSinhByKy = async (maKyList) => {
   return result.recordset;
 };
 
-// Lịch sử thi của 1 người qua các kỳ (khớp theo CCCD hoặc mã đăng ký)
+// Lịch sử thi của 1 học viên qua các kỳ: theo CCCD, chỉ dùng mã đăng ký khi không có CCCD
 const getLichSu = async ({ soCmt, maDk }) => {
   const pool = await connectSQL();
   const req = pool.request();
@@ -228,18 +243,39 @@ const getLichSu = async ({ soCmt, maDk }) => {
     FROM sat_hach_thi_sinh ts
     LEFT JOIN sat_hach_ky k ON k.ma_ky_sh = ts.ma_ky_sh
     WHERE (@so_cmt IS NOT NULL AND ts.so_cmt = @so_cmt)
-       OR (@ma_dk IS NOT NULL AND ts.ma_dk = @ma_dk)
+       OR (@so_cmt IS NULL AND ts.ma_dk = @ma_dk)
     ORDER BY k.ngay_sh DESC, ts.ma_ky_sh DESC
   `);
   return result.recordset;
 };
 
-const getAnh = async (maKySh, maDk) => {
+// Các lần thi ở kỳ trước của những học viên (theo CCCD) có mặt trong kỳ này
+const getLichSuTruocKy = async (maKySh) => {
   const pool = await connectSQL();
   const result = await pool.request()
     .input("ma_ky_sh", sql.NVarChar, maKySh)
-    .input("ma_dk", sql.NVarChar, maDk)
-    .query("SELECT id, anh_jp2, anh_jpeg FROM sat_hach_thi_sinh WHERE ma_ky_sh = @ma_ky_sh AND ma_dk = @ma_dk");
+    .query(`
+      SELECT ${COT_THI_SINH}, k.ten_ky_sh, k.ngay_sh
+      FROM sat_hach_thi_sinh ts
+      JOIN sat_hach_ky k ON k.ma_ky_sh = ts.ma_ky_sh
+      WHERE ts.ma_ky_sh <> @ma_ky_sh
+        AND k.ngay_sh < (SELECT ngay_sh FROM sat_hach_ky WHERE ma_ky_sh = @ma_ky_sh)
+        AND ts.so_cmt IN (SELECT so_cmt FROM sat_hach_thi_sinh WHERE ma_ky_sh = @ma_ky_sh AND so_cmt IS NOT NULL)
+      ORDER BY k.ngay_sh DESC, ts.ma_ky_sh DESC
+    `);
+  return result.recordset;
+};
+
+// id: CCCD (hoặc mã đăng ký với thí sinh không có CCCD)
+const getAnh = async (maKySh, id) => {
+  const pool = await connectSQL();
+  const result = await pool.request()
+    .input("ma_ky_sh", sql.NVarChar, maKySh)
+    .input("id", sql.NVarChar, id)
+    .query(`
+      SELECT TOP 1 id, anh_jp2, anh_jpeg FROM sat_hach_thi_sinh
+      WHERE ma_ky_sh = @ma_ky_sh AND (so_cmt = @id OR ma_dk = @id)
+    `);
   return result.recordset[0] || null;
 };
 
@@ -261,6 +297,7 @@ module.exports = {
   getKy,
   getThiSinhByKy,
   getLichSu,
+  getLichSuTruocKy,
   getAnh,
   saveAnhJpeg,
 };
