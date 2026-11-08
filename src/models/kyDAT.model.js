@@ -22,6 +22,25 @@ function saveBase64Image(base64String, maDk) {
   return;
 }
 
+// Chuẩn hoá ngày sinh về chuỗi "YYYY-MM-DD" mà KHÔNG qua múi giờ.
+// Trước đây dùng new Date("2001-05-10T00:00:00") → hiểu theo giờ VN (+7),
+// mssql cắt phần ngày theo UTC → lưu thành 09/05/2001 (lệch 1 ngày).
+function toDateOnly(value) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    const p = (n) => String(n).padStart(2, "0");
+    return `${value.getFullYear()}-${p(value.getMonth() + 1)}-${p(value.getDate())}`;
+  }
+  const s = String(value).trim();
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); // YYYY-MM-DD[...]
+  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); // DD/MM/YYYY
+  if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : toDateOnly(d);
+}
+
 async function upsert(maDk, fields, updatedBy = null) {
   // Xử lý ảnh: nếu là base64 thì lưu file, lấy path; nếu đã là path thì giữ nguyên
   let anhValue = fields.anh ?? null;
@@ -35,10 +54,7 @@ async function upsert(maDk, fields, updatedBy = null) {
 
   request.input("maDk", maDk);
   request.input("tenHocVien", fields.ten_hoc_vien ?? null);
-  request.input(
-    "ngaySinh",
-    fields.ngay_sinh ? new Date(fields.ngay_sinh) : null,
-  );
+  request.input("ngaySinh", mssql.VarChar(10), toDateOnly(fields.ngay_sinh));
   request.input("khoaHoc", fields.khoa_hoc ?? null);
   request.input("maKhoa", fields.ma_khoa ?? null);
   request.input("hangDaoTao", fields.hang_dao_tao ?? null);
@@ -84,16 +100,35 @@ async function upsert(maDk, fields, updatedBy = null) {
   return getByMaDk(maDk);
 }
 
+// ma_khoa trong ky_dat được lưu không đồng nhất tuỳ màn hình tick ký:
+// có lúc là mã đầy đủ ("30004K26B001"), có lúc là tên khoá ("K22B2032"),
+// có lúc NULL/rỗng. Vì vậy lọc theo khoá phải so khớp cả ma_khoa lẫn khoa_hoc
+// với cả mã khoá lẫn tên khoá, nếu không học viên đã ký sẽ bị rơi khỏi
+// danh sách theo khoá và file export.
+function buildKhoaCondition(request, maKhoa, tenKhoa, alias = "") {
+  const keys = [maKhoa, tenKhoa]
+    .map((v) => (v == null ? "" : String(v).trim()))
+    .filter(Boolean);
+  if (keys.length === 0) return null;
+
+  const parts = [];
+  [...new Set(keys)].forEach((key, i) => {
+    const param = `khoaKey${i}`;
+    request.input(param, key);
+    parts.push(`LTRIM(RTRIM(${alias}ma_khoa)) = @${param}`);
+    parts.push(`LTRIM(RTRIM(${alias}khoa_hoc)) = @${param}`);
+  });
+  return `(${parts.join(" OR ")})`;
+}
+
 async function getAll(filters = {}) {
   const pool = await connectSQL();
   const request = pool.request();
 
   const conditions = ["1=1"];
 
-  if (filters.maKhoa) {
-    conditions.push("ma_khoa = @maKhoa");
-    request.input("maKhoa", filters.maKhoa);
-  }
+  const khoaCond = buildKhoaCondition(request, filters.maKhoa, filters.tenKhoa);
+  if (khoaCond) conditions.push(khoaCond);
 
   if (filters.keyword) {
     conditions.push("ten_hoc_vien LIKE @keyword");
@@ -122,16 +157,14 @@ async function getByMaDk(maDk) {
   return result.recordset[0] || null;
 }
 
-async function exportKyDat({ ma_khoa, ten_hoc_vien }) {
+async function exportKyDat({ ma_khoa, ten_khoa, ten_hoc_vien }) {
   const pool = await connectSQL();
   const request = pool.request();
 
   const conditions = [];
 
-  if (ma_khoa) {
-    request.input("maKhoa", ma_khoa);
-    conditions.push("kd.ma_khoa = @maKhoa");
-  }
+  const khoaCond = buildKhoaCondition(request, ma_khoa, ten_khoa, "kd.");
+  if (khoaCond) conditions.push(khoaCond);
   if (ten_hoc_vien) {
     request.input("tenHocVien", `%${ten_hoc_vien}%`);
     conditions.push("kd.ten_hoc_vien LIKE @tenHocVien");

@@ -59,8 +59,8 @@ async function luuDatKy(req, res) {
 
 async function getDanhSach(req, res) {
   try {
-    const { maKhoa, keyword, page, limit } = req.query;
-    const data = await model.getAll({ maKhoa, keyword });
+    const { maKhoa, tenKhoa, keyword, page, limit } = req.query;
+    const data = await model.getAll({ maKhoa, tenKhoa, keyword });
 
     const { data: pagedData, pagination } = paginate(data, page, limit);
 
@@ -88,9 +88,9 @@ async function getChiTiet(req, res) {
 
 async function exportDanhSachKyDat(req, res) {
   try {
-    const { ma_khoa, ten_hoc_vien } = req.query;
+    const { ma_khoa, ten_khoa, ten_hoc_vien } = req.query;
 
-    const rows = await model.exportKyDat({ ma_khoa, ten_hoc_vien });
+    const rows = await model.exportKyDat({ ma_khoa, ten_khoa, ten_hoc_vien });
 
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("Danh sách ký DAT");
