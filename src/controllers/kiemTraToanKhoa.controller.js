@@ -15,6 +15,7 @@ const {
 } = require("../utils/evaluate");
 
 const { LOCAL_BASE } = require("../constants/base");
+const { getThongKeHocVien } = require("../services/hocVienThongKe.service");
 
 const HANH_TRINH_BASE = "http://113.160.131.3:7782";
 
@@ -355,18 +356,20 @@ function buildStatusMap(phienHocList = []) {
 // ─── Core Fetch & Evaluate ─────────────────────────────────────
 async function fetchAndEvaluate(
   { maDK, maKhoaHoc },
-  { ngaybatdau, endDate, signal },
+  { ngaybatdau, endDate, signal, userToken },
   studentCheckMap,
   statusMap = {},
 ) {
-  const cacheKey = `${maDK}::${maKhoaHoc}::${ngaybatdau}::${endDate}`;
+  // Mỗi tài khoản hành trình chỉ thấy học viên của cơ sở mình -> tách cache theo token
+  const tokenKey = userToken ? userToken.slice(-16) : "system";
+  const cacheKey = `${maDK}::${maKhoaHoc}::${ngaybatdau}::${endDate}::${tokenKey}`;
   const cached = getCached(cacheKey);
   if (cached) return cached;
 
   return dedupFetch(cacheKey, () =>
     _fetchRaw(
       { maDK, maKhoaHoc },
-      { ngaybatdau, endDate, signal },
+      { ngaybatdau, endDate, signal, userToken },
       studentCheckMap,
       cacheKey,
       statusMap,
@@ -376,24 +379,38 @@ async function fetchAndEvaluate(
 
 async function _fetchRaw(
   { maDK, maKhoaHoc },
-  { ngaybatdau, endDate, signal },
+  { ngaybatdau, endDate, signal, userToken },
   studentCheckMap,
   cacheKey,
   statusMap = {},
 ) {
+  let userTokenRejected = false;
   try {
     const params = new URLSearchParams({
       ngaybatdau,
       ngayketthuc: endDate,
       ten: maDK,
       makhoahoc: maKhoaHoc,
-      limit: 50,
+      limit: 200,
       page: 1,
     });
 
     const response = await withRetry(
       async () => {
-        const token = await getValidToken(); // ← Sửa ở đây
+        // Ưu tiên token của người đang đăng nhập (thấy được đúng cơ sở của họ),
+        // token hết hạn thì quay về tài khoản hệ thống
+        if (userToken && !userTokenRejected) {
+          try {
+            return await hanhTrinhAxios.get(`/api/HanhTrinh?${params}`, {
+              headers: { Authorization: `Bearer ${userToken}` },
+              signal,
+            });
+          } catch (err) {
+            if (err?.response?.status !== 401) throw err;
+            userTokenRejected = true;
+          }
+        }
+        const token = await getValidToken();
         return hanhTrinhAxios.get(`/api/HanhTrinh?${params}`, {
           headers: { Authorization: `Bearer ${token}` },
           signal,
@@ -518,25 +535,28 @@ async function kiemTraToanKhoa(req, res) {
 
   try {
     const {
-      ma_dk, // array
-      ma_khoa_hoc,
+      ma_dk: maDkInput, // array
+      // Không bắt buộc: API hành trình lọc theo mã ĐK là đủ
+      ma_khoa_hoc = "",
       ngaybatdau = "2020-01-01",
       ngayketthuc,
     } = req.body;
 
-    if (!Array.isArray(ma_dk) || ma_dk.length === 0) {
+    const ma_dk = Array.isArray(maDkInput)
+      ? [...new Set(maDkInput.map((c) => String(c || "").trim()).filter(Boolean))]
+      : [];
+
+    if (ma_dk.length === 0) {
       return res.status(400).json({
         success: false,
         message: "ma_dk phải là mảng và không được rỗng",
       });
     }
-    if (!ma_khoa_hoc) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Thiếu ma_khoa_hoc" });
-    }
 
     const endDate = ngayketthuc || new Date().toISOString().slice(0, 19);
+
+    const authHeader = String(req.headers["x-hanhtrinh-token"] || "").trim();
+    const userToken = authHeader.replace(/^Bearer\s+/i, "") || null;
 
     const CheckConfigModel = require("../models/checkConfig.model");
     const ForbiddenZoneModel = require("../models/forbiddenZone.model");
@@ -586,17 +606,26 @@ async function kiemTraToanKhoa(req, res) {
       (maDK) => () =>
         fetchAndEvaluate(
           { maDK, maKhoaHoc: ma_khoa_hoc },
-          { ngaybatdau, endDate, signal: abortController.signal },
+          { ngaybatdau, endDate, signal: abortController.signal, userToken },
           studentCheckMap,
           studentStatusMap.get(maDK) || {},
         ),
     );
 
-    const results = await withConcurrencyLimit(
-      tasks,
-      CONCURRENCY,
-      abortController.signal,
-    );
+    // Chạy song song: kiểm tra DAT + thống kê lý thuyết / cabin
+    const [rawResults, thongKeMap] = await Promise.all([
+      withConcurrencyLimit(tasks, CONCURRENCY, abortController.signal),
+      getThongKeHocVien(ma_dk).catch((err) => {
+        console.error("[kiemTraToanKhoa] thong ke:", err.message);
+        return new Map();
+      }),
+    ]);
+
+    // Kết quả lỗi/timeout có thể thiếu maDK -> gán lại theo vị trí
+    const results = rawResults.map((r, i) => ({
+      ...(r || { status: "error", message: "Không có kết quả" }),
+      maDK: r?.maDK || ma_dk[i],
+    }));
 
     mark("fetchAndEvaluate all ma_dk", tEvaluate);
 
@@ -622,7 +651,19 @@ async function kiemTraToanKhoa(req, res) {
     return res.json({
       success: true,
       summary,
-      data: [...failList, ...noDataList],
+      // Trả về TẤT CẢ học viên (kể cả pass / error) kèm thống kê
+      data: results.map(({ sessions, ...r }) => {
+        const tk = thongKeMap.get(r.maDK) || {};
+        return {
+          ...r,
+          hoTen: r.hoTen || tk.hoTen || null,
+          cccd: tk.cccd || null,
+          maKhoa: tk.maKhoa || null,
+          hang: tk.hang || r.hangDaoTao || null,
+          lyThuyet: tk.lyThuyet || null,
+          cabin: tk.cabin || null,
+        };
+      }),
       debugErrors: errorList
         .slice(0, 8)
         .map((e) => ({ maDK: e.maDK, message: e.message })),
