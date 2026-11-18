@@ -177,6 +177,15 @@ class CronService {
       timezone: "Asia/Ho_Chi_Minh"
     });
 
+    // Tổ tiếp sinh: lấy hồ sơ HV tự khai từ Google Form (sheet câu trả lời) mỗi 20 giây
+    // -> hồ sơ mới vào hệ thống ở trạng thái "Chờ duyệt"
+    cron.schedule("*/20 * * * * *", async () => {
+      await require("./tiepSinh.service").dongBoTuDong();
+    }, {
+      scheduled: true,
+      timezone: "Asia/Ho_Chi_Minh"
+    });
+
     console.log("[CronService] Tác vụ tự động, sync Google Sheet và kiểm tra chuyên cần Cabin đã hoạt động.");
   }
 }

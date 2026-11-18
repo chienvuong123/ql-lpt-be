@@ -34,7 +34,7 @@ app.use((req, res, next) => {
   }
   next();
 });
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -74,6 +74,7 @@ app.use("/api/hoc-vien-th", require("./src/routes/hocVienTH.routes"));
 app.use("/api/dk-mapping", require("./src/routes/dkMapping.routes"));
 app.use("/api/phien-hoc-thuc-hanh-csdt", require("./src/routes/phienHocThucHanhCsdt.routes"));
 app.use("/api/sat-hach", require("./src/routes/satHach.routes"));
+app.use("/api/tiep-sinh", require("./src/routes/tiepSinh.routes"));
 
 // ─── Danh sách API ───────────────────────────────────────────
 app.get("/", (req, res) => {
@@ -133,4 +134,4 @@ async function startServer() {
   }
 }
 
-startServer(); // Reloaded to apply .env changes
+startServer(); // Reloaded to apply .env changes

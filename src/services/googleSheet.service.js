@@ -394,6 +394,27 @@ class GoogleSheetService {
     return await googleSheetModel.getAllData(filters);
   }
 
+  /**
+   * Lấy toàn bộ giá trị thô (kể cả hàng tiêu đề) của 1 tab — dùng cho các sheet Google Form
+   * có tiêu đề ở dòng 1 (khác fetchSheetData đọc từ A2).
+   */
+  async fetchRawValues(spreadsheetId, gid = null) {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const meta = await sheets.spreadsheets.get({ spreadsheetId });
+    let sheetTitle = meta.data.sheets[0].properties.title;
+    if (gid !== null && gid !== undefined && gid !== "") {
+      const target = meta.data.sheets.find((s) => String(s.properties.sheetId) === String(gid));
+      if (!target) throw new Error(`Không tìm thấy tab có gid=${gid} trong Google Sheet`);
+      sheetTitle = target.properties.title;
+    }
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `'${sheetTitle.replace(/'/g, "''")}'!A1:Z`,
+    });
+    return response.data.values || [];
+  }
+
   async getRankStats(filters) {
     return await googleSheetModel.getRankStats(filters);
   }
