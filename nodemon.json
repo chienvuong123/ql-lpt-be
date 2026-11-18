@@ -1,0 +1,5 @@
+{
+  "watch": ["app.js", "src"],
+  "ext": "js,json",
+  "ignore": ["src/templates/*", ".tessdata/*", "token.json", "*.log"]
+}
