@@ -27,6 +27,7 @@
     "google-auth-library": "^10.6.2",
     "googleapis": "^171.4.0",
     "jsonwebtoken": "^9.0.3",
+    "jsqr": "^1.4.0",
     "jszip": "^3.10.1",
     "mongoose": "^9.2.0",
     "mssql": "^12.2.0",

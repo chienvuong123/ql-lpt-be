@@ -32,10 +32,8 @@ const TRANG_THAI = {
 const REQUIRED_FIELDS = [
   ["ho_ten", "Họ và tên"],
   ["ngay_sinh", "Ngày sinh"],
-  ["gioi_tinh", "Giới tính"],
   ["cccd", "Số CCCD"],
   ["ngay_cap_cccd", "Ngày cấp CCCD"],
-  ["dien_thoai", "Số điện thoại"],
   ["dia_chi", "Địa chỉ thường trú"],
   ["hang", "Hạng đăng ký"],
   ["co_anh", "Ảnh chân dung"],
@@ -58,6 +56,12 @@ const EDITABLE = {
   dia_diem_hoc: mssql.NVarChar(255),
   dau_moi: mssql.NVarChar(255),
   ghi_chu: mssql.NVarChar(1000),
+  // theo Google Form: "Hạng A1" | "Hạng A - Xe côn tay (A)" | "Hạng A - Xe tay ga (A.02)"
+  loai_hinh: mssql.NVarChar(100),
+  // "Khám theo lịch trung tâm" | "Tự khám - tự nộp"
+  kham_suc_khoe: mssql.NVarChar(100),
+  // số tiền phải thu nhập tay (để trống = tính theo bảng giá trong cấu hình)
+  tong_thu: mssql.Int,
 };
 const DATE_FIELDS = ["ngay_sinh", "ngay_cap_cccd"];
 
@@ -132,6 +136,10 @@ function ensureTables() {
           updated_at DATETIME NOT NULL DEFAULT GETDATE()
         );
       END
+
+      IF COL_LENGTH('${TABLE}', 'loai_hinh') IS NULL ALTER TABLE ${TABLE} ADD loai_hinh NVARCHAR(100) NULL;
+      IF COL_LENGTH('${TABLE}', 'kham_suc_khoe') IS NULL ALTER TABLE ${TABLE} ADD kham_suc_khoe NVARCHAR(100) NULL;
+      IF COL_LENGTH('${TABLE}', 'tong_thu') IS NULL ALTER TABLE ${TABLE} ADD tong_thu INT NULL;
     `);
   })().catch((err) => {
     _initPromise = null;
@@ -219,8 +227,14 @@ function cleanPayload(data = {}) {
     if (key === "gioi_tinh") v = normalizeGioiTinh(v);
     if (key === "hang") v = normalizeHang(v);
     if (key === "noi_cap" && v && /^cục cảnh sát$/i.test(v)) v = "Cục Cảnh sát QLHC về TTXH";
+    if (key === "tong_thu" && v !== null) {
+      const n = Number(String(v).replace(/[^\d]/g, ""));
+      v = String(v).replace(/[^\d]/g, "") ? n : null;
+    }
     out[key] = v;
   }
+  // Hạng suy ra từ loại hình học (Google Form)
+  if (out.loai_hinh && data.hang === undefined) out.hang = normalizeHang(out.loai_hinh);
   for (const key of DATE_FIELDS) {
     if (data[key] === undefined) continue;
     out[key] = data[key] ? toIsoDate(data[key]) : null;
@@ -257,6 +271,7 @@ const SELECT_COLUMNS = `
   CONVERT(varchar(10), ngay_cap_cccd, 23) AS ngay_cap_cccd,
   noi_cap, dien_thoai, email, dia_chi, noi_o_hien_tai, quoc_tich,
   hang, khoa_hoc, dia_diem_hoc, dau_moi, ghi_chu, nguon, nguon_ref,
+  loai_hinh, kham_suc_khoe, tong_thu,
   CAST(CASE WHEN anh_chan_dung IS NULL OR anh_chan_dung = '' THEN 0 ELSE 1 END AS BIT) AS co_anh,
   da_doi_chieu_cccd, trang_thai, ly_do_bo_sung, nguoi_tiep_nhan, nguoi_duyet,
   CONVERT(varchar(19), thoi_gian_khai, 120) AS thoi_gian_khai,
@@ -663,7 +678,11 @@ async function remove(id, nguoi = null) {
 }
 
 // ─── Cấu hình ─────────────────────────────────────
-const CFG_KEYS = ["google_form_url", "spreadsheet_id", "gid", "dia_diem_hoc_mac_dinh", "apps_script_url", "apps_script_key"];
+const CFG_KEYS = [
+  "google_form_url", "spreadsheet_id", "gid", "dia_diem_hoc_mac_dinh", "apps_script_url", "apps_script_key",
+  // bảng giá (VNĐ) theo loại hình học + phí khám sức khoẻ theo lịch trung tâm
+  "gia_a1", "gia_a_con_tay", "gia_a_tay_ga", "phi_kham_suc_khoe",
+];
 
 async function getCauHinh() {
   await ensureTables();
@@ -728,6 +747,8 @@ function parseSheetRows(rawData) {
     dauMoi: findCol(header, ["đầu mối", "người tuyển sinh", "người giới thiệu"]),
     hang: findCol(header, ["loại hình học", "hạng xe", "hạng"]),
     khamSucKhoe: findCol(header, ["khám sức kho"]),
+    ghiChu: findCol(header, [/^ghi chú$/]),
+    tongThu: findCol(header, ["tổng thu", "phải thu", "số tiền"]),
     diaDiem: findCol(header, ["địa điểm", "cơ sở"]),
   };
   if (idx.hoTen === -1) return [];
@@ -741,10 +762,8 @@ function parseSheetRows(rawData) {
       const ngaySinhRaw = row[idx.ngaySinh];
       const loaiHinh = cell(row, idx.hang);
       const ksk = cell(row, idx.khamSucKhoe);
-      const ghiChu = [
-        /côn tay/i.test(loaiHinh) ? "Loại hình: Xe côn tay" : /tay ga/i.test(loaiHinh) ? "Loại hình: Xe tay ga" : "",
-        ksk ? `Khám sức khoẻ: ${ksk}` : "",
-      ].filter(Boolean).join("; ");
+      const ghiChu = cell(row, idx.ghiChu);
+      const tongThu = cell(row, idx.tongThu);
       return {
         thoi_gian_khai: toSqlDateTime(cell(row, idx.thoiGian)),
         nguon_ref: Parser.parseMaPhieu(cell(row, idx.maPhieu)) || null,
@@ -760,6 +779,9 @@ function parseSheetRows(rawData) {
         noi_o_hien_tai: cell(row, idx.noiO) || undefined,
         dau_moi: cell(row, idx.dauMoi) || undefined,
         hang: loaiHinh || undefined,
+        loai_hinh: loaiHinh || undefined,
+        kham_suc_khoe: ksk || undefined,
+        tong_thu: tongThu || undefined,
         ghi_chu: ghiChu || undefined,
         dia_diem_hoc: cell(row, idx.diaDiem) || undefined,
       };

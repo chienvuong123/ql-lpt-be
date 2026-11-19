@@ -48,8 +48,8 @@ module.exports = {
   dongBo: wrap((req) => service.dongBoGoogleSheet(req.body, nguoiThaoTac(req)), "Đồng bộ Google Sheet thành công"),
   mauDon: async (req, res, next) => {
     try {
-      const hs = await service.getDetail(req.params.id);
-      const { buffer, fileName } = await mauDon.taoMauDon(req.params.mau, hs);
+      const [hs, cfg] = await Promise.all([service.getDetail(req.params.id), service.getCauHinh()]);
+      const { buffer, fileName } = await mauDon.taoMauDon(req.params.mau, hs, cfg);
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
       res.setHeader(
         "Content-Disposition",

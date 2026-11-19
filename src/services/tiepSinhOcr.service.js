@@ -17,13 +17,92 @@ function getWorker() {
   return _workerPromise;
 }
 
-// Chuẩn hoá ảnh để OCR: xoay theo EXIF, xám, phóng to ảnh nhỏ, tăng tương phản
-async function chuanHoaAnh(buffer) {
-  const img = sharp(buffer, { failOn: "none" }).rotate();
-  const meta = await img.metadata();
+// ─── Mã QR (mặt sau thẻ / ảnh có QR): chính xác tuyệt đối nếu đọc được ───
+function ddmmyyyyToIso(s) {
+  const m = String(s || "").match(/^(\d{2})(\d{2})(\d{4})$/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
+}
+function parseCccdQr(text) {
+  const parts = String(text || "").trim().split("|");
+  if (parts.length < 6 || !/^\d{12}$/.test(parts[0])) return null;
+  return Object.fromEntries(
+    Object.entries({
+      cccd: parts[0],
+      cmnd_cu: parts[1] || null,
+      ho_ten: parts[2] || null,
+      ngay_sinh: ddmmyyyyToIso(parts[3]),
+      gioi_tinh: parts[4] || null,
+      dia_chi: parts[5] || null,
+      ngay_cap_cccd: ddmmyyyyToIso(parts[6]),
+    }).filter(([, v]) => v),
+  );
+}
+
+async function quetQr(img, region, width) {
+  const jsQR = require("jsqr");
+  let s = sharp(img);
+  if (region) s = s.extract(region);
+  const { data, info } = await s
+    .resize({ width, withoutEnlargement: false })
+    .normalize()
+    .toColourspace("srgb")
+    .ensureAlpha() // jsQR cần RGBA 4 kênh
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const code = jsQR(new Uint8ClampedArray(data.buffer, data.byteOffset, data.length), info.width, info.height, {
+    inversionAttempts: "attemptBoth",
+  });
+  return code ? parseCccdQr(code.data) : null;
+}
+
+/** Tìm QR CCCD: cả ảnh ở vài kích thước, rồi từng vùng (QR nhỏ trong ảnh chụp cả thẻ) */
+async function docQrAnh(buffer) {
+  const img = await sharp(buffer, { failOn: "none" }).rotate().toBuffer();
+  const { width: W, height: H } = await sharp(img).metadata();
+  if (!W || !H) return null;
+  for (const w of [1000, 1600, 700]) {
+    const r = await quetQr(img, null, w).catch(() => null);
+    if (r) return r;
+  }
+  const hw = Math.floor(W / 2);
+  const hh = Math.floor(H / 2);
+  const regions = [
+    { left: hw, top: 0, width: W - hw, height: hh }, // trên phải (vị trí QR mặt trước thẻ chip)
+    { left: 0, top: 0, width: hw, height: hh },
+    { left: hw, top: hh, width: W - hw, height: H - hh },
+    { left: 0, top: hh, width: hw, height: H - hh },
+    { left: Math.floor(W / 4), top: Math.floor(H / 4), width: hw, height: hh },
+  ];
+  for (const rg of regions) {
+    const r = await quetQr(img, rg, 900).catch(() => null);
+    if (r) return r;
+  }
+  return null;
+}
+
+// ─── OCR ───
+// Các kiểu xử lý ảnh để OCR: ảnh chụp thẻ thật hay bị loá, mờ, nền hoa văn -> thử nhiều kiểu
+const BIEN_THE = [
+  (s) => s.grayscale().normalize().sharpen(),
+  (s) => s.grayscale().normalize().median(3).sharpen({ sigma: 1.5 }).threshold(150),
+  (s) => s.grayscale().linear(1.6, -60).sharpen(),
+];
+
+async function chuanHoaAnh(buffer, bienThe = 0, goc = 0) {
+  let img = sharp(buffer, { failOn: "none" }).rotate();
+  if (goc) img = sharp(await img.toBuffer()).rotate(goc);
+  const base = await img.toBuffer();
+  const meta = await sharp(base).metadata();
   const w = meta.width || 0;
-  const target = w && w < 1400 ? 1400 : Math.min(w || 2000, 2600);
-  return img.resize({ width: target, withoutEnlargement: false }).grayscale().normalize().sharpen().png().toBuffer();
+  // chữ trên thẻ nhỏ: phóng ảnh lên ~2000px chiều ngang
+  const target = w && w < 2000 ? 2000 : Math.min(w || 2000, 2800);
+  return BIEN_THE[bienThe](sharp(base).resize({ width: target, withoutEnlargement: false })).png().toBuffer();
+}
+
+// điểm cho kết quả: các trường quan trọng có trọng số cao hơn
+function diem(d) {
+  const w = { cccd: 4, ho_ten: 3, ngay_sinh: 2, dia_chi: 2, ngay_cap_cccd: 2, gioi_tinh: 1, quoc_tich: 0.5, noi_cap: 0.5 };
+  return Object.keys(d).reduce((s, k) => s + (w[k] || 0.5), 0);
 }
 
 const nfc = (s) => String(s || "").normalize("NFC");
@@ -89,8 +168,19 @@ function parseCccdText(raw) {
     .filter(Boolean);
   const out = {};
 
-  // Số CCCD: 12 chữ số (OCR hay chèn khoảng trắng giữa các số)
-  const so = text.replace(/(\d)[ .](?=\d)/g, "$1").match(/(?<!\d)0\d{11}(?!\d)/);
+  // Số CCCD: 12 chữ số (OCR hay chèn khoảng trắng giữa các số, đọc nhầm O->0, l/I->1)
+  // chỉ áp dụng cho phần giá trị sau nhãn "Số/No." (vốn toàn chữ số)
+  const sua = (s) => s.replace(/[OoDQ]/g, "0").replace(/[lI|!]/g, "1").replace(/[Ss](?=\d)/g, "5").replace(/B(?=\d)/g, "8");
+  const gomSo = (s) => s.replace(/(\d)[ .,](?=\d)/g, "$1");
+  const re12 = /(?<!\d)0\d{11}(?!\d)/;
+  let so = gomSo(text).match(re12);
+  if (!so) {
+    for (const l of lines) {
+      if (!/(số|so|no\b|định danh|identi)/i.test(l)) continue;
+      so = gomSo(sua(l.split(/[:：]/).slice(1).join(" ") || l)).match(re12);
+      if (so) break;
+    }
+  }
   if (so) out.cccd = so[0];
 
   lines.forEach((l, i) => {
@@ -126,11 +216,26 @@ function parseCccdText(raw) {
       const v = valueAfter(lines, i, { multi: true });
       if (v && v !== "---") out.noi_o_hien_tai = v;
     }
-    if (!out.ngay_cap_cccd && /(ngày,? tháng,? năm cấp|date of issue|ngày cấp)/i.test(l)) {
+    // mặt sau thẻ chip cũ: "Ngày, tháng, năm/Date, month, year: 10/10/2021"
+    if (!out.ngay_cap_cccd && /(ngày,? tháng,? năm cấp|date of issue|ngày cấp|date,? month,? year|tháng,? năm\s*\/)/i.test(l) && !/(sinh|birth|hết hạn|expiry)/i.test(l)) {
       out.ngay_cap_cccd = dateIn(l) || dateIn(lines[i + 1]);
     }
   });
 
+  // tên dự phòng: không thấy nhãn -> dòng chữ HOA 2-6 từ đầu tiên không phải tiêu đề thẻ
+  if (!out.ho_ten) {
+    const TIEU_DE = /(CỘNG|HÒA|HOÀ|VIỆT NAM|ĐỘC LẬP|TỰ DO|HẠNH PHÚC|CĂN CƯỚC|CÔNG DÂN|SOCIALIST|REPUBLIC|IDENTITY|CITIZEN|CARD|BỘ CÔNG AN|CỤC|CẢNH SÁT|GIÁM ĐỐC|TRƯỞNG|THẺ)/;
+    // tên luôn nằm ngay trên dòng "Ngày, tháng, năm sinh / Date of birth"
+    const iSinh = lines.findIndex((l) => /(năm sinh|ngày sinh|date of)/i.test(l));
+    for (const l of iSinh > 0 ? lines.slice(Math.max(0, iSinh - 3), iSinh) : []) {
+      const m = l.match(/[A-ZÀ-Ỹ][A-ZÀ-Ỹ]+(?:\s+[A-ZÀ-Ỹ][A-ZÀ-Ỹ]*){1,5}/g) || [];
+      const best = m.filter((x) => !TIEU_DE.test(x) && x === x.toLocaleUpperCase("vi")).sort((a, b) => b.length - a.length)[0];
+      if (best && best.replace(/\s/g, "").length >= 6) {
+        out.ho_ten = titleCase(best.trim());
+        break;
+      }
+    }
+  }
   // ngày sinh dự phòng: ngày đầu tiên trong văn bản
   if (!out.ngay_sinh) out.ngay_sinh = dateIn(text);
   if (!out.gioi_tinh) {
@@ -152,18 +257,43 @@ async function docAnhCccd(files = []) {
     e.status = 400;
     throw e;
   }
+  // 1) QR trên bất kỳ ảnh nào -> dùng luôn (chính xác)
+  for (const f of files) {
+    const qr = await docQrAnh(f.buffer).catch(() => null);
+    if (qr) return { data: qr, nguon: "qr", text: "", do_tin_cay: 100 };
+  }
+
+  // 2) OCR từng ảnh: thử các kiểu xử lý / góc xoay, lấy kết quả nhiều trường nhất
   const worker = await getWorker();
+  const merged = {};
   const texts = [];
   let conf = 0;
   for (const f of files) {
-    const img = await chuanHoaAnh(f.buffer);
-    const { data } = await worker.recognize(img);
-    texts.push(data.text || "");
-    conf += data.confidence || 0;
+    let best = null;
+    const all = [];
+    const thu = async (bienThe, goc) => {
+      const img = await chuanHoaAnh(f.buffer, bienThe, goc);
+      const { data } = await worker.recognize(img);
+      const parsed = parseCccdText(data.text || "");
+      const r = { parsed, text: data.text || "", conf: data.confidence || 0, score: diem(parsed) };
+      all.push(r);
+      if (!best || r.score > best.score) best = r;
+      return r;
+    };
+    const DU = 11; // đủ tốt: có CCCD + họ tên + ngày sinh + địa chỉ
+    for (let b = 0; b < BIEN_THE.length && (!best || best.score < DU); b++) await thu(b, 0);
+    // không thấy số CCCD hoặc tên -> có thể ảnh bị xoay ngang/ngược
+    const thieuChinh = () => !best.parsed.cccd || !best.parsed.ho_ten;
+    if (thieuChinh()) for (const g of [90, 270, 180]) if (thieuChinh()) await thu(0, g);
+    // gộp: ảnh trước bổ sung các trường ảnh sau còn thiếu
+    // ưu tiên kết quả điểm cao nhất, các lần thử khác chỉ điền trường còn thiếu
+    for (const r of all.sort((a, b) => b.score - a.score)) {
+      for (const [k, v] of Object.entries(r.parsed)) if (!merged[k]) merged[k] = v;
+    }
+    texts.push(best.text);
+    conf += best.conf;
   }
-  const text = texts.join("\n");
-  const data = parseCccdText(text);
-  return { data, text, do_tin_cay: Math.round(conf / files.length) };
+  return { data: merged, nguon: "ocr", text: texts.join("\n"), do_tin_cay: Math.round(conf / files.length) };
 }
 
-module.exports = { docAnhCccd, parseCccdText };
+module.exports = { docAnhCccd, parseCccdText, parseCccdQr };
