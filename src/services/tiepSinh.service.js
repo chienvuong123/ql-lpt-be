@@ -20,12 +20,17 @@ const { normalizeCccd } = require("../utils/cccd.util");
 const TABLE = "ho_so_tiep_sinh";
 const LOG_TABLE = "ho_so_tiep_sinh_log";
 const CFG_TABLE = "tiep_sinh_cau_hinh";
+// Danh sách đầu mối tuyển sinh chuẩn (NV tiếp sinh đã nhập) — để gợi ý lần sau
+const DAU_MOI_TABLE = "tiep_sinh_dau_moi";
+// HV không ghi đầu mối -> mặc định trung tâm
+const DAU_MOI_MAC_DINH = "TT";
 
 const TRANG_THAI = {
   CHO_DUYET: "cho_duyet",
   CAN_BO_SUNG: "can_bo_sung",
   DA_DUYET: "da_duyet",
   DA_IN: "da_in",
+  BO_HOC: "bo_hoc",
 };
 
 // Trường bắt buộc trước khi duyệt
@@ -140,6 +145,30 @@ function ensureTables() {
       IF COL_LENGTH('${TABLE}', 'loai_hinh') IS NULL ALTER TABLE ${TABLE} ADD loai_hinh NVARCHAR(100) NULL;
       IF COL_LENGTH('${TABLE}', 'kham_suc_khoe') IS NULL ALTER TABLE ${TABLE} ADD kham_suc_khoe NVARCHAR(100) NULL;
       IF COL_LENGTH('${TABLE}', 'tong_thu') IS NULL ALTER TABLE ${TABLE} ADD tong_thu INT NULL;
+
+      -- Mã hồ sơ cũ "HSyyyyMMdd001" -> mã mới "yyMMddXXXX"
+      UPDATE ${TABLE}
+        SET ma_ho_so = CONCAT(FORMAT(thoi_gian_khai, 'yyMMdd'), RIGHT('0000' + CAST(so_thu_tu AS VARCHAR(10)), 4))
+        WHERE ma_ho_so LIKE 'HS%' AND so_thu_tu IS NOT NULL;
+
+      -- Nghiệp vụ sau duyệt: chuyển học phí / phí khám, chuyển hạng, bỏ học
+      IF COL_LENGTH('${TABLE}', 'tien_duoc_chuyen') IS NULL ALTER TABLE ${TABLE} ADD tien_duoc_chuyen INT NOT NULL DEFAULT 0;
+      IF COL_LENGTH('${TABLE}', 'bo_hoc_at') IS NULL ALTER TABLE ${TABLE} ADD bo_hoc_at DATETIME NULL;
+      IF COL_LENGTH('${TABLE}', 'ly_do_bo_hoc') IS NULL ALTER TABLE ${TABLE} ADD ly_do_bo_hoc NVARCHAR(500) NULL;
+      IF COL_LENGTH('${TABLE}', 'da_vao_khoa') IS NULL ALTER TABLE ${TABLE} ADD da_vao_khoa BIT NULL;
+      IF COL_LENGTH('${LOG_TABLE}', 'so_tien') IS NULL ALTER TABLE ${LOG_TABLE} ADD so_tien INT NULL;
+      IF COL_LENGTH('${LOG_TABLE}', 'doi_tac_id') IS NULL ALTER TABLE ${LOG_TABLE} ADD doi_tac_id INT NULL;
+
+      IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '${DAU_MOI_TABLE}')
+      BEGIN
+        CREATE TABLE ${DAU_MOI_TABLE} (
+          ten NVARCHAR(255) NOT NULL PRIMARY KEY,
+          so_lan INT NOT NULL DEFAULT 0,
+          updated_at DATETIME NOT NULL DEFAULT GETDATE()
+        );
+        INSERT INTO ${DAU_MOI_TABLE}(ten, so_lan) VALUES (N'${DAU_MOI_MAC_DINH}', 0);
+      END
+      UPDATE ${TABLE} SET dau_moi = N'${DAU_MOI_MAC_DINH}' WHERE dau_moi IS NULL OR LTRIM(RTRIM(dau_moi)) = '';
     `);
   })().catch((err) => {
     _initPromise = null;
@@ -271,7 +300,8 @@ const SELECT_COLUMNS = `
   CONVERT(varchar(10), ngay_cap_cccd, 23) AS ngay_cap_cccd,
   noi_cap, dien_thoai, email, dia_chi, noi_o_hien_tai, quoc_tich,
   hang, khoa_hoc, dia_diem_hoc, dau_moi, ghi_chu, nguon, nguon_ref,
-  loai_hinh, kham_suc_khoe, tong_thu,
+  loai_hinh, kham_suc_khoe, tong_thu, tien_duoc_chuyen, ly_do_bo_hoc, da_vao_khoa,
+  CONVERT(varchar(19), bo_hoc_at, 120) AS bo_hoc_at,
   CAST(CASE WHEN anh_chan_dung IS NULL OR anh_chan_dung = '' THEN 0 ELSE 1 END AS BIT) AS co_anh,
   da_doi_chieu_cccd, trang_thai, ly_do_bo_sung, nguoi_tiep_nhan, nguoi_duyet,
   CONVERT(varchar(19), thoi_gian_khai, 120) AS thoi_gian_khai,
@@ -310,9 +340,13 @@ async function getDetail(id) {
   const logs = await pool
     .request()
     .input("id", mssql.Int, Number(id))
-    .query(`SELECT id, hanh_dong, noi_dung, nguoi, CONVERT(varchar(19), created_at, 120) AS created_at
-            FROM ${LOG_TABLE} WHERE ho_so_id = @id ORDER BY id DESC`);
-  return { ...row, lich_su: logs.recordset };
+    .query(`SELECT l.id, l.hanh_dong, l.noi_dung, l.nguoi, l.so_tien, l.doi_tac_id,
+                   d.ma_ho_so AS doi_tac_ma, d.ho_ten AS doi_tac_ten,
+                   CONVERT(varchar(19), l.created_at, 120) AS created_at
+            FROM ${LOG_TABLE} l LEFT JOIN ${TABLE} d ON d.id = l.doi_tac_id
+            WHERE l.ho_so_id = @id ORDER BY l.id DESC`);
+  const vaoKhoa = await timKhoaDaVao(pool, row.cccd);
+  return { ...row, lich_su: logs.recordset, khoa_da_vao: vaoKhoa };
 }
 
 async function list(query = {}) {
@@ -440,6 +474,7 @@ async function thongKe(query = {}) {
 
 // ─── Ghi dữ liệu ─────────────────────────────────────
 async function insertHoSo(pool, data, { nguon, nguonRef = null, thoiGianKhai = null, nguoi = null }) {
+  if (!data.dau_moi) data = { ...data, dau_moi: DAU_MOI_MAC_DINH };
   const req = pool.request();
   const cols = [];
   const vals = [];
@@ -473,7 +508,7 @@ async function insertHoSo(pool, data, { nguon, nguonRef = null, thoiGianKhai = n
     );
     UPDATE ${TABLE}
       SET so_thu_tu = @stt,
-          ma_ho_so = CONCAT('HS', FORMAT(@ngay, 'yyyyMMdd'), RIGHT('000' + CAST(@stt AS VARCHAR(10)), 3))
+          ma_ho_so = CONCAT(FORMAT(@ngay, 'yyMMdd'), RIGHT('0000' + CAST(@stt AS VARCHAR(10)), 4))
       WHERE id = @id;
     SELECT @id AS id;
   `);
@@ -522,7 +557,8 @@ async function create(body = {}, nguoi = null) {
   if (!data.ho_ten) throw httpError(400, "Thiếu họ và tên");
   if (!data.hang) data.hang = "A1";
   if (!data.khoa_hoc) data.khoa_hoc = "Đào tạo lái xe mô tô";
-
+  if (!data.dau_moi) data.dau_moi = DAU_MOI_MAC_DINH;
+  await ghiNhoDauMoi(pool, data.dau_moi);
   const existing = await findOpenByCccd(pool, data.cccd);
   if (existing) {
     await updateFields(pool, existing.id, data);
@@ -550,6 +586,10 @@ async function update(id, body = {}, nguoi = null) {
   if (!current) throw httpError(404, "Không tìm thấy hồ sơ");
 
   const data = cleanPayload(body);
+  if (data.dau_moi !== undefined) {
+    if (!data.dau_moi) data.dau_moi = DAU_MOI_MAC_DINH;
+    await ghiNhoDauMoi(pool, data.dau_moi);
+  }
   const changed = await updateFields(pool, id, data);
 
   const extra = [];
@@ -596,6 +636,7 @@ async function duyet(id, nguoi = null) {
   const current = await getById(id);
   if (!current) throw httpError(404, "Không tìm thấy hồ sơ");
   if (current.trang_thai === TRANG_THAI.DA_IN) throw httpError(400, "Hồ sơ đã in, không cần duyệt lại");
+  if (current.trang_thai === TRANG_THAI.BO_HOC) throw httpError(400, "Học viên đã bỏ học");
   if (current.thieu_truong.length) {
     throw httpError(400, `Hồ sơ còn thiếu: ${current.thieu_truong.join(", ")}`);
   }
@@ -669,12 +710,268 @@ async function remove(id, nguoi = null) {
   const current = await getById(id);
   if (!current) throw httpError(404, "Không tìm thấy hồ sơ");
   if (current.trang_thai === TRANG_THAI.DA_IN) throw httpError(400, "Không xoá được hồ sơ đã in");
+  if (current.tien_duoc_chuyen > 0) throw httpError(400, "Hồ sơ đang nhận tiền chuyển từ HV khác, không xoá được");
   await pool.request().input("id", mssql.Int, Number(id)).query(`
     DELETE FROM ${LOG_TABLE} WHERE ho_so_id = @id;
     DELETE FROM ${TABLE} WHERE id = @id;
   `);
   console.log(`[tiepSinh] ${nguoi || "?"} xoá hồ sơ ${current.ma_ho_so} (${current.ho_ten})`);
   return { id: Number(id) };
+}
+
+// ─── Nghiệp vụ sau duyệt: chuyển học phí / chuyển hạng / chuyển phí khám / bỏ học ───
+// Chưa có kế toán: "phải thu" = giá theo bảng giá (hoặc nhập tay). Tiền HV khác chuyển sang
+// được cộng dồn vào tien_duoc_chuyen -> Còn phải thu = Phải thu − tien_duoc_chuyen.
+const GIA_KEY = {
+  "Hạng A1": "gia_a1",
+  "Hạng A - Xe côn tay (A)": "gia_a_con_tay",
+  "Hạng A - Xe tay ga (A.02)": "gia_a_tay_ga",
+};
+const KHAM_TRUNG_TAM = "Khám theo lịch trung tâm";
+const TU_KHAM = "Tự khám - tự nộp";
+const DA_DUYET_XONG = [TRANG_THAI.DA_DUYET, TRANG_THAI.DA_IN];
+
+const soTien = (v) => {
+  const s = String(v ?? "").replace(/[^\d]/g, "");
+  return s ? Number(s) : null;
+};
+const vnd = (n) => `${Number(n || 0).toLocaleString("vi-VN")} đ`;
+
+/** Giống tinhPhaiThu ở FE -> { tong, hocPhi, phiKham } (null = chưa có giá) */
+function tinhPhaiThu(hs, cfg) {
+  const key = GIA_KEY[hs.loai_hinh];
+  const hocPhi = key ? soTien(cfg[key]) : null;
+  const phiKham = hs.kham_suc_khoe === KHAM_TRUNG_TAM ? soTien(cfg.phi_kham_suc_khoe) : 0;
+  const nhapTay = soTien(hs.tong_thu);
+  if (nhapTay !== null) {
+    return { tong: nhapTay, hocPhi: phiKham !== null ? Math.max(0, nhapTay - phiKham) : hocPhi, phiKham };
+  }
+  return { tong: hocPhi === null || phiKham === null ? null : hocPhi + phiKham, hocPhi, phiKham };
+}
+
+/** HV đã có trong danh sách học viên của khoá (theo CCCD) -> mã khoá | null */
+async function timKhoaDaVao(pool, cccd) {
+  if (!cccd || !/^\d{9,12}$/.test(String(cccd))) return null;
+  const r = await pool
+    .request()
+    .input("cccd", mssql.VarChar(20), String(cccd))
+    .query(`SELECT TOP 1 ma_khoa FROM hoc_vien WITH (NOLOCK)
+            WHERE cccd = @cccd AND ma_khoa IS NOT NULL AND ma_khoa <> '' ORDER BY id DESC`)
+    .catch(() => ({ recordset: [] }));
+  return r.recordset[0]?.ma_khoa || null;
+}
+
+async function layHoSo(id, ten = "hồ sơ") {
+  const hs = await getById(id);
+  if (!hs) throw httpError(404, `Không tìm thấy ${ten}`);
+  return hs;
+}
+
+function canDaDuyet(hs, { choBoHoc = false } = {}) {
+  if (DA_DUYET_XONG.includes(hs.trang_thai)) return;
+  if (choBoHoc && hs.trang_thai === TRANG_THAI.BO_HOC) return;
+  throw httpError(400, "Chỉ thực hiện được với hồ sơ đã duyệt");
+}
+
+/** Chạy các câu lệnh trong 1 transaction: fn(tx, log) */
+async function trongGiaoDich(fn) {
+  const pool = await connectSQL();
+  const tx = new mssql.Transaction(pool);
+  await tx.begin();
+  try {
+    const log = (hoSoId, hanhDong, noiDung, nguoi, { soTien: st = null, doiTac = null } = {}) =>
+      new mssql.Request(tx)
+        .input("id", mssql.Int, hoSoId)
+        .input("hd", mssql.VarChar(30), hanhDong)
+        .input("nd", mssql.NVarChar(1000), String(noiDung || "").slice(0, 1000))
+        .input("ng", mssql.NVarChar(255), nguoi || null)
+        .input("st", mssql.Int, st)
+        .input("dt", mssql.Int, doiTac)
+        .query(`INSERT INTO ${LOG_TABLE}(ho_so_id, hanh_dong, noi_dung, nguoi, so_tien, doi_tac_id)
+                VALUES (@id, @hd, @nd, @ng, @st, @dt)`);
+    const out = await fn(tx, log);
+    await tx.commit();
+    return out;
+  } catch (err) {
+    await tx.rollback().catch(() => {});
+    throw err;
+  }
+}
+
+const tenHs = (hs) => `${hs.ho_ten} (${hs.ma_ho_so})`;
+const ghiChuThem = (body) => (body.ghi_chu && String(body.ghi_chu).trim() ? ` — ${String(body.ghi_chu).trim()}` : "");
+
+async function nguoiNhanHopLe(fromId, denId) {
+  if (!denId) throw httpError(400, "Vui lòng chọn học viên nhận");
+  if (Number(denId) === Number(fromId)) throw httpError(400, "Không thể chuyển cho chính học viên này");
+  const b = await layHoSo(denId, "học viên nhận");
+  if (b.trang_thai === TRANG_THAI.BO_HOC) throw httpError(400, "Học viên nhận đã bỏ học");
+  return b;
+}
+
+function congTien(tx, id, soTienCong) {
+  return new mssql.Request(tx)
+    .input("id", mssql.Int, id)
+    .input("st", mssql.Int, soTienCong)
+    .query(`UPDATE ${TABLE} SET tien_duoc_chuyen = tien_duoc_chuyen + @st, updated_at = GETDATE() WHERE id = @id`);
+}
+
+/** 8. Chuyển toàn bộ học phí HV A -> HV B */
+async function chuyenHocPhi(id, body = {}, nguoi = null) {
+  await ensureTables();
+  const pool = await connectSQL();
+  const a = await layHoSo(id);
+  canDaDuyet(a, { choBoHoc: true });
+  const b = await nguoiNhanHopLe(id, body.den_id);
+  const daChuyen = await pool
+    .request()
+    .input("id", mssql.Int, a.id)
+    .query(`SELECT TOP 1 1 AS x FROM ${LOG_TABLE} WHERE ho_so_id = @id AND hanh_dong = 'chuyen_hoc_phi_di'`);
+  if (daChuyen.recordset.length) throw httpError(400, "Học phí của học viên này đã được chuyển trước đó");
+  const khoa = await timKhoaDaVao(pool, a.cccd);
+  if (khoa) throw httpError(400, `Học viên đã vào khoá ${khoa} — không chuyển học phí được`);
+
+  const cfg = await getCauHinh();
+  const soTienChuyen = soTien(body.so_tien) ?? tinhPhaiThu(a, cfg).hocPhi;
+  if (!soTienChuyen) throw httpError(400, "Chưa xác định được học phí (kiểm tra bảng giá trong Cấu hình)");
+  const gc = ghiChuThem(body);
+
+  await trongGiaoDich(async (tx, log) => {
+    await congTien(tx, b.id, soTienChuyen);
+    await log(a.id, "chuyen_hoc_phi_di", `Chuyển toàn bộ học phí ${vnd(soTienChuyen)} sang ${tenHs(b)}${gc}`, nguoi,
+      { soTien: -soTienChuyen, doiTac: b.id });
+    await log(b.id, "chuyen_hoc_phi_den", `Nhận học phí ${vnd(soTienChuyen)} từ ${tenHs(a)}${gc}`, nguoi,
+      { soTien: soTienChuyen, doiTac: a.id });
+  });
+  return { from: await getById(a.id, { withAnh: true }), to: await getById(b.id), so_tien: soTienChuyen };
+}
+
+/** 9. Chuyển hạng (kể cả khi đã in) — ghi chênh lệch: dư tiền / thu thêm */
+async function chuyenHang(id, body = {}, nguoi = null) {
+  await ensureTables();
+  const a = await layHoSo(id);
+  canDaDuyet(a);
+  const moi = String(body.loai_hinh || "").trim();
+  if (!GIA_KEY[moi]) throw httpError(400, "Loại hình học mới không hợp lệ");
+  if (moi === a.loai_hinh) throw httpError(400, "Học viên đang học loại hình này");
+
+  const cfg = await getCauHinh();
+  const cu = tinhPhaiThu(a, cfg).tong;
+  const sau = tinhPhaiThu({ ...a, loai_hinh: moi, tong_thu: null }, cfg).tong;
+  if (cu === null || sau === null) throw httpError(400, "Chưa có giá của hạng cũ/mới (vào Cấu hình để nhập bảng giá)");
+  const chenh = sau - cu;
+  const ketQua =
+    chenh < 0 ? `dư ${vnd(-chenh)} (hoàn lại hoặc chuyển cho HV khác)` : chenh > 0 ? `thu thêm ${vnd(chenh)}` : "không chênh lệch";
+
+  await trongGiaoDich(async (tx, log) => {
+    await new mssql.Request(tx)
+      .input("id", mssql.Int, a.id)
+      .input("lh", mssql.NVarChar(100), moi)
+      .input("hang", mssql.NVarChar(10), normalizeHang(moi))
+      .query(`UPDATE ${TABLE}
+              SET loai_hinh = @lh, hang = @hang, tong_thu = NULL,
+                  trang_thai = '${TRANG_THAI.DA_DUYET}', updated_at = GETDATE()
+              WHERE id = @id`);
+    await log(a.id, "chuyen_hang",
+      `Chuyển hạng: ${a.loai_hinh || a.hang} → ${moi}. Phải thu ${vnd(cu)} → ${vnd(sau)}: ${ketQua}${ghiChuThem(body)}`, nguoi,
+      { soTien: chenh });
+  });
+  return { hs: await getById(a.id, { withAnh: true }), chenh_lech: chenh, phai_thu_cu: cu, phai_thu_moi: sau };
+}
+
+/** 10. Phí khám sức khoẻ: HV đã tự khám -> hoàn tiền hoặc chuyển sang HV khác */
+async function chuyenPhiKham(id, body = {}, nguoi = null) {
+  await ensureTables();
+  const a = await layHoSo(id);
+  canDaDuyet(a, { choBoHoc: true });
+  if (a.kham_suc_khoe !== KHAM_TRUNG_TAM) throw httpError(400, "Học viên không đóng phí khám sức khoẻ tại trung tâm");
+  const cfg = await getCauHinh();
+  const phi = soTien(cfg.phi_kham_suc_khoe);
+  if (!phi) throw httpError(400, "Chưa có phí khám sức khoẻ trong Cấu hình");
+  const b = body.hinh_thuc === "hoan" ? null : await nguoiNhanHopLe(id, body.den_id);
+  const gc = ghiChuThem(body);
+
+  await trongGiaoDich(async (tx, log) => {
+    await new mssql.Request(tx)
+      .input("id", mssql.Int, a.id)
+      .input("tk", mssql.NVarChar(100), TU_KHAM)
+      .input("phi", mssql.Int, phi)
+      .query(`UPDATE ${TABLE}
+              SET kham_suc_khoe = @tk,
+                  tong_thu = CASE WHEN tong_thu IS NULL THEN NULL WHEN tong_thu > @phi THEN tong_thu - @phi ELSE 0 END,
+                  updated_at = GETDATE()
+              WHERE id = @id`);
+    if (b) {
+      await congTien(tx, b.id, phi);
+      await log(a.id, "chuyen_phi_kham_di", `Đã tự khám — chuyển phí khám ${vnd(phi)} sang ${tenHs(b)}${gc}`, nguoi,
+        { soTien: -phi, doiTac: b.id });
+      await log(b.id, "chuyen_phi_kham_den", `Nhận phí khám ${vnd(phi)} từ ${tenHs(a)}${gc}`, nguoi,
+        { soTien: phi, doiTac: a.id });
+    } else {
+      await log(a.id, "hoan_phi_kham", `Đã tự khám — hoàn lại phí khám ${vnd(phi)} cho học viên${gc}`, nguoi, { soTien: -phi });
+    }
+  });
+  return { from: await getById(a.id, { withAnh: true }), to: b ? await getById(b.id) : null, so_tien: phi };
+}
+
+/** 11. Bỏ học. Đã vào khoá -> chỉ trả lại giấy khám sức khoẻ */
+async function boHoc(id, body = {}, nguoi = null) {
+  await ensureTables();
+  const pool = await connectSQL();
+  const a = await layHoSo(id);
+  canDaDuyet(a);
+  const lyDo = String(body.ly_do || "").trim();
+  if (!lyDo) throw httpError(400, "Vui lòng nhập lý do bỏ học");
+  const khoa = await timKhoaDaVao(pool, a.cccd);
+  const daVaoKhoa = !!khoa || !!body.da_vao_khoa;
+  let xuLy;
+  if (daVaoKhoa) xuLy = `Đã vào khoá${khoa ? ` ${khoa}` : ""}: không hoàn học phí, chỉ trả lại giấy khám sức khoẻ`;
+  else if (body.xu_ly_tien === "hoan") xuLy = "Chưa vào khoá: hoàn lại tiền cho học viên";
+  else xuLy = "Chưa vào khoá: giữ tiền để chuyển cho học viên khác";
+
+  await trongGiaoDich(async (tx, log) => {
+    await new mssql.Request(tx)
+      .input("id", mssql.Int, a.id)
+      .input("ld", mssql.NVarChar(500), lyDo.slice(0, 500))
+      .input("vk", mssql.Bit, daVaoKhoa ? 1 : 0)
+      .query(`UPDATE ${TABLE}
+              SET trang_thai = '${TRANG_THAI.BO_HOC}', bo_hoc_at = GETDATE(), ly_do_bo_hoc = @ld,
+                  da_vao_khoa = @vk, updated_at = GETDATE()
+              WHERE id = @id`);
+    await log(a.id, "bo_hoc", `Bỏ học: ${lyDo}. ${xuLy}`, nguoi);
+  });
+  return getById(a.id, { withAnh: true });
+}
+
+// ─── Đầu mối tuyển sinh chuẩn ─────────────────────────────────────
+/** NV tiếp sinh nhập/chỉnh đầu mối -> ghi nhớ để gợi ý (đếm số lần dùng) */
+async function ghiNhoDauMoi(pool, ten) {
+  const v = String(ten || "").trim().replace(/\s+/g, " ").slice(0, 255);
+  if (!v) return;
+  await pool
+    .request()
+    .input("ten", mssql.NVarChar(255), v)
+    .query(`MERGE ${DAU_MOI_TABLE} t USING (SELECT @ten AS ten) s ON t.ten = s.ten
+            WHEN MATCHED THEN UPDATE SET so_lan = t.so_lan + 1, updated_at = GETDATE()
+            WHEN NOT MATCHED THEN INSERT (ten, so_lan) VALUES (@ten, 1);`)
+    .catch((err) => console.error("[tiepSinh] dau moi:", err.message));
+}
+
+async function danhSachDauMoi() {
+  await ensureTables();
+  const pool = await connectSQL();
+  const r = await pool.request().query(`SELECT ten, so_lan FROM ${DAU_MOI_TABLE} ORDER BY so_lan DESC, ten`);
+  return r.recordset;
+}
+
+/** Xoá 1 đầu mối khỏi danh sách gợi ý (nhập nhầm) */
+async function xoaDauMoi(ten) {
+  await ensureTables();
+  if (String(ten || "").trim() === DAU_MOI_MAC_DINH) throw httpError(400, "Không xoá được đầu mối mặc định");
+  const pool = await connectSQL();
+  await pool.request().input("ten", mssql.NVarChar(255), String(ten || "").trim())
+    .query(`DELETE FROM ${DAU_MOI_TABLE} WHERE ten = @ten`);
+  return danhSachDauMoi();
 }
 
 // ─── Cấu hình ─────────────────────────────────────
@@ -954,6 +1251,12 @@ module.exports = {
   moLai,
   danhDauIn,
   remove,
+  chuyenHocPhi,
+  chuyenHang,
+  chuyenPhiKham,
+  boHoc,
+  danhSachDauMoi,
+  xoaDauMoi,
   getCauHinh,
   saveCauHinh,
   dongBoGoogleSheet,
