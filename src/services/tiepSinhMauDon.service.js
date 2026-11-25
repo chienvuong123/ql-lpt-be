@@ -224,6 +224,21 @@ function buildSegments(mau, hs, cfg = {}) {
         { t: "        nơi cấp: " },
         { t: hs.noi_cap || "Cục Cảnh sát QLHC về TTXH", b: true },
       ]],
+      // Đã có GPLX ô tô: điền số / hạng / ngày cấp (không có thì giữ dòng chấm của mẫu)
+      ...(hs.gplx_hang || hs.gplx_so
+        ? [
+            ["Đã có giấy phép", [
+              { t: "Đã có giấy phép lái xe số: " },
+              { t: hs.gplx_so || "......................................", b: !!hs.gplx_so },
+              { t: "    hạng: " },
+              { t: hs.gplx_hang || "..........", b: !!hs.gplx_hang },
+            ]],
+            ["do:", [
+              { t: "do:.................................................................. cấp ngày: " },
+              { t: fmtDate(hs.gplx_ngay_cap) || "..... /..... / ...........", b: !!hs.gplx_ngay_cap },
+            ]],
+          ]
+        : []),
       ["Đề nghị cho tôi", [{ t: "Đề nghị cho tôi được học lái xe hạng: " }, { t: hs.hang || "", b: true }]],
       ["Hải Phòng", [{ t: "  " }, ...ngayLam]],
     ];
@@ -233,6 +248,68 @@ function buildSegments(mau, hs, cfg = {}) {
     ["Khóa học", [{ t: "Khóa học: " }, { t: hs.khoa_hoc || "", b: true }]],
     ["Hải Phòng", ngayLam],
   ];
+}
+
+// ─── QR mã hồ sơ (góc phải trên Đơn đề nghị) ─────────────────────────────
+const QRCode = require("qrcode");
+const QR_RID = "rIdQrMaHoSo";
+const QR_EMU = 828000; // 2,3 cm
+
+/** Ảnh PNG: mã QR chứa mã hồ sơ + dòng mã hồ sơ in bên dưới */
+async function taoAnhQr(maHoSo) {
+  const sharp = require("sharp");
+  const W = 300;
+  const qr = await QRCode.toBuffer(String(maHoSo), { margin: 1, width: W, errorCorrectionLevel: "M" });
+  const chu = Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${W}">` +
+      `<rect width="100%" height="100%" fill="#fff"/>` +
+      `<text x="50%" y="${W - 14}" font-family="Arial" font-size="34" font-weight="bold" text-anchor="middle">${maHoSo}</text></svg>`,
+  );
+  // ảnh vuông: QR thu nhỏ phía trên, mã hồ sơ phía dưới
+  const qrNho = await sharp(qr).resize(W - 52, W - 52).toBuffer();
+  return sharp(chu).composite([{ input: qrNho, top: 2, left: 26 }]).png().toBuffer();
+}
+
+/** Chèn ảnh QR nổi ở góc phải trên của trang (đoạn văn đầu tiên) */
+async function chenQrMaHoSo(zip, xml, maHoSo) {
+  if (!maHoSo) return xml;
+  zip.file("word/media/qr_ma_ho_so.png", await taoAnhQr(maHoSo));
+  const relPath = "word/_rels/document.xml.rels";
+  let rels = await zip.file(relPath).async("string");
+  if (!rels.includes(QR_RID)) {
+    rels = rels.replace(
+      "</Relationships>",
+      `<Relationship Id="${QR_RID}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/qr_ma_ho_so.png"/></Relationships>`,
+    );
+    zip.file(relPath, rels);
+  }
+  let ct = await zip.file("[Content_Types].xml").async("string");
+  if (!/Extension="png"/i.test(ct)) {
+    ct = ct.replace("<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">",
+      "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"png\" ContentType=\"image/png\"/>");
+    zip.file("[Content_Types].xml", ct);
+  }
+  const anh =
+    `<w:r><w:drawing><wp:anchor distT="0" distB="0" distL="114300" distR="114300" simplePos="0" relativeHeight="251659264" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">` +
+    `<wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="margin"><wp:align>right</wp:align></wp:positionH>` +
+    `<wp:positionV relativeFrom="margin"><wp:posOffset>-180000</wp:posOffset></wp:positionV>` +
+    `<wp:extent cx="${QR_EMU}" cy="${QR_EMU}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/>` +
+    `<wp:docPr id="9001" name="QR ma ho so"/><wp:cNvGraphicFramePr/>` +
+    `<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+    `<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="9001" name="qr_ma_ho_so.png"/><pic:cNvPicPr/></pic:nvPicPr>` +
+    `<pic:blipFill><a:blip r:embed="${QR_RID}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>` +
+    `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${QR_EMU}" cy="${QR_EMU}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>` +
+    `</pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>`;
+  // sau <w:pPr>...</w:pPr> của đoạn đầu tiên trong body (hoặc ngay sau thẻ mở)
+  const iBody = xml.indexOf("<w:body>");
+  const m = /<w:p[ >]/.exec(xml.slice(iBody));
+  if (!m) return xml;
+  const iP = iBody + m.index;
+  const iMoXong = xml.indexOf(">", iP) + 1;
+  const sau = xml.slice(iMoXong);
+  const ppr = /^<w:pPr>[\s\S]*?<\/w:pPr>/.exec(sau);
+  const iChen = iMoXong + (ppr ? ppr[0].length : 0);
+  return xml.slice(0, iChen) + anh + xml.slice(iChen);
 }
 
 async function taoMauDon(mauReq, hs, cauHinh = {}) {
@@ -250,6 +327,7 @@ async function taoMauDon(mauReq, hs, cauHinh = {}) {
     xml = replaceParagraph(xml, prefix, segs, all);
   }
   xml = oVuongUnicode(xml);
+  if (mau === "don_de_nghi") xml = await chenQrMaHoSo(zip, xml, hs.ma_ho_so);
   zip.file("word/document.xml", xml);
   const out = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
   const safeName = String(hs.ho_ten || "hoc-vien")

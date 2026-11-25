@@ -22,6 +22,8 @@ const LOG_TABLE = "ho_so_tiep_sinh_log";
 const CFG_TABLE = "tiep_sinh_cau_hinh";
 // Danh sách đầu mối tuyển sinh chuẩn (NV tiếp sinh đã nhập) — để gợi ý lần sau
 const DAU_MOI_TABLE = "tiep_sinh_dau_moi";
+// Nhật ký hồ sơ đã xoá (thống kê "Đã xoá" + tra cứu lại)
+const XOA_TABLE = "ho_so_tiep_sinh_da_xoa";
 // HV không ghi đầu mối -> mặc định trung tâm
 const DAU_MOI_MAC_DINH = "TT";
 
@@ -67,8 +69,12 @@ const EDITABLE = {
   kham_suc_khoe: mssql.NVarChar(100),
   // số tiền phải thu nhập tay (để trống = tính theo bảng giá trong cấu hình)
   tong_thu: mssql.Int,
+  // GPLX ô tô đã có (hạng / số / ngày cấp) — có thì được giảm trừ theo bảng giá
+  gplx_hang: mssql.NVarChar(20),
+  gplx_so: mssql.VarChar(20),
 };
-const DATE_FIELDS = ["ngay_sinh", "ngay_cap_cccd"];
+// ngay_kham: ngày HV tự đi khám sức khoẻ (khi chọn "Tự khám - tự nộp")
+const DATE_FIELDS = ["ngay_sinh", "ngay_cap_cccd", "gplx_ngay_cap", "ngay_kham"];
 
 let _initPromise = null;
 
@@ -156,6 +162,30 @@ function ensureTables() {
       IF COL_LENGTH('${TABLE}', 'bo_hoc_at') IS NULL ALTER TABLE ${TABLE} ADD bo_hoc_at DATETIME NULL;
       IF COL_LENGTH('${TABLE}', 'ly_do_bo_hoc') IS NULL ALTER TABLE ${TABLE} ADD ly_do_bo_hoc NVARCHAR(500) NULL;
       IF COL_LENGTH('${TABLE}', 'da_vao_khoa') IS NULL ALTER TABLE ${TABLE} ADD da_vao_khoa BIT NULL;
+      -- Duyệt có điều kiện: vẫn duyệt/in nhưng hồ sơ còn thiếu/sai -> nằm trong mục "Cần bổ sung"
+      IF COL_LENGTH('${TABLE}', 'can_bo_sung_sau') IS NULL ALTER TABLE ${TABLE} ADD can_bo_sung_sau BIT NOT NULL DEFAULT 0;
+      IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '${XOA_TABLE}')
+      BEGIN
+        CREATE TABLE ${XOA_TABLE} (
+          id INT IDENTITY(1,1) PRIMARY KEY,
+          ho_so_id INT NOT NULL,
+          ma_ho_so VARCHAR(30) NULL,
+          ho_ten NVARCHAR(255) NULL,
+          cccd VARCHAR(20) NULL,
+          dien_thoai VARCHAR(30) NULL,
+          loai_hinh NVARCHAR(100) NULL,
+          trang_thai VARCHAR(20) NULL,
+          thoi_gian_khai DATETIME NULL,
+          du_lieu NVARCHAR(MAX) NULL,
+          nguoi_xoa NVARCHAR(255) NULL,
+          xoa_at DATETIME NOT NULL DEFAULT GETDATE()
+        );
+        CREATE INDEX IX_${XOA_TABLE}_xoa_at ON ${XOA_TABLE}(xoa_at);
+      END
+      IF COL_LENGTH('${TABLE}', 'ngay_kham') IS NULL ALTER TABLE ${TABLE} ADD ngay_kham DATE NULL;
+      IF COL_LENGTH('${TABLE}', 'gplx_hang') IS NULL ALTER TABLE ${TABLE} ADD gplx_hang NVARCHAR(20) NULL;
+      IF COL_LENGTH('${TABLE}', 'gplx_so') IS NULL ALTER TABLE ${TABLE} ADD gplx_so VARCHAR(20) NULL;
+      IF COL_LENGTH('${TABLE}', 'gplx_ngay_cap') IS NULL ALTER TABLE ${TABLE} ADD gplx_ngay_cap DATE NULL;
       IF COL_LENGTH('${LOG_TABLE}', 'so_tien') IS NULL ALTER TABLE ${LOG_TABLE} ADD so_tien INT NULL;
       IF COL_LENGTH('${LOG_TABLE}', 'doi_tac_id') IS NULL ALTER TABLE ${LOG_TABLE} ADD doi_tac_id INT NULL;
 
@@ -290,7 +320,51 @@ function withThieuTruong(row) {
     if (k === "cccd") return !v || !/^\d{12}$/.test(String(v));
     return v === null || v === undefined || String(v).trim() === "";
   }).map(([, label]) => label);
-  return { ...row, thieu_truong: thieu };
+  return { ...row, thieu_truong: thieu, canh_bao: canhBao(row) };
+}
+
+/** Cảnh báo không chặn duyệt: chưa đủ 18 tuổi, SĐT sai số chữ số */
+function canhBao(row) {
+  const out = [];
+  if (row.ngay_sinh) {
+    const [y, m, d] = String(row.ngay_sinh).slice(0, 10).split("-").map(Number);
+    const now = new Date();
+    let tuoi = now.getFullYear() - y;
+    if (now.getMonth() + 1 < m || (now.getMonth() + 1 === m && now.getDate() < d)) tuoi -= 1;
+    if (y && tuoi < 18) out.push(`Chưa đủ 18 tuổi (${tuoi} tuổi)`);
+  }
+  if (row.dien_thoai) {
+    let so = String(row.dien_thoai).replace(/[^\d]/g, "");
+    if (so.startsWith("84") && so.length === 11) so = `0${so.slice(2)}`;
+    if (so.length !== 10 || !so.startsWith("0")) out.push(`SĐT ${row.dien_thoai} không đúng (cần 10 số)`);
+  }
+  return out;
+}
+
+/** Mọi vấn đề của hồ sơ (thiếu + cảnh báo) — dùng khi duyệt có điều kiện */
+function vanDeHoSo(row) {
+  const so = String(row.cccd || "").replace(/\s+/g, "");
+  return [
+    ...(row.thieu_truong || []).map((t) =>
+      t === "Số CCCD" && so ? `Số CCCD ${so} không đúng (${so.length} số, cần 12 số)` : `Thiếu ${t}`),
+    ...(row.canh_bao || []),
+  ];
+}
+
+/** Hồ sơ duyệt có điều kiện đã bổ sung đủ -> bỏ khỏi mục "Cần bổ sung" */
+async function kiemTraDaBoSung(pool, id, nguoi) {
+  const row = await getById(id);
+  if (!row?.can_bo_sung_sau) return;
+  const conLai = vanDeHoSo(row);
+  if (conLai.length) {
+    // còn thiếu: cập nhật lại nội dung cần bổ sung (chỉ những mục còn lại)
+    await pool.request().input("id", mssql.Int, Number(id)).input("ly_do", mssql.NVarChar(500), conLai.join("; ").slice(0, 500))
+      .query(`UPDATE ${TABLE} SET ly_do_bo_sung = @ly_do WHERE id = @id`);
+    return;
+  }
+  await pool.request().input("id", mssql.Int, Number(id))
+    .query(`UPDATE ${TABLE} SET can_bo_sung_sau = 0, ly_do_bo_sung = NULL, updated_at = GETDATE() WHERE id = @id`);
+  await addLog(pool, id, "mo_lai", "Đã bổ sung đủ thông tin", nguoi);
 }
 
 const SELECT_COLUMNS = `
@@ -302,6 +376,8 @@ const SELECT_COLUMNS = `
   hang, khoa_hoc, dia_diem_hoc, dau_moi, ghi_chu, nguon, nguon_ref,
   loai_hinh, kham_suc_khoe, tong_thu, tien_duoc_chuyen, ly_do_bo_hoc, da_vao_khoa,
   CONVERT(varchar(19), bo_hoc_at, 120) AS bo_hoc_at,
+  gplx_hang, gplx_so, CONVERT(varchar(10), gplx_ngay_cap, 23) AS gplx_ngay_cap, can_bo_sung_sau,
+  CONVERT(varchar(10), ngay_kham, 23) AS ngay_kham,
   CAST(CASE WHEN anh_chan_dung IS NULL OR anh_chan_dung = '' THEN 0 ELSE 1 END AS BIT) AS co_anh,
   da_doi_chieu_cccd, trang_thai, ly_do_bo_sung, nguoi_tiep_nhan, nguoi_duyet,
   CONVERT(varchar(19), thoi_gian_khai, 120) AS thoi_gian_khai,
@@ -367,7 +443,12 @@ async function list(query = {}) {
   }
   if (query.trang_thai) {
     req.input("tt", mssql.VarChar(20), String(query.trang_thai));
-    where.push("trang_thai = @tt");
+    if (query.trang_thai === "duyet") {
+      // nhóm "Duyệt" = đã duyệt + đã in (hồ sơ duyệt có điều kiện nằm ở "Bổ sung")
+      where.push("trang_thai IN ('da_duyet', 'da_in') AND can_bo_sung_sau = 0");
+    } else {
+      where.push(query.trang_thai === TRANG_THAI.CAN_BO_SUNG ? "(trang_thai = @tt OR can_bo_sung_sau = 1)" : "trang_thai = @tt");
+    }
   }
   if (query.hang) {
     req.input("hang", mssql.NVarChar(10), String(query.hang));
@@ -403,16 +484,21 @@ async function thongKe(query = {}) {
   const pool = await connectSQL();
   const ngay = toIsoDate(query.ngay) || todayStr();
   const soNgay = Math.min(90, Math.max(1, parseInt(query.so_ngay, 10) || 7));
+  // kỳ của các thẻ số liệu (1 / 7 / 14 / 30 ngày, tính đến hết hôm nay)
+  const ky = Math.min(90, Math.max(1, parseInt(query.ky, 10) || 1));
 
   const r = await pool
     .request()
     .input("ngay", mssql.VarChar(10), ngay)
     .input("so_ngay", mssql.Int, soNgay)
+    .input("ky", mssql.Int, ky)
     .query(`
       DECLARE @d DATE = CONVERT(date, @ngay, 23);
       DECLARE @d1 DATE = DATEADD(day, 1, @d);
       DECLARE @y DATE = DATEADD(day, -1, @d);
       DECLARE @from DATE = DATEADD(day, 1 - @so_ngay, @d);
+      DECLARE @k0 DATE = DATEADD(day, 1 - @ky, @d);   -- đầu kỳ
+      DECLARE @p0 DATE = DATEADD(day, -@ky, @k0);     -- đầu kỳ trước
 
       -- 0: thẻ thống kê
       SELECT
@@ -420,14 +506,23 @@ async function thongKe(query = {}) {
         SUM(CASE WHEN thoi_gian_khai >= @y AND thoi_gian_khai < @d THEN 1 ELSE 0 END) AS hom_qua,
         SUM(CASE WHEN trang_thai = 'cho_duyet' THEN 1 ELSE 0 END) AS cho_duyet,
         SUM(CASE WHEN trang_thai = 'cho_duyet' AND thoi_gian_khai >= @d AND thoi_gian_khai < @d1 THEN 1 ELSE 0 END) AS cho_duyet_moi,
-        SUM(CASE WHEN trang_thai = 'can_bo_sung' THEN 1 ELSE 0 END) AS can_bo_sung,
-        SUM(CASE WHEN trang_thai = 'can_bo_sung' AND thoi_gian_khai >= @d AND thoi_gian_khai < @d1 THEN 1 ELSE 0 END) AS can_bo_sung_moi,
+        SUM(CASE WHEN trang_thai = 'can_bo_sung' OR can_bo_sung_sau = 1 THEN 1 ELSE 0 END) AS can_bo_sung,
+        SUM(CASE WHEN (trang_thai = 'can_bo_sung' OR can_bo_sung_sau = 1) AND thoi_gian_khai >= @d AND thoi_gian_khai < @d1 THEN 1 ELSE 0 END) AS can_bo_sung_moi,
         SUM(CASE WHEN duyet_at >= @d AND duyet_at < @d1 THEN 1 ELSE 0 END) AS da_duyet,
         SUM(CASE WHEN duyet_at >= @y AND duyet_at < @d THEN 1 ELSE 0 END) AS da_duyet_hom_qua,
         SUM(CASE WHEN in_at >= @d AND in_at < @d1 THEN 1 ELSE 0 END) AS da_in,
         SUM(CASE WHEN in_at >= @y AND in_at < @d THEN 1 ELSE 0 END) AS da_in_hom_qua,
         COUNT(*) AS tong,
-        SUM(CASE WHEN trang_thai IN ('da_duyet','da_in') THEN 1 ELSE 0 END) AS tong_da_xu_ly
+        SUM(CASE WHEN trang_thai IN ('da_duyet','da_in') THEN 1 ELSE 0 END) AS tong_da_xu_ly,
+        -- theo kỳ
+        SUM(CASE WHEN thoi_gian_khai >= @k0 AND thoi_gian_khai < @d1 THEN 1 ELSE 0 END) AS ky_moi,
+        SUM(CASE WHEN thoi_gian_khai >= @p0 AND thoi_gian_khai < @k0 THEN 1 ELSE 0 END) AS ky_moi_truoc,
+        SUM(CASE WHEN trang_thai = 'cho_duyet' AND thoi_gian_khai >= @k0 AND thoi_gian_khai < @d1 THEN 1 ELSE 0 END) AS ky_cho_duyet_moi,
+        SUM(CASE WHEN (trang_thai = 'can_bo_sung' OR can_bo_sung_sau = 1) AND thoi_gian_khai >= @k0 AND thoi_gian_khai < @d1 THEN 1 ELSE 0 END) AS ky_can_bo_sung_moi,
+        SUM(CASE WHEN duyet_at >= @k0 AND duyet_at < @d1 THEN 1 ELSE 0 END) AS ky_da_duyet,
+        SUM(CASE WHEN duyet_at >= @p0 AND duyet_at < @k0 THEN 1 ELSE 0 END) AS ky_da_duyet_truoc,
+        (SELECT COUNT(*) FROM ${XOA_TABLE} WITH (NOLOCK) WHERE xoa_at >= @k0 AND xoa_at < @d1) AS ky_da_xoa,
+        (SELECT COUNT(*) FROM ${XOA_TABLE} WITH (NOLOCK) WHERE xoa_at >= @p0 AND xoa_at < @k0) AS ky_da_xoa_truoc
       FROM ${TABLE} WITH (NOLOCK);
 
       -- 1: biểu đồ theo ngày
@@ -437,7 +532,8 @@ async function thongKe(query = {}) {
       )
       SELECT CONVERT(varchar(10), days.ngay, 23) AS ngay,
         (SELECT COUNT(*) FROM ${TABLE} WITH (NOLOCK) WHERE CAST(thoi_gian_khai AS DATE) = days.ngay) AS tong,
-        (SELECT COUNT(*) FROM ${TABLE} WITH (NOLOCK) WHERE CAST(duyet_at AS DATE) = days.ngay) AS da_xu_ly
+        (SELECT COUNT(*) FROM ${TABLE} WITH (NOLOCK) WHERE CAST(duyet_at AS DATE) = days.ngay) AS da_xu_ly,
+        (SELECT COUNT(*) FROM ${XOA_TABLE} WITH (NOLOCK) WHERE CAST(xoa_at AS DATE) = days.ngay) AS da_xoa
       FROM days OPTION (MAXRECURSION 100);
 
       -- 2: tỷ lệ theo trạng thái trong khoảng
@@ -460,6 +556,7 @@ async function thongKe(query = {}) {
   for (const row of r.recordsets[2]) tyLe[row.trang_thai] = row.so_luong;
   return {
     ngay,
+    ky,
     the: Object.fromEntries(Object.entries(the).map(([k, v]) => [k, Number(v) || 0])),
     bieu_do: r.recordsets[1],
     ty_le: {
@@ -502,9 +599,10 @@ async function insertHoSo(pool, data, { nguon, nguonRef = null, thoiGianKhai = n
     INSERT INTO ${TABLE} (${cols.join(", ")}) OUTPUT INSERTED.id INTO @new VALUES (${vals.join(", ")});
     DECLARE @id INT = (SELECT TOP 1 id FROM @new);
     DECLARE @ngay DATE = (SELECT CAST(thoi_gian_khai AS DATE) FROM ${TABLE} WHERE id = @id);
+    -- số lớn nhất trong ngày + 1 (không dùng COUNT: xoá hồ sơ sẽ làm trùng mã)
     DECLARE @stt INT = (
-      SELECT COUNT(*) FROM ${TABLE}
-      WHERE thoi_gian_khai >= @ngay AND thoi_gian_khai < DATEADD(day, 1, @ngay) AND id <= @id
+      SELECT COALESCE(MAX(so_thu_tu), 0) + 1 FROM ${TABLE} WITH (UPDLOCK, HOLDLOCK)
+      WHERE thoi_gian_khai >= @ngay AND thoi_gian_khai < DATEADD(day, 1, @ngay) AND id <> @id
     );
     UPDATE ${TABLE}
       SET so_thu_tu = @stt,
@@ -599,7 +697,7 @@ async function update(id, body = {}, nguoi = null) {
     extra.push("da_doi_chieu_cccd = @dc");
   }
   // Sửa hồ sơ đã duyệt => phải duyệt lại
-  if (changed && [TRANG_THAI.DA_DUYET, TRANG_THAI.DA_IN].includes(current.trang_thai)) {
+  if (changed && [TRANG_THAI.DA_DUYET, TRANG_THAI.DA_IN].includes(current.trang_thai) && !current.can_bo_sung_sau) {
     extra.push(`trang_thai = '${TRANG_THAI.CHO_DUYET}'`, "duyet_at = NULL", "nguoi_duyet = NULL");
   }
   if (extra.length) {
@@ -608,6 +706,7 @@ async function update(id, body = {}, nguoi = null) {
   if (changed) {
     const fields = Object.keys(data).join(", ");
     await addLog(pool, id, "cap_nhat", `Cập nhật: ${fields}`, nguoi);
+    await kiemTraDaBoSung(pool, id, nguoi);
   }
   return getById(id, { withAnh: true });
 }
@@ -627,28 +726,33 @@ async function capNhatAnh(id, anh, nguoi = null) {
     .input("anh", mssql.VarChar(mssql.MAX), anh || null)
     .query(`UPDATE ${TABLE} SET anh_chan_dung = @anh, updated_at = GETDATE() WHERE id = @id`);
   await addLog(pool, id, "chup_anh", anh ? "Cập nhật ảnh chân dung" : "Xoá ảnh chân dung", nguoi);
+  await kiemTraDaBoSung(pool, id, nguoi);
   return getById(id, { withAnh: true });
 }
 
-async function duyet(id, nguoi = null) {
+async function duyet(id, nguoi = null, { xac_nhan: xacNhan = false } = {}) {
   await ensureTables();
   const pool = await connectSQL();
   const current = await getById(id);
   if (!current) throw httpError(404, "Không tìm thấy hồ sơ");
   if (current.trang_thai === TRANG_THAI.DA_IN) throw httpError(400, "Hồ sơ đã in, không cần duyệt lại");
   if (current.trang_thai === TRANG_THAI.BO_HOC) throw httpError(400, "Học viên đã bỏ học");
-  if (current.thieu_truong.length) {
-    throw httpError(400, `Hồ sơ còn thiếu: ${current.thieu_truong.join(", ")}`);
+  const vanDe = vanDeHoSo(current);
+  if (vanDe.length && !xacNhan) {
+    throw httpError(400, `Hồ sơ còn vấn đề: ${vanDe.join("; ")} — cần xác nhận để duyệt có điều kiện`);
   }
+  const lyDo = vanDe.length ? vanDe.join("; ").slice(0, 500) : null;
   await pool
     .request()
     .input("id", mssql.Int, Number(id))
     .input("nguoi", mssql.NVarChar(255), nguoi)
+    .input("ly_do", mssql.NVarChar(500), lyDo)
+    .input("cbs", mssql.Bit, vanDe.length ? 1 : 0)
     .query(`UPDATE ${TABLE}
             SET trang_thai = '${TRANG_THAI.DA_DUYET}', duyet_at = GETDATE(), nguoi_duyet = @nguoi,
-                ly_do_bo_sung = NULL, updated_at = GETDATE()
+                ly_do_bo_sung = @ly_do, can_bo_sung_sau = @cbs, updated_at = GETDATE()
             WHERE id = @id`);
-  await addLog(pool, id, "duyet", "Duyệt hồ sơ", nguoi);
+  await addLog(pool, id, "duyet", vanDe.length ? `Duyệt có điều kiện — cần bổ sung: ${lyDo}` : "Duyệt hồ sơ", nguoi);
   return getById(id, { withAnh: true });
 }
 
@@ -711,10 +815,27 @@ async function remove(id, nguoi = null) {
   if (!current) throw httpError(404, "Không tìm thấy hồ sơ");
   if (current.trang_thai === TRANG_THAI.DA_IN) throw httpError(400, "Không xoá được hồ sơ đã in");
   if (current.tien_duoc_chuyen > 0) throw httpError(400, "Hồ sơ đang nhận tiền chuyển từ HV khác, không xoá được");
-  await pool.request().input("id", mssql.Int, Number(id)).query(`
-    DELETE FROM ${LOG_TABLE} WHERE ho_so_id = @id;
-    DELETE FROM ${TABLE} WHERE id = @id;
-  `);
+  const duLieu = { ...current };
+  delete duLieu.thieu_truong;
+  delete duLieu.canh_bao;
+  await pool
+    .request()
+    .input("id", mssql.Int, Number(id))
+    .input("ma", mssql.VarChar(30), current.ma_ho_so)
+    .input("ten", mssql.NVarChar(255), current.ho_ten)
+    .input("cccd", mssql.VarChar(20), current.cccd)
+    .input("sdt", mssql.VarChar(30), current.dien_thoai)
+    .input("lh", mssql.NVarChar(100), current.loai_hinh)
+    .input("tt", mssql.VarChar(20), current.trang_thai)
+    .input("tgk", mssql.VarChar(19), current.thoi_gian_khai)
+    .input("dl", mssql.NVarChar(mssql.MAX), JSON.stringify(duLieu))
+    .input("nguoi", mssql.NVarChar(255), nguoi)
+    .query(`
+      INSERT INTO ${XOA_TABLE} (ho_so_id, ma_ho_so, ho_ten, cccd, dien_thoai, loai_hinh, trang_thai, thoi_gian_khai, du_lieu, nguoi_xoa)
+      VALUES (@id, @ma, @ten, @cccd, @sdt, @lh, @tt, CONVERT(datetime, @tgk, 120), @dl, @nguoi);
+      DELETE FROM ${LOG_TABLE} WHERE ho_so_id = @id;
+      DELETE FROM ${TABLE} WHERE id = @id;
+    `);
   console.log(`[tiepSinh] ${nguoi || "?"} xoá hồ sơ ${current.ma_ho_so} (${current.ho_ten})`);
   return { id: Number(id) };
 }
@@ -740,7 +861,10 @@ const vnd = (n) => `${Number(n || 0).toLocaleString("vi-VN")} đ`;
 /** Giống tinhPhaiThu ở FE -> { tong, hocPhi, phiKham } (null = chưa có giá) */
 function tinhPhaiThu(hs, cfg) {
   const key = GIA_KEY[hs.loai_hinh];
-  const hocPhi = key ? soTien(cfg[key]) : null;
+  const giaGoc = key ? soTien(cfg[key]) : null;
+  // Đã có GPLX ô tô -> giảm trừ học phí
+  const giamTru = hs.gplx_hang ? soTien(cfg.giam_tru_gplx) || 0 : 0;
+  const hocPhi = giaGoc === null ? null : Math.max(0, giaGoc - giamTru);
   const phiKham = hs.kham_suc_khoe === KHAM_TRUNG_TAM ? soTien(cfg.phi_kham_suc_khoe) : 0;
   const nhapTay = soTien(hs.tong_thu);
   if (nhapTay !== null) {
@@ -943,6 +1067,21 @@ async function boHoc(id, body = {}, nguoi = null) {
   return getById(a.id, { withAnh: true });
 }
 
+// ─── Hồ sơ đã xoá ─────────────────────────────────────
+async function danhSachDaXoa(query = {}) {
+  await ensureTables();
+  const pool = await connectSQL();
+  const ky = Math.min(366, Math.max(1, parseInt(query.ky, 10) || 30));
+  const r = await pool.request().input("ky", mssql.Int, ky).query(`
+    SELECT TOP 500 id, ho_so_id, ma_ho_so, ho_ten, cccd, dien_thoai, loai_hinh, trang_thai, nguoi_xoa,
+      CONVERT(varchar(19), thoi_gian_khai, 120) AS thoi_gian_khai,
+      CONVERT(varchar(19), xoa_at, 120) AS xoa_at
+    FROM ${XOA_TABLE} WITH (NOLOCK)
+    WHERE xoa_at >= DATEADD(day, 1 - @ky, CAST(GETDATE() AS DATE))
+    ORDER BY xoa_at DESC`);
+  return r.recordset;
+}
+
 // ─── Đầu mối tuyển sinh chuẩn ─────────────────────────────────────
 /** NV tiếp sinh nhập/chỉnh đầu mối -> ghi nhớ để gợi ý (đếm số lần dùng) */
 async function ghiNhoDauMoi(pool, ten) {
@@ -979,6 +1118,8 @@ const CFG_KEYS = [
   "google_form_url", "spreadsheet_id", "gid", "dia_diem_hoc_mac_dinh", "apps_script_url", "apps_script_key",
   // bảng giá (VNĐ) theo loại hình học + phí khám sức khoẻ theo lịch trung tâm
   "gia_a1", "gia_a_con_tay", "gia_a_tay_ga", "phi_kham_suc_khoe",
+  // giảm trừ học phí khi HV đã có GPLX ô tô
+  "giam_tru_gplx",
 ];
 
 async function getCauHinh() {
@@ -1256,6 +1397,7 @@ module.exports = {
   chuyenPhiKham,
   boHoc,
   danhSachDauMoi,
+  danhSachDaXoa,
   xoaDauMoi,
   getCauHinh,
   saveCauHinh,

@@ -15,6 +15,7 @@ const uploadAnhCccd = multer({
 router.get("/thong-ke", c.thongKe);
 router.get("/cau-hinh", c.getCauHinh);
 router.get("/dau-moi", c.dauMoi);
+router.get("/da-xoa", c.daXoa);
 router.post("/dau-moi/xoa", c.xoaDauMoi);
 router.put("/cau-hinh", c.saveCauHinh);
 router.post("/dong-bo-google-sheet", c.dongBo);
