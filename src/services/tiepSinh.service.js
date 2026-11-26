@@ -1232,7 +1232,7 @@ async function importRows(rows, { tuNgay = null, nguoi = null } = {}) {
   const pool = await connectSQL();
   const cfg = await getCauHinh();
   const from = tuNgay ? toIsoDate(tuNgay) : null;
-  const result = { tong_dong: rows.length, them_moi: 0, bo_sung: 0, bo_qua_cu: 0, bo_qua_trung: 0, loi: [] };
+  const result = { tong_dong: rows.length, them_moi: 0, bo_sung: 0, bo_qua_cu: 0, bo_qua_trung: 0, bo_qua_da_xoa: 0, loi: [] };
 
   for (const row of rows) {
     // Chỉ lấy hồ sơ khai từ ngày được chọn trở đi (sheet chứa cả dữ liệu cũ)
@@ -1260,6 +1260,23 @@ async function importRows(rows, { tuNgay = null, nguoi = null } = {}) {
         if (before.thieu_truong.length !== after.thieu_truong.length) result.bo_sung++;
         else result.bo_qua_trung++;
         continue;
+      }
+      // Hồ sơ đã bị NV xoá -> không nhập lại từ sheet (sheet vẫn còn dòng đó)
+      if (thoi_gian_khai && (data.cccd || data.ho_ten)) {
+        const daXoa = await pool
+          .request()
+          .input("tgk", mssql.VarChar(19), thoi_gian_khai)
+          .input("cccd", mssql.VarChar(20), data.cccd || null)
+          .input("ten", mssql.NVarChar(255), data.ho_ten || null)
+          .query(`
+            SELECT TOP 1 id FROM ${XOA_TABLE}
+            WHERE thoi_gian_khai = CONVERT(datetime, @tgk, 120)
+              AND ((@cccd IS NOT NULL AND cccd = @cccd) OR (@cccd IS NULL AND ho_ten = @ten))
+          `);
+        if (daXoa.recordset[0]) {
+          result.bo_qua_da_xoa++;
+          continue;
+        }
       }
       if (!data.cccd && nguon_ref) {
         const dup = await pool
