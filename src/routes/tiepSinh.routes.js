@@ -39,6 +39,21 @@ router.post("/xep-lop/lop/:id/them", c.xlThem);
 router.post("/xep-lop/lop/:id/quet", c.xlQuet);
 router.post("/xep-lop/lop/:id/bo", c.xlBo);
 router.post("/xep-lop/lop/:id/vao-khoa", c.xlVaoKhoa);
+// Đào tạo — khai giảng khoá học
+router.get("/khai-giang/lop", c.kgLop);
+router.post("/khai-giang/lop", c.kgTaoLop);
+router.put("/khai-giang/lop/:id", c.kgSuaLop);
+router.post("/khai-giang/lop/:id/khai-giang", c.kgKhaiGiang);
+// Đào tạo — tiến độ đào tạo của lớp (ghép giáo viên – xe, xác thực, báo cáo)
+router.get("/tien-do/goi-y", c.tdGoiY);
+router.get("/tien-do/lop/:id", c.tdChiTiet);
+router.put("/tien-do/lop/:id", c.tdThongTin);
+router.post("/tien-do/lop/:id/nhom", c.tdTaoNhom);
+router.put("/tien-do/lop/:id/nhom/:nhomId", c.tdSuaNhom);
+router.delete("/tien-do/lop/:id/nhom/:nhomId", c.tdXoaNhom);
+router.post("/tien-do/lop/:id/gan-nhom", c.tdGanNhom);
+router.post("/tien-do/lop/:id/tu-dong-ghep", c.tdTuDong);
+router.post("/tien-do/lop/:id/xac-thuc", c.tdXacThuc);
 router.post("/dau-moi/xoa", c.xoaDauMoi);
 router.put("/cau-hinh", c.saveCauHinh);
 router.post("/dong-bo-google-sheet", c.dongBo);

@@ -45,9 +45,22 @@ function ensureTables() {
       END
       IF COL_LENGTH('${TABLE}', 'lop_id') IS NULL ALTER TABLE ${TABLE} ADD lop_id INT NULL;
       IF COL_LENGTH('${TABLE}', 'xep_lop_at') IS NULL ALTER TABLE ${TABLE} ADD xep_lop_at DATETIME NULL;
+      -- Nhóm giáo viên – xe trong lớp (màn tiến độ đào tạo)
+      IF COL_LENGTH('${TABLE}', 'nhom_id') IS NULL ALTER TABLE ${TABLE} ADD nhom_id INT NULL;
       -- Thời gian khám sức khoẻ (có giờ) — nhập lúc quét QR xếp lớp
       IF COL_LENGTH('${TABLE}', 'thoi_gian_kham') IS NULL ALTER TABLE ${TABLE} ADD thoi_gian_kham DATETIME NULL;
       IF COL_LENGTH('${DAU_MOI_TABLE}', 'dien_thoai') IS NULL ALTER TABLE ${DAU_MOI_TABLE} ADD dien_thoai VARCHAR(20) NULL;
+      -- Khai giảng: thông tin lớp + công việc chuẩn bị
+      IF COL_LENGTH('${LOP_TABLE}', 'nguoi_phu_trach') IS NULL ALTER TABLE ${LOP_TABLE} ADD nguoi_phu_trach NVARCHAR(255) NULL;
+      IF COL_LENGTH('${LOP_TABLE}', 'phong_hoc') IS NULL ALTER TABLE ${LOP_TABLE} ADD phong_hoc NVARCHAR(255) NULL;
+      IF COL_LENGTH('${LOP_TABLE}', 'xe_thuc_hanh') IS NULL ALTER TABLE ${LOP_TABLE} ADD xe_thuc_hanh NVARCHAR(255) NULL;
+      IF COL_LENGTH('${LOP_TABLE}', 'giao_vien') IS NULL ALTER TABLE ${LOP_TABLE} ADD giao_vien NVARCHAR(255) NULL;
+      IF COL_LENGTH('${LOP_TABLE}', 'si_so_toi_thieu') IS NULL ALTER TABLE ${LOP_TABLE} ADD si_so_toi_thieu INT NULL;
+      IF COL_LENGTH('${LOP_TABLE}', 'cv_xe') IS NULL ALTER TABLE ${LOP_TABLE} ADD cv_xe BIT NOT NULL DEFAULT 0;
+      IF COL_LENGTH('${LOP_TABLE}', 'cv_giao_vien') IS NULL ALTER TABLE ${LOP_TABLE} ADD cv_giao_vien BIT NOT NULL DEFAULT 0;
+      IF COL_LENGTH('${LOP_TABLE}', 'cv_tai_lieu') IS NULL ALTER TABLE ${LOP_TABLE} ADD cv_tai_lieu BIT NOT NULL DEFAULT 0;
+      IF COL_LENGTH('${LOP_TABLE}', 'khai_giang_at') IS NULL ALTER TABLE ${LOP_TABLE} ADD khai_giang_at DATETIME NULL;
+      IF COL_LENGTH('${LOP_TABLE}', 'nguoi_khai_giang') IS NULL ALTER TABLE ${LOP_TABLE} ADD nguoi_khai_giang NVARCHAR(255) NULL;
     `);
     await pool.request().query(`
       IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_${TABLE}_lop_id')
@@ -76,6 +89,8 @@ const HV_COLUMNS = `h.id, h.ma_ho_so, h.ho_ten, CONVERT(varchar(10), h.ngay_sinh
 const LOP_COLUMNS = `l.id, l.hang, l.khoa, CONVERT(varchar(10), l.ngay_khai_giang, 23) AS ngay_khai_giang, l.co_so, l.suc_chua,
   l.ghi_chu, l.trang_thai, l.nguoi_tao, CONVERT(varchar(19), l.created_at, 120) AS created_at,
   CONVERT(varchar(19), l.vao_khoa_at, 120) AS vao_khoa_at, l.nguoi_vao_khoa,
+  l.nguoi_phu_trach, l.phong_hoc, l.xe_thuc_hanh, l.giao_vien, l.si_so_toi_thieu, l.cv_xe, l.cv_giao_vien, l.cv_tai_lieu,
+  CONVERT(varchar(19), l.khai_giang_at, 120) AS khai_giang_at, l.nguoi_khai_giang,
   (SELECT COUNT(*) FROM ${TABLE} x WITH (NOLOCK) WHERE x.lop_id = l.id) AS si_so`;
 
 const chuoi = (v, max = 255) => {
@@ -170,7 +185,8 @@ async function xoaLop(id) {
   canDuKien(lop);
   await trongGiaoDich(async (tx) => {
     await new mssql.Request(tx).input("id", mssql.Int, lop.id)
-      .query(`UPDATE ${TABLE} SET lop_id = NULL, xep_lop_at = NULL WHERE lop_id = @id;
+      .query(`UPDATE ${TABLE} SET lop_id = NULL, xep_lop_at = NULL, nhom_id = NULL WHERE lop_id = @id;
+              IF OBJECT_ID('lop_nhom_gv_xe') IS NOT NULL DELETE FROM lop_nhom_gv_xe WHERE lop_id = @id;
               DELETE FROM ${LOP_TABLE} WHERE id = @id`);
   });
   return { id: lop.id };
@@ -322,7 +338,7 @@ async function boKhoiLop(id, ids = [], nguoi = null) {
   await trongGiaoDich(async (tx, log) => {
     const u = new mssql.Request(tx).input("lop", mssql.Int, lop.id);
     list.forEach((v, i) => u.input(`i${i}`, mssql.Int, v));
-    await u.query(`UPDATE ${TABLE} SET lop_id = NULL, xep_lop_at = NULL
+    await u.query(`UPDATE ${TABLE} SET lop_id = NULL, xep_lop_at = NULL, nhom_id = NULL
                    WHERE lop_id = @lop AND id IN (${list.map((_, i) => `@i${i}`).join(",")})`);
     for (const hvId of list) await log(hvId, "bo_xep_lop", `Bỏ khỏi lớp dự kiến ${lop.hang} - ${lop.khoa}`, nguoi);
   });
@@ -346,4 +362,146 @@ async function vaoKhoa(id, nguoi = null) {
   return chiTietLop(lop.id);
 }
 
-module.exports = { danhSachLop, taoLop, suaLop, xoaLop, duDieuKien, chiTietLop, themVaoLop, traCuu, quetQr, boKhoiLop, vaoKhoa, LOG_TABLE };
+// ─── Khai giảng ─────────────────────────────
+
+/** Sĩ số tối thiểu để khai giảng: nhập riêng cho lớp, mặc định 90% sức chứa */
+const nguongSiSo = (l) => l.si_so_toi_thieu || Math.ceil((l.suc_chua || 0) * 0.9);
+
+function congViec(l) {
+  return [
+    { key: "hoc_vien", label: "Danh sách học viên", done: l.si_so >= nguongSiSo(l), cho: `Chưa đủ sĩ số (${l.si_so}/${nguongSiSo(l)})` },
+    { key: "phong_hoc", label: "Phòng học", done: !!l.phong_hoc, cho: "Chưa xếp phòng" },
+    { key: "xe", label: "Xe thực hành", done: !!l.cv_xe && !!l.xe_thuc_hanh, cho: "Chưa xác nhận" },
+    { key: "giao_vien", label: "Giáo viên giảng dạy", done: !!l.cv_giao_vien && !!l.giao_vien, cho: "Chưa phân công" },
+    { key: "tai_lieu", label: "Tài liệu lớp học", done: !!l.cv_tai_lieu, cho: "Chưa chuẩn bị" },
+  ];
+}
+
+function rowKhaiGiang(l) {
+  const nguong = nguongSiSo(l);
+  return {
+    ...l,
+    cv_xe: !!l.cv_xe,
+    cv_giao_vien: !!l.cv_giao_vien,
+    cv_tai_lieu: !!l.cv_tai_lieu,
+    nguong_si_so: nguong,
+    ty_le: l.suc_chua ? Math.round((l.si_so / l.suc_chua) * 100) : 0,
+    trang_thai_kg: l.khai_giang_at ? "da_khai_giang" : l.si_so >= nguong ? "san_sang" : "cho_si_so",
+    cong_viec: congViec(l),
+  };
+}
+
+/** Tất cả lớp (dự kiến + đã vào khoá + đã khai giảng) kèm trạng thái khai giảng + số liệu */
+async function danhSachKhaiGiang(query = {}) {
+  await ensureTables();
+  const pool = await connectSQL();
+  const r = await pool.request().query(`SELECT ${LOP_COLUMNS} FROM ${LOP_TABLE} l ORDER BY l.ngay_khai_giang, l.id`);
+  const all = r.recordset.map(rowKhaiGiang);
+  const q = String(query.search || "").trim().toLowerCase();
+  const hang = chuoi(query.hang, 20);
+  const thang = chuoi(query.thang, 7); // YYYY-MM
+  const data = all.filter(
+    (l) =>
+      (!hang || l.hang === hang) &&
+      (!thang || String(l.ngay_khai_giang || "").startsWith(thang)) &&
+      (!q || [`${l.hang} - ${l.khoa}`, l.nguoi_phu_trach, l.co_so, l.phong_hoc].some((v) => String(v || "").toLowerCase().includes(q))),
+  );
+  const chuaKg = all.filter((l) => !l.khai_giang_at);
+  return {
+    data,
+    hang: [...new Set(all.map((l) => l.hang))].sort(),
+    thong_ke: {
+      lop_tam: chuaKg.length,
+      hoc_vien: all.reduce((s, l) => s + l.si_so, 0),
+      san_sang: chuaKg.filter((l) => l.trang_thai_kg === "san_sang").length,
+      cho_si_so: chuaKg.filter((l) => l.trang_thai_kg === "cho_si_so").length,
+      da_khai_giang: all.length - chuaKg.length,
+    },
+  };
+}
+
+function docKhaiGiang(body = {}) {
+  const raw = body.si_so_toi_thieu;
+  const ssMin = raw === null || raw === "" || raw === undefined ? null : parseInt(raw, 10);
+  if (ssMin !== null && (!ssMin || ssMin < 1)) throw httpError(400, "Sĩ số tối thiểu không hợp lệ");
+  return {
+    ssMin,
+    phuTrach: chuoi(body.nguoi_phu_trach),
+    phong: chuoi(body.phong_hoc),
+    xe: chuoi(body.xe_thuc_hanh),
+    gv: chuoi(body.giao_vien),
+    cvXe: body.cv_xe ? 1 : 0,
+    cvGv: body.cv_giao_vien ? 1 : 0,
+    cvTl: body.cv_tai_lieu ? 1 : 0,
+  };
+}
+
+async function luuKhaiGiang(pool, id, body, lop) {
+  const d = docLop(body);
+  const k = docKhaiGiang(body);
+  if (lop) {
+    if (d.sucChua < lop.si_so) throw httpError(400, `Lớp đang có ${lop.si_so} học viên, sức chứa không được nhỏ hơn`);
+    if (d.hang !== lop.hang && lop.si_so > 0) throw httpError(400, "Lớp đã có học viên, không đổi hạng được");
+  }
+  if (k.ssMin !== null && k.ssMin > d.sucChua) throw httpError(400, "Sĩ số tối thiểu không được lớn hơn sức chứa");
+  await pool.request().input("id", mssql.Int, id)
+    .input("hang", mssql.NVarChar(20), d.hang)
+    .input("khoa", mssql.NVarChar(50), d.khoa)
+    .input("ngay", mssql.VarChar(10), d.ngay)
+    .input("co_so", mssql.NVarChar(255), d.coSo)
+    .input("sc", mssql.Int, d.sucChua)
+    .input("gc", mssql.NVarChar(500), d.ghiChu)
+    .input("ssmin", mssql.Int, k.ssMin)
+    .input("pt", mssql.NVarChar(255), k.phuTrach)
+    .input("ph", mssql.NVarChar(255), k.phong)
+    .input("xe", mssql.NVarChar(255), k.xe)
+    .input("gv", mssql.NVarChar(255), k.gv)
+    .input("cvxe", mssql.Bit, k.cvXe)
+    .input("cvgv", mssql.Bit, k.cvGv)
+    .input("cvtl", mssql.Bit, k.cvTl)
+    .query(`UPDATE ${LOP_TABLE} SET hang = @hang, khoa = @khoa, ngay_khai_giang = CONVERT(date, @ngay, 23), co_so = @co_so,
+              suc_chua = @sc, ghi_chu = @gc, si_so_toi_thieu = @ssmin, nguoi_phu_trach = @pt, phong_hoc = @ph,
+              xe_thuc_hanh = @xe, giao_vien = @gv, cv_xe = @cvxe, cv_giao_vien = @cvgv, cv_tai_lieu = @cvtl
+            WHERE id = @id`);
+}
+
+async function taoLopKhaiGiang(body = {}, nguoi = null) {
+  await ensureTables();
+  docKhaiGiang(body);
+  const lop = await taoLop(body, nguoi);
+  const pool = await connectSQL();
+  await luuKhaiGiang(pool, lop.id, body, null);
+  return rowKhaiGiang(await layLop(pool, lop.id));
+}
+
+async function suaKhaiGiang(id, body = {}) {
+  await ensureTables();
+  const pool = await connectSQL();
+  const lop = await layLop(pool, id);
+  if (lop.khai_giang_at) throw httpError(400, `Lớp ${lop.hang} - ${lop.khoa} đã khai giảng, không sửa được nữa`);
+  await luuKhaiGiang(pool, lop.id, body, lop);
+  return rowKhaiGiang(await layLop(pool, lop.id));
+}
+
+/** Khai giảng: đủ công việc chuẩn bị -> chốt lớp (vào khoá nếu chưa) + đánh dấu đã khai giảng */
+async function khaiGiang(id, nguoi = null) {
+  await ensureTables();
+  const pool = await connectSQL();
+  const lop = rowKhaiGiang(await layLop(pool, id));
+  if (lop.khai_giang_at) throw httpError(400, `Lớp ${lop.hang} - ${lop.khoa} đã khai giảng`);
+  const thieu = lop.cong_viec.filter((c) => !c.done);
+  if (thieu.length) throw httpError(400, `Chưa đủ điều kiện khai giảng: ${thieu.map((c) => `${c.label} (${c.cho.toLowerCase()})`).join("; ")}`);
+  await trongGiaoDich(async (tx, log) => {
+    const r = await new mssql.Request(tx).input("id", mssql.Int, lop.id).input("nguoi", mssql.NVarChar(255), nguoi).query(`
+      UPDATE ${LOP_TABLE} SET khai_giang_at = GETDATE(), nguoi_khai_giang = @nguoi,
+        trang_thai = '${TT_LOP.VAO_KHOA}', vao_khoa_at = ISNULL(vao_khoa_at, GETDATE()), nguoi_vao_khoa = ISNULL(nguoi_vao_khoa, @nguoi)
+      WHERE id = @id;
+      UPDATE ${TABLE} SET da_vao_khoa = 1 OUTPUT INSERTED.id WHERE lop_id = @id;`);
+    for (const { id: hvId } of r.recordset) await log(hvId, "khai_giang", `Khai giảng lớp ${lop.hang} - ${lop.khoa}`, nguoi);
+  });
+  return rowKhaiGiang(await layLop(pool, lop.id));
+}
+
+module.exports = {
+  danhSachKhaiGiang, taoLopKhaiGiang, suaKhaiGiang, khaiGiang, danhSachLop, taoLop, suaLop, xoaLop, duDieuKien, chiTietLop, themVaoLop, traCuu, quetQr, boKhoiLop, vaoKhoa, LOG_TABLE,
+  _internal: { ensureTables, LOP_TABLE, TABLE, DA_THU_APPLY, HV_COLUMNS, layLop, rowKhaiGiang, chuoi, httpError, trongGiaoDich } };

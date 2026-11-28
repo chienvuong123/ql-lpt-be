@@ -3,6 +3,7 @@ const mauDon = require("../services/tiepSinhMauDon.service");
 const ocr = require("../services/tiepSinhOcr.service");
 const keToan = require("../services/keToanTiepSinh.service");
 const xepLop = require("../services/xepLop.service");
+const tienDo = require("../services/tienDoLop.service");
 const responseHelper = require("../helpers/response.helper");
 
 // Tên người thao tác do FE gửi lên (giống các màn khác, chưa dùng JWT)
@@ -62,6 +63,21 @@ module.exports = {
   xlQuet: wrap((req) => xepLop.quetQr(req.params.id, req.body?.ma, nguoiThaoTac(req), req.body), "Đã thêm học viên vào lớp"),
   xlBo: wrap((req) => xepLop.boKhoiLop(req.params.id, req.body?.ids, nguoiThaoTac(req)), "Đã bỏ học viên khỏi lớp"),
   xlVaoKhoa: wrap((req) => xepLop.vaoKhoa(req.params.id, nguoiThaoTac(req)), "Đã vào khoá"),
+  // Đào tạo — khai giảng
+  kgLop: wrap((req) => xepLop.danhSachKhaiGiang(req.query), "Lấy danh sách lớp khai giảng thành công"),
+  kgTaoLop: wrap((req) => xepLop.taoLopKhaiGiang(req.body, nguoiThaoTac(req)), "Đã tạo lớp"),
+  kgSuaLop: wrap((req) => xepLop.suaKhaiGiang(req.params.id, req.body), "Đã cập nhật lớp"),
+  kgKhaiGiang: wrap((req) => xepLop.khaiGiang(req.params.id, nguoiThaoTac(req)), "Đã khai giảng lớp"),
+  // Đào tạo — tiến độ đào tạo của lớp
+  tdChiTiet: wrap((req) => tienDo.chiTiet(req.params.id), "Lấy tiến độ lớp thành công"),
+  tdGoiY: wrap((req) => tienDo.goiY(req.query.hang), "Lấy giáo viên / xe thành công"),
+  tdThongTin: wrap((req) => tienDo.luuThongTin(req.params.id, req.body), "Đã lưu"),
+  tdTaoNhom: wrap((req) => tienDo.luuNhom(req.params.id, null, req.body), "Đã thêm nhóm"),
+  tdSuaNhom: wrap((req) => tienDo.luuNhom(req.params.id, req.params.nhomId, req.body), "Đã cập nhật nhóm"),
+  tdXoaNhom: wrap((req) => tienDo.xoaNhom(req.params.id, req.params.nhomId), "Đã xoá nhóm"),
+  tdGanNhom: wrap((req) => tienDo.ganNhom(req.params.id, req.body), "Đã cập nhật nhóm"),
+  tdTuDong: wrap((req) => tienDo.tuDongGhep(req.params.id), "Đã ghép đề xuất"),
+  tdXacThuc: wrap((req) => tienDo.xacThuc(req.params.id, nguoiThaoTac(req), !!req.body?.huy), "Đã cập nhật xác thực"),
   ocrCccd: wrap((req) => ocr.docAnhCccd(req.files || []), "Đã đọc ảnh CCCD"),
   thongKe: wrap((req) => service.thongKe(req.query), "Lấy thống kê thành công"),
   detail: wrap((req) => service.getDetail(req.params.id), "Lấy hồ sơ thành công"),
