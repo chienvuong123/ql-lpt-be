@@ -58,22 +58,43 @@ function ensureTables() {
 // Số đã thu của từng hồ sơ
 const DA_THU_APPLY = `OUTER APPLY (SELECT ISNULL(SUM(p.so_tien), 0) AS da_thu, MAX(p.created_at) AS lan_thu_cuoi
   FROM ${PHIEU_TABLE} p WITH (NOLOCK) WHERE p.ho_so_id = h.id) t`;
+// Phạm vi kế toán ("Danh sách"): học viên tiếp sinh đã duyệt / đã in / cần bổ sung (+ mọi hồ sơ đã trình KT)
+const PHAM_VI_SQL = `(h.nop_kt_at IS NOT NULL OR h.trang_thai IN ('da_duyet', 'da_in', 'can_bo_sung'))`;
+// Đã thu: tiếp sinh trình lên + kế toán duyệt thu, hoặc kế toán tự thu (đã có phiếu thu)
+const DA_THU_SQL = "(t.da_thu > 0 OR h.kt_duyet_at IS NOT NULL)";
 const TRANG_THAI_SQL = {
-  cho_thu: "t.da_thu = 0",
-  cong_no: "t.da_thu > 0 AND t.da_thu < ISNULL(h.nop_kt_so_tien, 0)",
-  da_thu: "t.da_thu > 0 AND t.da_thu >= ISNULL(h.nop_kt_so_tien, 0)",
+  danh_sach: "1 = 1",
+  da_thu: DA_THU_SQL,
+  cong_no: `NOT ${DA_THU_SQL}`, // còn lại: chưa thu đồng nào
 };
+// Trạng thái từng hồ sơ: đã thu / thu thiếu (đã thu nhưng chưa đủ) / chờ thu (đã trình KT) / chưa trình KT
 const trangThaiThu = (r) =>
-  !r.da_thu ? "cho_thu" : r.da_thu < (r.phai_thu || 0) ? "cong_no" : "da_thu";
+  r.da_thu > 0 || r.kt_duyet_at
+    ? r.phai_thu !== null && r.da_thu < (r.phai_thu || 0) ? "thu_thieu" : "da_thu"
+    : r.nop_kt_at ? "cho_thu" : "chua_trinh";
 
 const ROW_COLUMNS = `h.id, h.ma_ho_so, h.ho_ten, h.cccd, h.hang, h.loai_hinh, h.dien_thoai, h.dia_chi, h.gioi_tinh,
   CONVERT(varchar(10), h.ngay_sinh, 23) AS ngay_sinh, h.kham_suc_khoe, h.dau_moi, h.gplx_hang,
-  h.nop_kt_so_tien AS phai_thu, t.da_thu,
+  h.nop_kt_so_tien AS phai_thu, t.da_thu, h.trang_thai, CONVERT(varchar(19), h.kt_duyet_at, 120) AS kt_duyet_at,
   CONVERT(varchar(19), h.duyet_at, 120) AS duyet_at,
   CONVERT(varchar(19), h.nop_kt_at, 120) AS nop_kt_at,
   CONVERT(varchar(19), t.lan_thu_cuoi, 120) AS lan_thu_cuoi`;
 
 const withTrangThai = (r) => ({ ...r, trang_thai_thu: trangThaiThu(r), con_lai: r.phai_thu === null ? null : Math.max(0, r.phai_thu - r.da_thu) });
+
+/** Hồ sơ chưa trình KT: chưa chốt số phải thu -> tính tạm theo dữ liệu tiếp sinh hiện tại */
+async function boSungPhaiThu(pool, rows) {
+  const ids = rows.filter((x) => !x.nop_kt_at).map((x) => Number(x.id));
+  if (!ids.length) return rows;
+  const req = pool.request();
+  ids.forEach((v, i) => req.input(`i${i}`, mssql.Int, v));
+  const [r, cfg] = await Promise.all([
+    req.query(`SELECT ${NOP_KT_COLUMNS} FROM ${TABLE} WITH (NOLOCK) WHERE id IN (${ids.map((_, i) => `@i${i}`).join(",")})`),
+    getCauHinh(),
+  ]);
+  const tien = new Map(r.recordset.map((hs) => [hs.id, rowNopKt(hs, cfg).so_tien]));
+  return rows.map((x) => (x.nop_kt_at ? x : { ...x, phai_thu: tien.get(x.id) ?? null }));
+}
 
 /**
  * Hồ sơ đã gửi nhưng kế toán CHƯA duyệt: tiếp sinh vẫn sửa được (đổi loại hình, GPLX, chuyển tiền...)
@@ -99,7 +120,7 @@ async function danhSach(query = {}) {
   const pool = await connectSQL();
   const page = Math.max(1, parseInt(query.page, 10) || 1);
   const limit = Math.min(500, Math.max(1, parseInt(query.limit, 10) || 10));
-  const base = ["h.nop_kt_at IS NOT NULL"];
+  const base = [PHAM_VI_SQL];
   const req = pool.request();
   if (query.search && String(query.search).trim()) {
     req.input("q", mssql.NVarChar(255), `%${String(query.search).trim()}%`);
@@ -110,8 +131,7 @@ async function danhSach(query = {}) {
   req.input("offset", mssql.Int, (page - 1) * limit).input("limit", mssql.Int, limit);
   const r = await req.query(`
     SELECT
-      COUNT(*) AS tat_ca,
-      SUM(CASE WHEN ${TRANG_THAI_SQL.cho_thu} THEN 1 ELSE 0 END) AS cho_thu,
+      COUNT(*) AS danh_sach,
       SUM(CASE WHEN ${TRANG_THAI_SQL.cong_no} THEN 1 ELSE 0 END) AS cong_no,
       SUM(CASE WHEN ${TRANG_THAI_SQL.da_thu} THEN 1 ELSE 0 END) AS da_thu
     FROM ${TABLE} h WITH (NOLOCK) ${DA_THU_APPLY} WHERE ${base.join(" AND ")};
@@ -120,14 +140,14 @@ async function danhSach(query = {}) {
 
     SELECT ${ROW_COLUMNS} FROM ${TABLE} h WITH (NOLOCK) ${DA_THU_APPLY}
     WHERE ${where.join(" AND ")}
-    ORDER BY h.duyet_at, h.id
+    ORDER BY COALESCE(h.nop_kt_at, h.created_at) DESC, h.id DESC
     OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY;
   `);
   const dem = r.recordsets[0][0] || {};
   const total = r.recordsets[1][0]?.total || 0;
   return {
-    data: r.recordsets[2].map(withTrangThai),
-    dem: { tat_ca: dem.tat_ca || 0, cho_thu: dem.cho_thu || 0, cong_no: dem.cong_no || 0, da_thu: dem.da_thu || 0 },
+    data: (await boSungPhaiThu(pool, r.recordsets[2])).map(withTrangThai),
+    dem: { danh_sach: dem.danh_sach || 0, cong_no: dem.cong_no || 0, da_thu: dem.da_thu || 0 },
     pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
   };
 }
@@ -144,20 +164,22 @@ async function thongKe() {
     DECLARE @pm0 DATE = DATEADD(month, -1, @m0);
     DECLARE @pmCut DATETIME = DATEADD(month, -1, GETDATE());
 
-    -- 0: thẻ hồ sơ
+    -- 0: thẻ hồ sơ (phạm vi: mọi hồ sơ tiếp sinh đã nhập)
     SELECT
-      COUNT(*) AS da_duyet,
+      SUM(CASE WHEN h.nop_kt_at IS NOT NULL THEN 1 ELSE 0 END) AS da_duyet,
       SUM(CASE WHEN h.nop_kt_at >= @d THEN 1 ELSE 0 END) AS da_duyet_hom_nay,
-      SUM(CASE WHEN t.da_thu = 0 THEN 1 ELSE 0 END) AS cho_thu,
-      SUM(CASE WHEN t.da_thu = 0 AND h.nop_kt_at >= @d THEN 1 ELSE 0 END) AS cho_thu_hom_nay,
-      SUM(CASE WHEN t.da_thu > 0 AND t.da_thu < ISNULL(h.nop_kt_so_tien, 0) THEN 1 ELSE 0 END) AS cong_no,
-      -- tổng quan thu phí (footer)
-      ISNULL(SUM(CAST(h.nop_kt_so_tien AS BIGINT)), 0) AS tq_phai_thu,
+      -- chờ thu phí = công nợ (chưa thu đồng nào)
+      SUM(CASE WHEN ${TRANG_THAI_SQL.cong_no} THEN 1 ELSE 0 END) AS cho_thu,
+      SUM(CASE WHEN ${TRANG_THAI_SQL.cong_no} AND COALESCE(h.nop_kt_at, h.duyet_at, h.created_at) >= @d THEN 1 ELSE 0 END) AS cho_thu_hom_nay,
+      SUM(CASE WHEN ${TRANG_THAI_SQL.cong_no} THEN 1 ELSE 0 END) AS cong_no,
+      SUM(CASE WHEN ${TRANG_THAI_SQL.cong_no} AND COALESCE(h.duyet_at, h.created_at) >= @d THEN 1 ELSE 0 END) AS cong_no_hom_nay,
+      -- tổng quan thu phí (footer): hồ sơ đã trình KT (đã chốt số phải thu)
+      ISNULL(SUM(CASE WHEN h.nop_kt_at IS NOT NULL THEN CAST(h.nop_kt_so_tien AS BIGINT) END), 0) AS tq_phai_thu,
       SUM(CASE WHEN ${TRANG_THAI_SQL.da_thu} THEN 1 ELSE 0 END) AS tq_hv_da_thu,
       ISNULL(SUM(CAST(t.da_thu AS BIGINT)), 0) AS tq_da_thu,
-      SUM(CASE WHEN ${TRANG_THAI_SQL.da_thu} THEN 0 ELSE 1 END) AS tq_hv_con_lai,
-      ISNULL(SUM(CASE WHEN ISNULL(h.nop_kt_so_tien, 0) > t.da_thu THEN CAST(h.nop_kt_so_tien - t.da_thu AS BIGINT) ELSE 0 END), 0) AS tq_con_lai
-    FROM ${TABLE} h WITH (NOLOCK) ${DA_THU_APPLY} WHERE h.nop_kt_at IS NOT NULL;
+      SUM(CASE WHEN h.nop_kt_at IS NOT NULL AND NOT (${DA_THU_SQL}) THEN 1 ELSE 0 END) AS tq_hv_con_lai,
+      ISNULL(SUM(CASE WHEN h.nop_kt_at IS NOT NULL AND ISNULL(h.nop_kt_so_tien, 0) > t.da_thu THEN CAST(h.nop_kt_so_tien - t.da_thu AS BIGINT) ELSE 0 END), 0) AS tq_con_lai
+    FROM ${TABLE} h WITH (NOLOCK) ${DA_THU_APPLY} WHERE ${PHAM_VI_SQL};
 
     -- 1: tiền thu
     SELECT
@@ -246,8 +268,9 @@ async function chiTiet(id) {
       ORDER BY l.id DESC`),
   ]);
   const a = anh.recordset[0] || {};
+  const [hsDu] = await boSungPhaiThu(pool, [hs]);
   return {
-    ...hs,
+    ...withTrangThai(hsDu),
     anh_chan_dung: a.anh_chan_dung || null,
     trang_thai: a.trang_thai,
     bo_hoc_at: a.bo_hoc_at,
@@ -275,8 +298,19 @@ async function thuPhi(id, body = {}, nguoi) {
 
   await dongBoPhaiThu();
   const phieu = await trongGiaoDich(async (tx, log) => {
-    const hs = await layHoSoKt(id, new mssql.Request(tx));
-    if (!hs.nop_kt_at) throw httpError(400, "Hồ sơ chưa được tổ tiếp sinh gửi lên kế toán");
+    let hs = await layHoSoKt(id, new mssql.Request(tx));
+    if (!hs.nop_kt_at) {
+      if (!["da_duyet", "da_in", "can_bo_sung"].includes(hs.trang_thai)) throw httpError(400, "Hồ sơ chưa được tổ tiếp sinh duyệt — chưa thu phí được");
+      const [ns, cfg] = await Promise.all([
+        new mssql.Request(tx).input("id", mssql.Int, hs.id).query(`SELECT ${NOP_KT_COLUMNS} FROM ${TABLE} WHERE id = @id`),
+        getCauHinh(),
+      ]);
+      const phaiThu = ns.recordset[0] ? rowNopKt(ns.recordset[0], cfg).so_tien : null;
+      await new mssql.Request(tx).input("id", mssql.Int, hs.id).input("st", mssql.Int, phaiThu)
+        .query(`UPDATE ${TABLE} SET nop_kt_at = GETDATE(), nop_kt_so_tien = @st WHERE id = @id AND nop_kt_at IS NULL`);
+      await log(hs.id, "nop_ke_toan", `Kế toán tự thu (tiếp sinh chưa trình) — chốt phải thu ${phaiThu === null ? "theo lần thu đầu" : `${phaiThu.toLocaleString("vi-VN")} đ`}`, nguoi, { soTien: phaiThu });
+      hs = await layHoSoKt(id, new mssql.Request(tx));
+    }
     // Kế toán thu tiền = đã duyệt -> khoá dữ liệu hồ sơ bên tiếp sinh
     await new mssql.Request(tx).input("id", mssql.Int, hs.id).input("ng", mssql.NVarChar(255), nguoi || null)
       .query(`UPDATE ${TABLE} SET kt_duyet_at = ISNULL(kt_duyet_at, GETDATE()), kt_nguoi_duyet = ISNULL(kt_nguoi_duyet, @ng) WHERE id = @id`);
