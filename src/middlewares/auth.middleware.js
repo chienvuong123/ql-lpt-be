@@ -8,7 +8,7 @@ function verifyToken(req, res, next) {
   if (!token) {
     return res.status(401).json({
       success: false,
-      message: "Access token is missing",
+      message: "Chưa đăng nhập hoặc thiếu mã đăng nhập",
     });
   }
 
@@ -19,7 +19,7 @@ function verifyToken(req, res, next) {
   } catch (err) {
     return res.status(403).json({
       success: false,
-      message: "Invalid or expired token",
+      message: "Phiên đăng nhập không hợp lệ hoặc đã hết hạn, vui lòng đăng nhập lại",
     });
   }
 }
@@ -29,7 +29,7 @@ function checkRole(roles) {
     if (!req.user) {
       return res.status(401).json({
         success: false,
-        message: "Unauthorized",
+        message: "Bạn chưa đăng nhập",
       });
     }
 

@@ -16,6 +16,17 @@ router.get("/thong-ke", c.thongKe);
 router.get("/cau-hinh", c.getCauHinh);
 router.get("/dau-moi", c.dauMoi);
 router.get("/da-xoa", c.daXoa);
+router.get("/nop-ke-toan", c.nopKeToanList);
+router.post("/nop-ke-toan", c.nopKeToan);
+// Phòng kế toán
+router.get("/ke-toan/thong-ke", c.ktThongKe);
+router.get("/ke-toan/ho-so", c.ktList);
+router.get("/ke-toan/so-phieu", c.ktSoPhieu);
+router.get("/ke-toan/ho-so/:id", c.ktChiTiet);
+router.post("/ke-toan/ho-so/:id/thu-phi", c.ktThuPhi);
+router.get("/ke-toan/dot", c.ktDot);
+router.get("/ke-toan/dot/:id", c.ktChiTietDot);
+router.post("/ke-toan/dot/:id/duyet", c.ktDuyetDot);
 router.post("/dau-moi/xoa", c.xoaDauMoi);
 router.put("/cau-hinh", c.saveCauHinh);
 router.post("/dong-bo-google-sheet", c.dongBo);

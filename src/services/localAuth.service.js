@@ -64,7 +64,7 @@ async function loginHanhTrinh() {
     response.data?.token || response.data?.Token || response.data?.access_token;
 
   if (!token) {
-    throw new Error("Dang nhap HanhTrinh that bai, khong co token");
+    throw new Error("Đăng nhập Hành Trình thất bại, không nhận được mã đăng nhập");
   }
 
   hanhTrinhTokenCache = {

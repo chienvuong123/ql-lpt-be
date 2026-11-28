@@ -24,6 +24,8 @@ const CFG_TABLE = "tiep_sinh_cau_hinh";
 const DAU_MOI_TABLE = "tiep_sinh_dau_moi";
 // Nhật ký hồ sơ đã xoá (thống kê "Đã xoá" + tra cứu lại)
 const XOA_TABLE = "ho_so_tiep_sinh_da_xoa";
+// Các đợt gửi dữ liệu lên kế toán
+const NOP_KT_TABLE = "tiep_sinh_nop_ke_toan";
 // HV không ghi đầu mối -> mặc định trung tâm
 const DAU_MOI_MAC_DINH = "TT";
 
@@ -199,6 +201,29 @@ function ensureTables() {
         INSERT INTO ${DAU_MOI_TABLE}(ten, so_lan) VALUES (N'${DAU_MOI_MAC_DINH}', 0);
       END
       UPDATE ${TABLE} SET dau_moi = N'${DAU_MOI_MAC_DINH}' WHERE dau_moi IS NULL OR LTRIM(RTRIM(dau_moi)) = '';
+
+      -- Nộp kế toán: mỗi lần gửi = 1 đợt; hồ sơ đã gửi ghi lại đợt + thời điểm
+      IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '${NOP_KT_TABLE}')
+      BEGIN
+        CREATE TABLE ${NOP_KT_TABLE} (
+          id INT IDENTITY(1,1) PRIMARY KEY,
+          nguoi NVARCHAR(255) NULL,
+          ghi_chu NVARCHAR(1000) NULL,
+          so_hv INT NOT NULL DEFAULT 0,
+          tong_tien BIGINT NOT NULL DEFAULT 0,
+          tu_ngay DATE NULL,
+          den_ngay DATE NULL,
+          created_at DATETIME NOT NULL DEFAULT GETDATE()
+        );
+      END
+      IF COL_LENGTH('${TABLE}', 'nop_kt_at') IS NULL ALTER TABLE ${TABLE} ADD nop_kt_at DATETIME NULL;
+      IF COL_LENGTH('${TABLE}', 'nop_kt_dot') IS NULL ALTER TABLE ${TABLE} ADD nop_kt_dot INT NULL;
+      IF COL_LENGTH('${TABLE}', 'nop_kt_so_tien') IS NULL ALTER TABLE ${TABLE} ADD nop_kt_so_tien INT NULL;
+      -- Kế toán duyệt thu -> khoá dữ liệu hồ sơ (tiếp sinh không sửa được nữa)
+      IF COL_LENGTH('${TABLE}', 'kt_duyet_at') IS NULL ALTER TABLE ${TABLE} ADD kt_duyet_at DATETIME NULL;
+      IF COL_LENGTH('${TABLE}', 'kt_nguoi_duyet') IS NULL ALTER TABLE ${TABLE} ADD kt_nguoi_duyet NVARCHAR(255) NULL;
+      -- Mã đợt gửi: TS-yyMMdd-NN
+      IF COL_LENGTH('${NOP_KT_TABLE}', 'ma_dot') IS NULL ALTER TABLE ${NOP_KT_TABLE} ADD ma_dot VARCHAR(30) NULL;
     `);
   })().catch((err) => {
     _initPromise = null;
@@ -385,7 +410,9 @@ const SELECT_COLUMNS = `
   CONVERT(varchar(19), in_at, 120) AS in_at,
   so_lan_in,
   CONVERT(varchar(19), created_at, 120) AS created_at,
-  CONVERT(varchar(19), updated_at, 120) AS updated_at`;
+  CONVERT(varchar(19), updated_at, 120) AS updated_at,
+  CONVERT(varchar(19), nop_kt_at, 120) AS nop_kt_at,
+  CONVERT(varchar(19), kt_duyet_at, 120) AS kt_duyet_at, kt_nguoi_duyet`;
 
 async function addLog(pool, hoSoId, hanhDong, noiDung, nguoi) {
   await pool
@@ -396,6 +423,13 @@ async function addLog(pool, hoSoId, hanhDong, noiDung, nguoi) {
     .input("ng", mssql.NVarChar(255), nguoi || null)
     .query(`INSERT INTO ${LOG_TABLE}(ho_so_id, hanh_dong, noi_dung, nguoi) VALUES (@id, @hd, @nd, @ng)`)
     .catch((err) => console.error("[tiepSinh] log:", err.message));
+}
+
+/** Kế toán đã duyệt thu -> dữ liệu hồ sơ bị khoá */
+function chanKhoaKeToan(hs) {
+  if (hs?.kt_duyet_at) {
+    throw httpError(423, `Hồ sơ ${hs.ma_ho_so} đã được kế toán duyệt thu — dữ liệu đã khoá, không thể chỉnh sửa`);
+  }
 }
 
 // ─── Đọc dữ liệu ─────────────────────────────────────
@@ -681,6 +715,7 @@ async function update(id, body = {}, nguoi = null) {
   await ensureTables();
   const pool = await connectSQL();
   const current = await getById(id);
+  chanKhoaKeToan(current);
   if (!current) throw httpError(404, "Không tìm thấy hồ sơ");
 
   const data = cleanPayload(body);
@@ -719,6 +754,7 @@ async function capNhatAnh(id, anh, nguoi = null) {
   if (anh && anh.length > 3 * 1024 * 1024) throw httpError(400, "Ảnh quá lớn (tối đa ~2MB)");
   const pool = await connectSQL();
   const current = await getById(id);
+  chanKhoaKeToan(current);
   if (!current) throw httpError(404, "Không tìm thấy hồ sơ");
   await pool
     .request()
@@ -734,6 +770,7 @@ async function duyet(id, nguoi = null, { xac_nhan: xacNhan = false } = {}) {
   await ensureTables();
   const pool = await connectSQL();
   const current = await getById(id);
+  chanKhoaKeToan(current);
   if (!current) throw httpError(404, "Không tìm thấy hồ sơ");
   if (current.trang_thai === TRANG_THAI.DA_IN) throw httpError(400, "Hồ sơ đã in, không cần duyệt lại");
   if (current.trang_thai === TRANG_THAI.BO_HOC) throw httpError(400, "Học viên đã bỏ học");
@@ -761,6 +798,7 @@ async function traBoSung(id, lyDo, nguoi = null) {
   if (!lyDo || !String(lyDo).trim()) throw httpError(400, "Vui lòng nhập nội dung cần bổ sung");
   const pool = await connectSQL();
   const current = await getById(id);
+  chanKhoaKeToan(current);
   if (!current) throw httpError(404, "Không tìm thấy hồ sơ");
   await pool
     .request()
@@ -779,6 +817,7 @@ async function moLai(id, nguoi = null) {
   await ensureTables();
   const pool = await connectSQL();
   const current = await getById(id);
+  chanKhoaKeToan(current);
   if (!current) throw httpError(404, "Không tìm thấy hồ sơ");
   if (current.trang_thai !== TRANG_THAI.CAN_BO_SUNG) return current;
   await pool
@@ -812,6 +851,7 @@ async function remove(id, nguoi = null) {
   await ensureTables();
   const pool = await connectSQL();
   const current = await getById(id);
+  chanKhoaKeToan(current);
   if (!current) throw httpError(404, "Không tìm thấy hồ sơ");
   if (current.trang_thai === TRANG_THAI.DA_IN) throw httpError(400, "Không xoá được hồ sơ đã in");
   if (current.tien_duoc_chuyen > 0) throw httpError(400, "Hồ sơ đang nhận tiền chuyển từ HV khác, không xoá được");
@@ -888,6 +928,7 @@ async function timKhoaDaVao(pool, cccd) {
 async function layHoSo(id, ten = "hồ sơ") {
   const hs = await getById(id);
   if (!hs) throw httpError(404, `Không tìm thấy ${ten}`);
+  chanKhoaKeToan(hs);
   return hs;
 }
 
@@ -1065,6 +1106,138 @@ async function boHoc(id, body = {}, nguoi = null) {
     await log(a.id, "bo_hoc", `Bỏ học: ${lyDo}. ${xuLy}`, nguoi);
   });
   return getById(a.id, { withAnh: true });
+}
+
+// ─── Nộp kế toán ─────────────────────────────────────
+// Hồ sơ đủ điều kiện = đã duyệt (đã thu tiền), chưa gửi kế toán. Ngày đóng tiền = thời điểm duyệt.
+const NOP_KT_COLUMNS = `id, ma_ho_so, ho_ten, hang, loai_hinh, kham_suc_khoe, tong_thu, tien_duoc_chuyen, gplx_hang,
+  can_bo_sung_sau, ly_do_bo_sung, trang_thai, nguoi_duyet, cccd, dien_thoai, dau_moi,
+  CONVERT(varchar(10), ngay_sinh, 23) AS ngay_sinh,
+  CONVERT(varchar(19), duyet_at, 120) AS duyet_at`;
+
+function rowNopKt(hs, cfg) {
+  const daDuyet = DA_DUYET_XONG.includes(hs.trang_thai);
+  const t = tinhPhaiThu(hs, cfg);
+  const giaGoc = soTien(cfg[GIA_KEY[hs.loai_hinh]]);
+  const soTienThu = t.tong === null ? null : t.tong - (Number(hs.tien_duoc_chuyen) || 0);
+  return {
+    id: hs.id,
+    ma_ho_so: hs.ma_ho_so,
+    ho_ten: hs.ho_ten,
+    ngay_sinh: hs.ngay_sinh,
+    cccd: hs.cccd,
+    dien_thoai: hs.dien_thoai,
+    dau_moi: hs.dau_moi,
+    hang: hs.hang,
+    loai_hinh: hs.loai_hinh,
+    ngay_dong_tien: hs.duyet_at,
+    nguoi_duyet: hs.nguoi_duyet,
+    so_tien: soTienThu,
+    // chi tiết để kế toán đối chiếu
+    gia_goc: giaGoc,
+    giam_tru: giaGoc !== null && t.hocPhi !== null && soTien(hs.tong_thu) === null ? giaGoc - t.hocPhi : 0,
+    phi_kham: t.phiKham,
+    duoc_chuyen: Number(hs.tien_duoc_chuyen) || 0,
+    nhap_tay: soTien(hs.tong_thu),
+    da_duyet: daDuyet,
+    // hợp lệ: đã duyệt, hồ sơ đầy đủ (không duyệt có điều kiện) và đã có số tiền
+    hop_le: daDuyet && !hs.can_bo_sung_sau && soTienThu !== null,
+    ly_do: !daDuyet
+      ? "Hồ sơ chưa được duyệt — chỉ gửi khi đã tích chọn tay"
+      : hs.can_bo_sung_sau ? `Cần bổ sung${hs.ly_do_bo_sung ? `: ${hs.ly_do_bo_sung}` : ""}` : soTienThu === null ? "Chưa có giá" : null,
+  };
+}
+
+// Có thể gửi kế toán: chưa gửi, chưa bỏ học
+const NOP_KT_TRANG_THAI = [TRANG_THAI.CHO_DUYET, TRANG_THAI.CAN_BO_SUNG, TRANG_THAI.DA_DUYET, TRANG_THAI.DA_IN];
+
+/**
+ * Danh sách chờ gửi kế toán = hồ sơ ĐÃ DUYỆT trong khoảng ngày duyệt (mặc định 7 ngày)
+ * + các hồ sơ NV tích chọn tay (ids) — kể cả chưa duyệt.
+ */
+async function danhSachNopKeToan(query = {}) {
+  await ensureTables();
+  const pool = await connectSQL();
+  const req = pool.request();
+  const tu = toIsoDate(query.tu_ngay) || todayStr(-6);
+  const den = toIsoDate(query.den_ngay) || todayStr();
+  req.input("tu", mssql.VarChar(10), tu).input("den", mssql.VarChar(10), den);
+  const daDuyetTrongKy = `(trang_thai IN ('${TRANG_THAI.DA_DUYET}', '${TRANG_THAI.DA_IN}')
+    AND duyet_at >= CONVERT(date, @tu, 23) AND duyet_at < DATEADD(day, 1, CONVERT(date, @den, 23)))`;
+  const ids = String(query.ids || "").split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  const chonTay = ids.length
+    ? ` OR (id IN (${ids.join(",")}) AND trang_thai IN (${NOP_KT_TRANG_THAI.map((t) => `'${t}'`).join(",")}))`
+    : "";
+  const where = ["nop_kt_at IS NULL", `(${daDuyetTrongKy}${chonTay})`];
+  const [r, cfg] = await Promise.all([
+    req.query(`SELECT ${NOP_KT_COLUMNS} FROM ${TABLE} WITH (NOLOCK) WHERE ${where.join(" AND ")} ORDER BY CASE WHEN duyet_at IS NULL THEN 1 ELSE 0 END, duyet_at, id`),
+    getCauHinh(),
+  ]);
+  const data = r.recordset.map((hs) => rowNopKt(hs, cfg));
+  return {
+    data,
+    tong_hv: data.length,
+    tong_tien: data.reduce((s, x) => s + (x.so_tien || 0), 0),
+    so_hop_le: data.filter((x) => x.hop_le).length,
+    tu_ngay: tu,
+    den_ngay: den,
+  };
+}
+
+/** Gửi các hồ sơ đã chọn lên kế toán -> tạo 1 đợt, trả về đợt + danh sách để in biên bản */
+async function nopKeToan(body = {}, nguoi) {
+  await ensureTables();
+  const ids = [...new Set((Array.isArray(body.ids) ? body.ids : []).map(Number).filter(Number.isInteger))];
+  if (!ids.length) throw httpError(400, "Chưa chọn học viên nào để gửi");
+  const ghiChu = String(body.ghi_chu || "").trim().slice(0, 1000) || null;
+  const pool = await connectSQL();
+  const cfg = await getCauHinh();
+
+  const r = await pool.request().query(`SELECT ${NOP_KT_COLUMNS}, nop_kt_at FROM ${TABLE} WHERE id IN (${ids.join(",")})`);
+  const byId = new Map(r.recordset.map((x) => [x.id, x]));
+  const loi = [];
+  for (const id of ids) {
+    const hs = byId.get(id);
+    if (!hs) loi.push(`#${id}: không tồn tại`);
+    else if (hs.nop_kt_at) loi.push(`${tenHs(hs)}: đã gửi kế toán trước đó`);
+    else if (!NOP_KT_TRANG_THAI.includes(hs.trang_thai)) loi.push(`${tenHs(hs)}: đã bỏ học`);
+  }
+  if (loi.length) throw httpError(400, `Không gửi được: ${loi.slice(0, 5).join("; ")}${loi.length > 5 ? "…" : ""}`);
+
+  const rows = ids.map((id) => rowNopKt(byId.get(id), cfg));
+  const tongTien = rows.reduce((s, x) => s + (x.so_tien || 0), 0);
+
+  const dot = await trongGiaoDich(async (tx, log) => {
+    const ins = await new mssql.Request(tx)
+      .input("ng", mssql.NVarChar(255), nguoi || null)
+      .input("gc", mssql.NVarChar(1000), ghiChu)
+      .input("so", mssql.Int, rows.length)
+      .input("tien", mssql.BigInt, tongTien)
+      .input("tu", mssql.VarChar(10), toIsoDate(body.tu_ngay))
+      .input("den", mssql.VarChar(10), toIsoDate(body.den_ngay))
+      .query(`INSERT INTO ${NOP_KT_TABLE}(nguoi, ghi_chu, so_hv, tong_tien, tu_ngay, den_ngay)
+              OUTPUT INSERTED.id, CONVERT(varchar(19), INSERTED.created_at, 120) AS created_at
+              VALUES (@ng, @gc, @so, @tien, CONVERT(date, @tu, 23), CONVERT(date, @den, 23))`);
+    const d = ins.recordset[0];
+    const ma = await new mssql.Request(tx).input("id", mssql.Int, d.id).query(`
+      UPDATE ${NOP_KT_TABLE} SET ma_dot = CONCAT('TS-', FORMAT(created_at, 'yyMMdd'), '-', RIGHT('00' + CAST(
+        (SELECT COUNT(*) FROM ${NOP_KT_TABLE} x WHERE CAST(x.created_at AS DATE) = CAST(${NOP_KT_TABLE}.created_at AS DATE) AND x.id <= @id) AS VARCHAR(10)), 2))
+      OUTPUT INSERTED.ma_dot WHERE id = @id`);
+    d.ma_dot = ma.recordset[0]?.ma_dot;
+    for (const x of rows) {
+      const up = await new mssql.Request(tx)
+        .input("id", mssql.Int, x.id)
+        .input("dot", mssql.Int, d.id)
+        .input("tien", mssql.Int, x.so_tien)
+        .query(`UPDATE ${TABLE} SET nop_kt_at = GETDATE(), nop_kt_dot = @dot, nop_kt_so_tien = @tien, updated_at = GETDATE()
+                WHERE id = @id AND nop_kt_at IS NULL`);
+      if (!up.rowsAffected[0]) throw httpError(409, `${tenHs(x)} vừa được gửi kế toán bởi người khác`);
+      await log(x.id, "nop_ke_toan", `Gửi dữ liệu lên kế toán (đợt #${d.id})${ghiChu ? ` — ${ghiChu}` : ""}`, nguoi, { soTien: x.so_tien });
+    }
+    return d;
+  });
+
+  return { dot: { id: dot.id, ma_dot: dot.ma_dot, created_at: dot.created_at, nguoi, ghi_chu: ghiChu, so_hv: rows.length, tong_tien: tongTien }, data: rows };
 }
 
 // ─── Hồ sơ đã xoá ─────────────────────────────────────
@@ -1415,6 +1588,8 @@ module.exports = {
   boHoc,
   danhSachDauMoi,
   danhSachDaXoa,
+  danhSachNopKeToan,
+  nopKeToan,
   xoaDauMoi,
   getCauHinh,
   saveCauHinh,
@@ -1422,4 +1597,6 @@ module.exports = {
   dongBoTuDong,
   importExcel,
   _test: { parseSheetRows, toIsoDate, toSqlDateTime },
+  // dùng chung cho màn kế toán (thu phí hồ sơ tiếp sinh)
+  _internal: { ensureTables, TABLE, LOG_TABLE, NOP_KT_TABLE, NOP_KT_COLUMNS, httpError, trongGiaoDich, tinhPhaiThu, rowNopKt, getCauHinh, getById, toIsoDate },
 };

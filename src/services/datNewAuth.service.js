@@ -68,7 +68,7 @@ async function loginDatNew() {
     response.data?.token || response.data?.Token || response.data?.access_token;
 
   if (!token) {
-    throw new Error("Dang nhap tai khoan moi that bai, khong co token");
+    throw new Error("Đăng nhập tài khoản mới thất bại, không nhận được mã đăng nhập");
   }
 
   datNewTokenCache = {

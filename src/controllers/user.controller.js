@@ -21,7 +21,7 @@ async function getUserById(req, res) {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found",
+        message: "Không tìm thấy tài khoản",
       });
     }
     res.json({
@@ -42,7 +42,7 @@ async function createUser(req, res) {
     if (!username || !password || !ho_ten || !role_id) {
       return res.status(400).json({
         success: false,
-        message: "All fields except email are required",
+        message: "Vui lòng nhập đầy đủ tên đăng nhập, mật khẩu, họ tên và quyền (email không bắt buộc)",
       });
     }
 
@@ -76,7 +76,7 @@ async function createUser(req, res) {
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: "Username already exists",
+        message: "Tên đăng nhập đã tồn tại, vui lòng chọn tên khác",
       });
     }
 
@@ -85,7 +85,7 @@ async function createUser(req, res) {
 
     res.status(201).json({
       success: true,
-      message: "User created successfully",
+      message: "Tạo tài khoản thành công",
       data: newUser,
     });
   } catch (err) {
@@ -132,7 +132,7 @@ async function updateUser(req, res) {
     const updatedUser = await User.getById(req.params.id);
     res.json({
       success: true,
-      message: "User updated successfully",
+      message: "Cập nhật tài khoản thành công",
       data: updatedUser,
     });
   } catch (err) {
@@ -148,7 +148,7 @@ async function deleteUser(req, res) {
     await User.remove(req.params.id);
     res.json({
       success: true,
-      message: "User deleted successfully",
+      message: "Xoá tài khoản thành công",
     });
   } catch (err) {
     res.status(500).json({

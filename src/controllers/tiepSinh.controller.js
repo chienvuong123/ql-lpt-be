@@ -1,6 +1,7 @@
 const service = require("../services/tiepSinh.service");
 const mauDon = require("../services/tiepSinhMauDon.service");
 const ocr = require("../services/tiepSinhOcr.service");
+const keToan = require("../services/keToanTiepSinh.service");
 const responseHelper = require("../helpers/response.helper");
 
 // Tên người thao tác do FE gửi lên (giống các màn khác, chưa dùng JWT)
@@ -32,6 +33,22 @@ module.exports = {
       next(err);
     }
   },
+  // Phòng kế toán: thu phí hồ sơ đã nộp KT
+  ktList: async (req, res, next) => {
+    try {
+      const { data, dem, pagination } = await keToan.danhSach(req.query);
+      return res.json({ success: true, message: "Lấy danh sách thu phí thành công", data, dem, pagination });
+    } catch (err) {
+      next(err);
+    }
+  },
+  ktThongKe: wrap(() => keToan.thongKe(), "Lấy thống kê kế toán thành công"),
+  ktSoPhieu: wrap(() => keToan.xemSoPhieu(), "Lấy số phiếu thu thành công"),
+  ktChiTiet: wrap((req) => keToan.chiTiet(req.params.id), "Lấy thông tin học viên thành công"),
+  ktDot: wrap(() => keToan.danhSachDot(), "Lấy danh sách đợt gửi thành công"),
+  ktChiTietDot: wrap((req) => keToan.chiTietDot(req.params.id), "Lấy đợt gửi thành công"),
+  ktDuyetDot: wrap((req) => keToan.duyetDot(req.params.id, req.body, nguoiThaoTac(req)), "Đã duyệt thu"),
+  ktThuPhi: wrap((req) => keToan.thuPhi(req.params.id, req.body, nguoiThaoTac(req)), "Đã xác nhận thu phí"),
   ocrCccd: wrap((req) => ocr.docAnhCccd(req.files || []), "Đã đọc ảnh CCCD"),
   thongKe: wrap((req) => service.thongKe(req.query), "Lấy thống kê thành công"),
   detail: wrap((req) => service.getDetail(req.params.id), "Lấy hồ sơ thành công"),
@@ -46,6 +63,8 @@ module.exports = {
   chuyenHang: wrap((req) => service.chuyenHang(req.params.id, req.body, nguoiThaoTac(req)), "Đã chuyển hạng"),
   chuyenPhiKham: wrap((req) => service.chuyenPhiKham(req.params.id, req.body, nguoiThaoTac(req)), "Đã xử lý phí khám sức khoẻ"),
   boHoc: wrap((req) => service.boHoc(req.params.id, req.body, nguoiThaoTac(req)), "Đã chuyển học viên sang bỏ học"),
+  nopKeToanList: wrap((req) => service.danhSachNopKeToan(req.query), "Lấy danh sách nộp kế toán thành công"),
+  nopKeToan: wrap((req) => service.nopKeToan(req.body, nguoiThaoTac(req)), "Đã gửi dữ liệu lên kế toán"),
   daXoa: wrap((req) => service.danhSachDaXoa(req.query), "Lấy danh sách hồ sơ đã xoá thành công"),
   dauMoi: wrap(() => service.danhSachDauMoi(), "Lấy danh sách đầu mối thành công"),
   xoaDauMoi: wrap((req) => service.xoaDauMoi(req.body?.ten), "Đã xoá đầu mối"),

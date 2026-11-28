@@ -10,7 +10,7 @@ async function login(req, res) {
     if (!username || !password) {
       return res.status(400).json({
         success: false,
-        message: "Username and password are required",
+        message: "Vui lòng nhập tên đăng nhập và mật khẩu",
       });
     }
 
@@ -19,14 +19,14 @@ async function login(req, res) {
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: "Invalid username or password",
+        message: "Sai tên đăng nhập hoặc mật khẩu",
       });
     }
 
     if (!user.is_active) {
       return res.status(403).json({
         success: false,
-        message: "Account is deactivated",
+        message: "Tài khoản đã bị khoá",
       });
     }
 
@@ -35,7 +35,7 @@ async function login(req, res) {
     if (!isMatch) {
       return res.status(401).json({
         success: false,
-        message: "Invalid username or password",
+        message: "Sai tên đăng nhập hoặc mật khẩu",
       });
     }
 
@@ -52,7 +52,7 @@ async function login(req, res) {
 
     res.json({
       success: true,
-      message: "Login successful",
+      message: "Đăng nhập thành công",
       data: {
         token,
         user: {
@@ -80,7 +80,7 @@ async function getProfile(req, res) {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "User not found",
+        message: "Không tìm thấy tài khoản",
       });
     }
     res.json({
