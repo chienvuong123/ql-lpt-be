@@ -2,6 +2,7 @@ const service = require("../services/tiepSinh.service");
 const mauDon = require("../services/tiepSinhMauDon.service");
 const ocr = require("../services/tiepSinhOcr.service");
 const keToan = require("../services/keToanTiepSinh.service");
+const xepLop = require("../services/xepLop.service");
 const responseHelper = require("../helpers/response.helper");
 
 // Tên người thao tác do FE gửi lên (giống các màn khác, chưa dùng JWT)
@@ -49,6 +50,18 @@ module.exports = {
   ktChiTietDot: wrap((req) => keToan.chiTietDot(req.params.id), "Lấy đợt gửi thành công"),
   ktDuyetDot: wrap((req) => keToan.duyetDot(req.params.id, req.body, nguoiThaoTac(req)), "Đã duyệt thu"),
   ktThuPhi: wrap((req) => keToan.thuPhi(req.params.id, req.body, nguoiThaoTac(req)), "Đã xác nhận thu phí"),
+  // Đào tạo — xếp lớp
+  xlLop: wrap((req) => xepLop.danhSachLop(req.query), "Lấy danh sách lớp thành công"),
+  xlTaoLop: wrap((req) => xepLop.taoLop(req.body, nguoiThaoTac(req)), "Đã tạo lớp"),
+  xlSuaLop: wrap((req) => xepLop.suaLop(req.params.id, req.body), "Đã cập nhật lớp"),
+  xlXoaLop: wrap((req) => xepLop.xoaLop(req.params.id), "Đã xoá lớp"),
+  xlChiTietLop: wrap((req) => xepLop.chiTietLop(req.params.id), "Lấy lớp thành công"),
+  xlDuDieuKien: wrap((req) => xepLop.duDieuKien(req.query), "Lấy danh sách đủ điều kiện thành công"),
+  xlThem: wrap((req) => xepLop.themVaoLop(req.params.id, req.body?.ids, nguoiThaoTac(req)), "Đã đưa học viên vào lớp"),
+  xlTraCuu: wrap((req) => xepLop.traCuu(req.query.ma), "Đã tìm thấy hồ sơ"),
+  xlQuet: wrap((req) => xepLop.quetQr(req.params.id, req.body?.ma, nguoiThaoTac(req), req.body), "Đã thêm học viên vào lớp"),
+  xlBo: wrap((req) => xepLop.boKhoiLop(req.params.id, req.body?.ids, nguoiThaoTac(req)), "Đã bỏ học viên khỏi lớp"),
+  xlVaoKhoa: wrap((req) => xepLop.vaoKhoa(req.params.id, nguoiThaoTac(req)), "Đã vào khoá"),
   ocrCccd: wrap((req) => ocr.docAnhCccd(req.files || []), "Đã đọc ảnh CCCD"),
   thongKe: wrap((req) => service.thongKe(req.query), "Lấy thống kê thành công"),
   detail: wrap((req) => service.getDetail(req.params.id), "Lấy hồ sơ thành công"),

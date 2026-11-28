@@ -27,6 +27,18 @@ router.post("/ke-toan/ho-so/:id/thu-phi", c.ktThuPhi);
 router.get("/ke-toan/dot", c.ktDot);
 router.get("/ke-toan/dot/:id", c.ktChiTietDot);
 router.post("/ke-toan/dot/:id/duyet", c.ktDuyetDot);
+// Đào tạo — xếp lớp học viên (chỉ HV kế toán đã thu đủ tiền)
+router.get("/xep-lop/du-dieu-kien", c.xlDuDieuKien);
+router.get("/xep-lop/tra-cuu", c.xlTraCuu);
+router.get("/xep-lop/lop", c.xlLop);
+router.post("/xep-lop/lop", c.xlTaoLop);
+router.get("/xep-lop/lop/:id", c.xlChiTietLop);
+router.put("/xep-lop/lop/:id", c.xlSuaLop);
+router.delete("/xep-lop/lop/:id", c.xlXoaLop);
+router.post("/xep-lop/lop/:id/them", c.xlThem);
+router.post("/xep-lop/lop/:id/quet", c.xlQuet);
+router.post("/xep-lop/lop/:id/bo", c.xlBo);
+router.post("/xep-lop/lop/:id/vao-khoa", c.xlVaoKhoa);
 router.post("/dau-moi/xoa", c.xoaDauMoi);
 router.put("/cau-hinh", c.saveCauHinh);
 router.post("/dong-bo-google-sheet", c.dongBo);
