@@ -313,7 +313,7 @@ async function danhSachDot() {
   await dongBoPhaiThu();
   const pool = await connectSQL();
   const r = await pool.request().query(`
-    SELECT d.id, ISNULL(d.ma_dot, CONCAT('TS-', d.id)) AS ma_dot, d.nguoi, d.ghi_chu,
+    SELECT d.id, ISNULL(d.ma_dot, CONCAT('TS', FORMAT(d.created_at, 'yyMMddHHmmss'))) AS ma_dot, d.nguoi, d.ghi_chu,
       CONVERT(varchar(19), d.created_at, 120) AS created_at,
       COUNT(h.id) AS so_hv,
       SUM(CASE WHEN h.kt_duyet_at IS NULL THEN 1 ELSE 0 END) AS cho_duyet,
@@ -346,7 +346,7 @@ function rowDot(hs, cfg, phieu) {
 
 async function layDot(pool, id) {
   const d = await pool.request().input("id", mssql.Int, Number(id)).query(`
-    SELECT id, ISNULL(ma_dot, CONCAT('TS-', id)) AS ma_dot, nguoi, ghi_chu,
+    SELECT id, ISNULL(ma_dot, CONCAT('TS', FORMAT(created_at, 'yyMMddHHmmss'))) AS ma_dot, nguoi, ghi_chu,
       CONVERT(varchar(10), tu_ngay, 23) AS tu_ngay, CONVERT(varchar(10), den_ngay, 23) AS den_ngay,
       CONVERT(varchar(19), created_at, 120) AS created_at
     FROM ${NOP_KT_TABLE} WHERE id = @id`);

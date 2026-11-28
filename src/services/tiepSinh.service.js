@@ -222,8 +222,16 @@ function ensureTables() {
       -- Kế toán duyệt thu -> khoá dữ liệu hồ sơ (tiếp sinh không sửa được nữa)
       IF COL_LENGTH('${TABLE}', 'kt_duyet_at') IS NULL ALTER TABLE ${TABLE} ADD kt_duyet_at DATETIME NULL;
       IF COL_LENGTH('${TABLE}', 'kt_nguoi_duyet') IS NULL ALTER TABLE ${TABLE} ADD kt_nguoi_duyet NVARCHAR(255) NULL;
-      -- Mã đợt gửi: TS-yyMMdd-NN
+      -- Mã đợt gửi: TS + yyMMddHHmmss (thời điểm gửi)
       IF COL_LENGTH('${NOP_KT_TABLE}', 'ma_dot') IS NULL ALTER TABLE ${NOP_KT_TABLE} ADD ma_dot VARCHAR(30) NULL;
+    `);
+    // Đổi mã đợt kiểu cũ "TS-yyMMdd-NN" sang "TSyyMMddHHmmss"
+    await pool.request().query(`
+      UPDATE n SET ma_dot = CONCAT('TS', FORMAT(n.created_at, 'yyMMddHHmmss'),
+          CASE WHEN x.rn > 1 THEN CONCAT('-', x.rn) ELSE '' END)
+      FROM ${NOP_KT_TABLE} n
+      JOIN (SELECT id, ROW_NUMBER() OVER (PARTITION BY FORMAT(created_at, 'yyMMddHHmmss') ORDER BY id) AS rn FROM ${NOP_KT_TABLE}) x ON x.id = n.id
+      WHERE n.ma_dot IS NULL OR n.ma_dot LIKE 'TS-%';
     `);
   })().catch((err) => {
     _initPromise = null;
@@ -1220,8 +1228,10 @@ async function nopKeToan(body = {}, nguoi) {
               VALUES (@ng, @gc, @so, @tien, CONVERT(date, @tu, 23), CONVERT(date, @den, 23))`);
     const d = ins.recordset[0];
     const ma = await new mssql.Request(tx).input("id", mssql.Int, d.id).query(`
-      UPDATE ${NOP_KT_TABLE} SET ma_dot = CONCAT('TS-', FORMAT(created_at, 'yyMMdd'), '-', RIGHT('00' + CAST(
-        (SELECT COUNT(*) FROM ${NOP_KT_TABLE} x WHERE CAST(x.created_at AS DATE) = CAST(${NOP_KT_TABLE}.created_at AS DATE) AND x.id <= @id) AS VARCHAR(10)), 2))
+      -- Mã đợt: TS + yyMMddHHmmss lúc gửi (trùng giây thì thêm -2, -3...)
+      DECLARE @ma VARCHAR(30) = (SELECT CONCAT('TS', FORMAT(created_at, 'yyMMddHHmmss')) FROM ${NOP_KT_TABLE} WHERE id = @id);
+      DECLARE @trung INT = (SELECT COUNT(*) FROM ${NOP_KT_TABLE} WHERE id <> @id AND (ma_dot = @ma OR ma_dot LIKE @ma + '-%'));
+      UPDATE ${NOP_KT_TABLE} SET ma_dot = CASE WHEN @trung > 0 THEN CONCAT(@ma, '-', @trung + 1) ELSE @ma END
       OUTPUT INSERTED.ma_dot WHERE id = @id`);
     d.ma_dot = ma.recordset[0]?.ma_dot;
     for (const x of rows) {
